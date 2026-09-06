@@ -73,6 +73,10 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
   <h1>Purchase review</h1>
   <div class="sub" id="sub">signing in…</div>
   <div class="totals" id="totals"></div>
+  <div class="filters">
+    <input type="search" id="q" placeholder="Find an item, brand, SKU or UPC…" style="min-width:220px">
+    <span id="subtot" class="mut small"></span>
+  </div>
   <div class="filters" id="filters"></div>
 </header>
 <main id="main"><div class="center">Loading…</div></main>
@@ -176,7 +180,8 @@ function flat(v,max){
    what they changed and why. It never re-derives a quantity of its own — an
    operator changes the ORDER, never the programming (hard boundary 7). */
 const LIST="PurchaseReview", DIR="PurchaseReview";
-let ORDER=null, LINES=[], EDIT={}, LISTID=null, FILTER="all", Q="", RISK=false;
+let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
+    FILTER="all", Q="", RISK=false, UNK=false, ONLYCH=false;
 
 const money=n=>n==null?"—":"$"+Number(n).toLocaleString(undefined,
   {minimumFractionDigits:2,maximumFractionDigits:2});
@@ -221,18 +226,58 @@ async function loadSaved(sunday){
    figure. ⭐ The publisher now resolves it server-side into `unit_cost`; this
    falls back to the same chain so the page cannot drift from it. */
 const unitCost=r=>Number(r.unit_cost ?? (r.promo_cost||r.supplier_price||r.reg_whlsl||0));
-function qtyOf(r){ const e=EDIT[r.sku];
-  return e&&e.qty!=null ? e.qty : (r.order_qty||0); }
-function stateOf(r){ const e=EDIT[r.sku];
+/* ⛔⛔ THE SCREEN MUST READ **EDIT → SAVED → ENGINE**, in that order.
+   Reading only EDIT meant that pressing Save (which clears EDIT) snapped every
+   line back to the engine's number and Finalize then exported the ENGINE's order
+   — so following the page's own "save first, then finalize" instruction produced
+   the wrong order. Found by a test agent, 2026-09-05. This is real money. */
+function qtyOf(r){
+  const e=EDIT[r.sku];
+  if(e){ if(e.decision==="remove") return 0; if(e.qty!=null) return e.qty; }
+  const s=SAVED[r.sku];
+  if(s){ if(s.decision==="remove") return 0;
+         if(s.approved_qty!=null&&s.approved_qty!=="") return Number(s.approved_qty); }
+  return r.order_qty||0;
+}
+function stateOf(r){
+  const e=EDIT[r.sku];
   if(e&&e.decision) return e.decision;
-  return "keep"; }
+  if(e) return "keep";                       // an explicit edit un-removes
+  const s=SAVED[r.sku];
+  if(s&&s.decision==="remove") return "remove";
+  return "keep";
+}
+/* ⭐ has a human touched this line at all — saved or pending? */
+function touched(r){
+  const e=EDIT[r.sku], s=SAVED[r.sku];
+  if(e) return true;
+  return !!(s && (s.decision==="remove" || (s.approved_qty!=null &&
+            Number(s.approved_qty)!==(r.order_qty||0))));
+}
+/* ⭐⭐ BUG 5 — COVER AND DATING RISK MUST FOLLOW THE QUANTITY ON SCREEN. Frozen at
+   the engine's figure, the buyer could not tell whether they had fixed the very
+   thing the red banner was shouting about. */
+function coverOf(r){
+  const rate=r.q75_wk||r.mean_wk||0;
+  if(!rate) return null;
+  return Math.round(qtyOf(r)/rate*10)/10;
+}
+function riskOf(r){
+  const sd=r.shelf_days, c=coverOf(r);
+  if(!sd||c==null) return "unknown";          // ⛔ BUG 11 — unknown is NOT "ok"
+  if(qtyOf(r)<=0) return "ok";
+  return c*7>sd ? "⛔ over its life" : c*7>sd*0.7 ? "⚠️ tight" : "ok";
+}
 function totals(){
-  const live=LINES.filter(r=>stateOf(r)!=="remove");
+  // ⛔ BUG 8 — a zero quantity IS a removal. Exporting a 0-qty line put a $0.00
+  // unit cost into the CSV, which `kehe_order.py finalize` is documented to refuse.
+  const live=LINES.filter(r=>stateOf(r)!=="remove" && qtyOf(r)>0);
   const units=live.reduce((n,r)=>n+qtyOf(r),0);
   const cost=live.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0);
-  const changed=LINES.filter(r=>{const e=EDIT[r.sku];
-    return e&&((e.qty!=null&&e.qty!==(r.order_qty||0))||e.decision==="remove");}).length;
-  return {lines:live.length, units, cost, changed, removed:LINES.length-live.length};
+  const changed=LINES.filter(touched).length;
+  const pending=Object.keys(EDIT).length;
+  return {lines:live.length, units, cost, changed, pending,
+          removed:LINES.length-live.length};
 }
 
 /* ⭐ THE TIER TARGET. Jack's standing correction: there is NO per-order floor —
@@ -252,7 +297,17 @@ function paintTotals(){
      <span class="mut small">${money0(t.cost)} of the ~${money0(TIER_TARGET)} average
        we are working toward &mdash; context, not a floor</span>`;
   document.getElementById("tally").textContent=
-    `${t.lines} lines · ${t.units.toLocaleString()} units · ${money0(t.cost)}`;
+    `${t.lines} lines · ${t.units.toLocaleString()} units · ${money0(t.cost)}`
+    + (t.pending?` · ${t.pending} unsaved`:"");
+  /* ⭐ "how much am I spending on promo this week" was unanswerable — the footer
+     always showed the whole order however you filtered. */
+  const st=document.getElementById("subtot");
+  if(st){
+    const v=visible().filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0);
+    st.textContent = (FILTER==="all"&&!RISK&&!UNK&&!ONLYCH&&!Q) ? "" :
+      `this view: ${v.length} lines · ${v.reduce((n,r)=>n+qtyOf(r),0).toLocaleString()} units · `
+      + money0(v.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0));
+  }
   const dirty=Object.keys(EDIT).length>0;
   document.getElementById("save").disabled=!dirty;
   document.getElementById("final").disabled=false;
@@ -263,20 +318,39 @@ function sources(){ const c={};
   for(const r of LINES) c[r.source]=(c[r.source]||0)+1; return c; }
 function paintFilters(){
   const c=sources();
-  const risky=LINES.filter(r=>r.dating_risk&&r.dating_risk!=="ok").length;
+  const risky=LINES.filter(r=>{const x=riskOf(r);return x==="⛔ over its life"||x==="⚠️ tight";}).length;
+  const unknown=LINES.filter(r=>riskOf(r)==="unknown").length;
+  /* ⛔⛔ THE SEARCH INPUT IS NOT REBUILT HERE. paintFilters() runs on every
+     render, render() runs on the search debounce — so rebuilding #q destroyed the
+     focused input mid-word and sent the rest of the typing to the page body,
+     where a space toggled a <details> open. The box lives OUTSIDE the repainted
+     region and is wired once. Found by a test agent, 2026-09-05. */
   document.getElementById("filters").innerHTML=
     `<span class="chip" data-f="all" aria-pressed="${FILTER==="all"}">All<span class="n">${LINES.length}</span></span>`
     + Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
       `<span class="chip" data-f="${escAttr(k)}" aria-pressed="${FILTER===k}">${esc(k)}<span class="n">${v}</span></span>`).join("")
     + (risky?`<span class="chip" id="riskchip" aria-pressed="${RISK}" style="border-color:var(--bad);color:var(--bad)">⛔ dating risk<span class="n">${risky}</span></span>`:"")
-    + `<input type="search" id="q" placeholder="Find an item, brand or SKU…" value="${escAttr(Q)}" style="min-width:200px">`;
+    + (unknown?`<span class="chip" id="unkchip" aria-pressed="${UNK}">⚠️ no dating info<span class="n">${unknown}</span></span>`:"")
+    + `<span class="chip" id="chgchip" aria-pressed="${ONLYCH}">only what I changed<span class="n">${LINES.filter(touched).length}</span></span>`;
   document.querySelectorAll("#filters .chip[data-f]").forEach(x=>x.onclick=()=>{
-    FILTER=x.dataset.f; render();});
+    // ⛔ BUG 7 — "All" must clear the OTHER filters too. It used to leave the
+    // risk filter on, so the chip read 118 while 7 lines rendered.
+    FILTER=x.dataset.f;
+    if(FILTER==="all"){ RISK=false; UNK=false; ONLYCH=false; }
+    render();});
   const rc=document.getElementById("riskchip");
   if(rc) rc.onclick=()=>{RISK=!RISK; render();};
-  let t; const q=document.getElementById("q");
-  if(q) q.oninput=e=>{clearTimeout(t); t=setTimeout(()=>{Q=e.target.value.trim(); render();},170);};
+  const uc=document.getElementById("unkchip");
+  if(uc) uc.onclick=()=>{UNK=!UNK; render();};
+  const cc=document.getElementById("chgchip");
+  if(cc) cc.onclick=()=>{ONLYCH=!ONLYCH; render();};
 }
+/* ⭐ wired ONCE, outside every repaint */
+(function wireSearch(){
+  let t; const q=document.getElementById("q");
+  if(!q) return;
+  q.oninput=e=>{clearTimeout(t); t=setTimeout(()=>{Q=e.target.value.trim(); render();},170);};
+})();
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const escAttr=esc;
 
@@ -284,10 +358,13 @@ function visible(){
   const q=Q.toLowerCase();
   return LINES.filter(r=>{
     if(FILTER!=="all" && r.source!==FILTER) return false;
-    if(RISK && (!r.dating_risk||r.dating_risk==="ok")) return false;
+    if(RISK){ const x=riskOf(r); if(x!=="⛔ over its life"&&x!=="⚠️ tight") return false; }
+    if(UNK && riskOf(r)!=="unknown") return false;
+    if(ONLYCH && !touched(r)) return false;
     if(q && !((r.description||"").toLowerCase().includes(q)
            || (r.brand||"").toLowerCase().includes(q)
-           || (r.sku||"").toLowerCase().includes(q))) return false;
+           || (r.sku||"").toLowerCase().includes(q)
+           || String(r.upc||"").includes(q))) return false;     // ⭐ UPC is searchable
     return true;
   });
 }
@@ -295,26 +372,34 @@ function visible(){
 /* ── one line ────────────────────────────────────────────────────────────── */
 function lineHtml(r){
   const st=stateOf(r), q=qtyOf(r), c=unitCost(r);
-  const e=EDIT[r.sku];
-  const changed=e&&((e.qty!=null&&e.qty!==(r.order_qty||0))||st==="remove");
-  const risk=r.dating_risk&&r.dating_risk!=="ok";
+  const changed=touched(r), cw=coverOf(r), rk=riskOf(r);
   const inc=r.unit_of_sale||1;
+  const note=(EDIT[r.sku]||{}).note ?? (SAVED[r.sku]||{}).reviewer_note ?? "";
   return `<div class="line ${changed?"changed":""} ${st==="remove"?"removed":""}" data-sku="${escAttr(r.sku)}">
     <div>
       <div class="nm">${esc(r.description||r.sku)}</div>
       <div class="meta">${esc(r.brand||"")} · ${esc(r.sku)}
-        · ${money(c)}/unit → <b>${money(q*c)}</b>
-        ${r.cover_weeks!=null?` · ${r.cover_weeks}w cover`:""}
-        ${r.shelf_days?` · ${r.shelf_days}d life`:""}</div>
+        · ${money(c)}/unit → <b data-linecost>${money(q*c)}</b>
+        · <span data-cover>${cw!=null?cw+"w cover":"cover unknown"}</span>
+        ${r.shelf_days?` · ${r.shelf_days}d life`:" · life unknown"}</div>
       <div class="tags">
         <span class="tag src">${esc(r.source)}</span>
-        ${risk?`<span class="tag bad">${esc(r.dating_risk)}</span>`:""}
+        <span class="tag ${rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":""}"
+              data-risk ${rk==="ok"?'style="display:none"':""}>${rk==="ok"?"":esc(rk)}</span>
         ${inc>1?`<span class="tag">orders in ${inc}s</span>`:""}
         ${(r.flags||[]).slice(0,3).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}
-        ${changed?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
+        ${changed&&st!=="remove"?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
+        ${st==="remove"?`<span class="tag bad">removed</span>`:""}
+        ${r.prior_edit?`<span class="tag warn">someone already changed this from the
+          engine's ${r.engine_qty}</span>`:""}
       </div>
-      ${r.why?`<details class="why"><summary>why the engine chose ${r.order_qty}</summary>
+      ${r.why?`<details class="why"><summary>why the engine chose ${r.engine_qty??r.order_qty}</summary>
         <div>${esc(r.why)}</div></details>`:""}
+      ${changed?`<input class="note" data-n="${escAttr(r.sku)}" value="${escAttr(note)}"
+         placeholder="why did you change it? (this is the signal that improves the model)"
+         style="margin-top:6px;width:100%;max-width:520px;border:1px solid var(--line);
+                border-radius:7px;padding:5px 9px;background:var(--card);color:var(--ink);
+                font:inherit;font-size:12.5px">`:""}
     </div>
     <div class="acts">
       <input type="number" min="0" step="${inc}" value="${q}" data-q="${escAttr(r.sku)}"
@@ -329,10 +414,23 @@ function render(){
   paintFilters();
   const v=visible(), m=document.getElementById("main");
   let head="";
-  const risky=LINES.filter(r=>r.dating_risk==="⛔ over its life").length;
+  /* ⛔⛔ BUG 10 — THE ENGINE'S OWN ALERTS WERE DROPPED. Two of them are decisions
+     this page exists to capture: "the smallest purchase possible is months of
+     stock — buy it or cut the item", and "1,328 units are on a prior order Finale
+     cannot see — if it was never placed, these under-order". The second changes
+     how you read every quantity on the page. */
+  const al=(ORDER.meta.alerts||[]);
+  if(al.length) head+=`<details class="banner" open><summary style="cursor:pointer">
+    <b>${al.length} alert(s) from the order engine</b> — read these before deciding</summary>
+    <ul style="margin:7px 0 0;padding-left:19px">${
+      al.map(x=>`<li style="margin:4px 0">${esc(flat(x,400))}</li>`).join("")}</ul></details>`;
+  const risky=LINES.filter(r=>riskOf(r)==="⛔ over its life").length;
+  const unk=LINES.filter(r=>riskOf(r)==="unknown").length;
   if(risky) head+=`<div class="banner bad">⛔ <b>${risky} line(s) order more than their
-    shelf life can clear.</b> That is the pattern that dated out milk — check the cover
-    against the days of life before saving.</div>`;
+    shelf life can clear.</b> That is the pattern that dated out milk — cut the quantity
+    and this count drops as you go.</div>`;
+  if(unk) head+=`<div class="banner">⚠️ <b>${unk} line(s) have no dating information at
+    all</b> — no shelf life or no sales rate. ⛔ Unknown is not the same as safe.</div>`;
   const nr=ORDER.meta.not_ordered_by_reason||{};
   head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} lines the engine
     wants to buy, from ${ORDER.meta.lines_considered.toLocaleString()} considered.
@@ -343,19 +441,57 @@ function render(){
 }
 
 /* ── edits ───────────────────────────────────────────────────────────────── */
-document.addEventListener("input",e=>{
-  const i=e.target.closest("input[data-q]"); if(!i) return;
+/* ⛔⛔ BUG 2 — THE SNAP MUST BE VISIBLE. It used to change the stored value while
+   leaving the box showing what was typed: type 18 on an "orders in 12s" line and
+   the screen said 18 while 24 was saved. ⛔ BUG 3 — and when the snapped value
+   equalled the engine's, the edit was DELETED, so the buyer saw their number,
+   no "changed" tag, and a disabled Save: the change silently never happened.
+   ⭐ Now: snap on COMMIT (blur/enter), write the snapped value back into the box,
+   and always keep the edit so the intent is recorded. */
+function applyQty(i, commit){
   const sku=i.dataset.q, r=LINES.find(x=>x.sku===sku); if(!r) return;
   const inc=r.unit_of_sale||1;
-  let v=Number(i.value); if(!Number.isFinite(v)||v<0) v=0;
-  // ⛔ snap to the vendor's increment — an order KeHE cannot ship is not an order
-  v=Math.round(v/inc)*inc;
-  EDIT[sku]={...(EDIT[sku]||{}), qty:v};
-  if(v===(r.order_qty||0) && !(EDIT[sku].decision)) delete EDIT[sku];
-  paintTotals();
+  let v=Number(i.value);
+  if(!Number.isFinite(v)||v<0) v=0;
+  if(commit){
+    v=Math.round(v/inc)*inc;
+    if(String(v)!==i.value) i.value=v;          // ⭐ show what will actually be ordered
+  }
+  EDIT[sku]={...(EDIT[sku]||{}), qty:v, decision:null};
   const el=i.closest(".line");
-  if(el) el.classList.toggle("changed", !!EDIT[sku]);
+  if(el){
+    el.classList.toggle("changed", touched(r));
+    el.classList.toggle("removed", v<=0);
+    const c=el.querySelector("[data-linecost]");
+    if(c) c.textContent=money(v*unitCost(r));   // ⛔ BUG 4 — live extended cost
+    const cv=el.querySelector("[data-cover]");
+    if(cv){ const cw=coverOf(r), rk=riskOf(r);
+      cv.textContent=cw!=null?`${cw}w cover`:"cover unknown";
+      const t=el.querySelector("[data-risk]");
+      if(t){ t.textContent=rk==="ok"?"":rk;
+             t.className="tag "+(rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":"");
+             t.style.display=rk==="ok"?"none":""; } }
+    // ⛔ BUG 9 — say something when a quantity is absurd. Nothing objected to a
+    // two-million-dollar order before this.
+    const big=v*unitCost(r)>2000;
+    i.style.borderColor=big?"var(--bad)":"";
+    i.title=big?`⛔ ${money(v*unitCost(r))} on one line — check this is intended`:"";
+  }
+  paintTotals();
+}
+document.addEventListener("input",e=>{
+  const i=e.target.closest("input[data-q]"); if(i) applyQty(i,false);},true);
+document.addEventListener("change",e=>{
+  const i=e.target.closest("input[data-q]"); if(i) applyQty(i,true);},true);
+document.addEventListener("input",e=>{
+  const n=e.target.closest("input[data-n]"); if(!n) return;
+  const sku=n.dataset.n;
+  EDIT[sku]={...(EDIT[sku]||{}), note:n.value};
+  paintTotals();
 },true);
+document.addEventListener("keydown",e=>{
+  const i=e.target.closest("input[data-q]");
+  if(i&&e.key==="Enter"){ applyQty(i,true); i.blur(); }},true);
 document.addEventListener("click",e=>{
   const b=e.target.closest("button[data-rm]"); if(!b) return;
   const sku=b.dataset.rm;
@@ -364,7 +500,17 @@ document.addEventListener("click",e=>{
   if(!EDIT[sku].decision && EDIT[sku].qty==null) delete EDIT[sku];
   render();
 },true);
-document.getElementById("reset").onclick=()=>{EDIT={}; render();};
+document.getElementById("reset").onclick=()=>{
+  const n=Object.keys(EDIT).length, saved=LINES.filter(r=>SAVED[r.sku]).length;
+  /* ⛔ Reset clears UNSAVED work only. It used to leave the screen and the store
+     disagreeing with no indication that saved changes were still in force. */
+  if(n && !confirm(`Discard ${n} unsaved change(s)?`+
+      (saved?`\n\n⛔ ${saved} change(s) already SAVED stay in force — use the ✕/quantity `+
+             `to alter those, or they will be in the order.`:""))) return;
+  EDIT={}; render();
+  document.getElementById("status").textContent=
+    saved?`unsaved changes discarded · ${saved} saved change(s) still apply`:"";
+};
 
 /* ── save ────────────────────────────────────────────────────────────────── */
 document.getElementById("save").onclick=async()=>{
@@ -385,14 +531,18 @@ document.getElementById("save").onclick=async()=>{
       engine_qty:r.order_qty??null, approved_qty:q,
       decision:e.decision==="remove"?"remove":(q!==(r.order_qty||0)?"changed":"keep"),
       unit_cost:unitCost(r)||null, line_cost:Number((q*unitCost(r)).toFixed(2)),
-      cover_weeks:r.cover_weeks??null, shelf_days:r.shelf_days??null,
-      dating_risk:r.dating_risk||"", why:flat(r.why), flags:flat(r.flags),
+      /* ⛔ the cover and risk RECORDED must describe the quantity actually
+         approved. Storing the engine's cover_weeks against a halved quantity made
+         the audit trail say the opposite of what the reviewer did. */
+      cover_weeks:coverOf(r), shelf_days:r.shelf_days??null,
+      dating_risk:riskOf(r), why:flat(r.why), flags:flat(r.flags),
       reviewer:account, decided_at:new Date().toISOString().slice(0,19),
       reviewer_note:(e.note||"").slice(0,255), build_stamp:stamp.slice(0,255)};
     try{
       const ex=(SAVED[sku]||{})._id;
-      if(ex) await graph(`/sites/${CFG.siteId}/lists/${id}/items/${ex}/fields`,
-                         {method:"PATCH",body:JSON.stringify(f)});
+      if(ex){ await graph(`/sites/${CFG.siteId}/lists/${id}/items/${ex}/fields`,
+                          {method:"PATCH",body:JSON.stringify(f)});
+              SAVED[sku]={...SAVED[sku],...f}; }
       else{ const j=await graph(`/sites/${CFG.siteId}/lists/${id}/items`,
               {method:"POST",body:JSON.stringify({fields:{...f,finalized:"false"}})});
             SAVED[sku]={...f,_id:j.id}; }
@@ -400,8 +550,11 @@ document.getElementById("save").onclick=async()=>{
     }catch(err){ fail++; console.error(sku,err); }
   }
   s.textContent = fail?`⛔ ${ok} saved, ${fail} FAILED — see the console`
-                      :`✓ ${ok} change(s) saved`;
+                      :`✓ ${ok} change(s) saved · ${new Date().toLocaleTimeString()}`;
   btn.disabled=false;
+  /* ⛔⛔ EDIT is cleared ONLY because SAVED now carries the same state and
+     qtyOf()/stateOf() read it. Clearing it while the screen read only EDIT is
+     what made Save revert everything and Finalize export the engine's order. */
   if(!fail) EDIT={};
   render();
 };
@@ -413,15 +566,22 @@ document.getElementById("save").onclick=async()=>{
    person approves, never an auto-submitted order (hard boundary 4). */
 document.getElementById("final").onclick=async()=>{
   const t=totals();
-  const live=LINES.filter(r=>stateOf(r)!=="remove")
+  /* ⛔ It used to print "save first" as prose and then build the artifact from
+     whatever was on screen. Following the instruction was worse than ignoring it. */
+  if(t.pending && !confirm(`⛔ ${t.pending} change(s) are NOT saved.\n\n`+
+      `Finalize describes what is on screen, but purchase_drain.py reads the SAVED `+
+      `decisions — so unsaved work will NOT reach the order.\n\nContinue anyway?`))
+    return;
+  const live=LINES.filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0)
     .map(r=>({sku:r.sku, upc:r.upc, item:r.description, qty:qtyOf(r),
+              unit:unitCost(r),          // ⛔ the real unit cost, not cost/qty
               cost:Number((qtyOf(r)*unitCost(r)).toFixed(2)),
-              engine:r.order_qty, source:r.source}));
+              engine:r.engine_qty??r.order_qty, source:r.source}));
   const changed=live.filter(x=>x.qty!==x.engine);
   const removed=LINES.filter(r=>stateOf(r)==="remove").map(r=>r.sku);
   const csv=["sku,upc,description,approved_qty,engine_qty,unit_cost,line_cost,source"]
     .concat(live.map(x=>[x.sku,x.upc,`"${String(x.item||"").replace(/"/g,'""')}"`,
-      x.qty,x.engine,(x.cost/(x.qty||1)).toFixed(2),x.cost.toFixed(2),
+      x.qty,x.engine,x.unit.toFixed(2),x.cost.toFixed(2),
       `"${x.source}"`].join(","))).join("\n");
   const m=document.getElementById("main");
   m.innerHTML=`<div class="banner"><b>Ready to execute.</b> Nothing has been sent —
@@ -444,7 +604,6 @@ document.getElementById("final").onclick=async()=>{
 };
 
 /* ── boot ────────────────────────────────────────────────────────────────── */
-let SAVED={};
 async function boot(){
   const sub=document.getElementById("sub");
   try{
