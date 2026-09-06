@@ -2244,8 +2244,17 @@ document.getElementById("save").onclick=async()=>{
       /* ⛔ BOTH covers are recorded and NAMED. `dating_risk` is now judged on the
          position, so storing only the order-cover would leave an audit trail whose
          verdict could not be reproduced from its own numbers. */
-      cover_weeks:coverOf(r), position_cover_weeks:positionCoverOf(r),
-      on_hand:r.on_hand??null, inbound:r.inbound??null, shelf_days:r.shelf_days??null,
+      /* ⛔⛔ ONLY COLUMNS THE LIST ACTUALLY HAS. Graph rejects an unknown field
+         with a bare 400 and the whole row is lost — no partial save, no useful
+         message. I added `position_cover_weeks`, `on_hand` and `inbound` here on
+         2026-09-06 when the risk chip moved onto the position; the
+         `PurchaseReview` list has none of them, so EVERY save failed from that
+         moment and the list stayed empty while the page reported a failure the
+         reviewer had no way to interpret.
+         ⭐ The three are recoverable anyway: they are on the published payload,
+         joinable by (order_sunday, sku). Add the columns and they can come back —
+         until then, do not send a field this list does not define. */
+      cover_weeks:coverOf(r), shelf_days:r.shelf_days??null,
       dating_risk:riskOf(r), why:flat(r.why), flags:flat(r.flags),
       /* ⛔ THE Z IS LOAD-BEARING. toISOString() is UTC; slicing to 19 chars dropped
          the marker, so the same instant read as UTC here and as LOCAL in
