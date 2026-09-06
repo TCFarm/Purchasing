@@ -1113,6 +1113,22 @@ function packOf(r){
   return {cases, units:cases*per, per};
 }
 /* ⭐ The one line a buyer reads to know what arrives. ⛔ Never just a number. */
+/* ⭐ WHAT AM I ACTUALLY COMMITTING TO? (Jack, 2026-09-06.) The add panel offered
+   a bare "12" with nothing saying whether that is a case, a minimum or a default,
+   and the order lines carried no UPC at all — the code KeHE and the warehouse
+   both identify an item by.
+   ⭐ THE SMALLEST THING KEHE WILL SHIP, said in words. ⛔ Reads `unit_of_sale`
+   and falls back to 1 — NEVER `casepack`, which is the master case and is a
+   documented past over-order. When our selling unit differs from KeHE's (a bulk
+   repack), it says so, because "12" means something different on those lines. */
+function buyInLabel(r){
+  const inc=Math.max(1, +(r&&r.unit_of_sale)||1);
+  const per=perOrderUnit(r);
+  if(inc<=1 && per<=1) return "1 unit";
+  const base=`${inc} unit${inc===1?"":"s"}`;
+  if(per>1) return `${base} <b>(1 case = ${per})</b>`;
+  return base;
+}
 function unitLabel(r){
   const p=packOf(r);
   if(p.per<=1) return `${p.units} unit${p.units===1?'':'s'}`;
@@ -1498,8 +1514,10 @@ function lineHtml(r){
         style="color:var(--ink3)">○</span> `:`<span title="reviewed"
         style="color:var(--good)">●</span> `}${esc(r.description||r.sku)}</div>
       <div class="meta">${esc(r.brand||"")} · ${esc(r.sku)}
+        ${r.upc?`· <span title="UPC">UPC ${esc(r.upc)}</span>`:""}
         · ${money(c)}/unit → <b data-linecost>${money(q*c)}</b>
-        · ordering <b data-unitlabel>${unitLabel(r)}</b></div>
+        · ordering <b data-unitlabel>${unitLabel(r)}</b>
+        · buys in <b>${buyInLabel(r)}</b></div>
       <div data-pos>${posStrip(r)}</div>
       <div class="tags">
         <span class="tag src">${esc(r.source)}</span>
@@ -1709,8 +1727,11 @@ function candHtml(c){
     <div>
       <div class="nm">${esc(c.description||c.sku)}</div>
       <div class="meta">${esc(c.brand||"")} · ${esc(c.sku)}
+        ${c.upc?`· <span title="UPC — how KeHE and the warehouse identify it"
+          >UPC ${esc(c.upc)}</span>`:""}
         · ${money(unitCost(r))}/unit${c.category?" · "+esc(c.category):""}</div>
       <div class="candfig">
+        ${fig("buy-in", buyInLabel(r))}
         ${fig("on hand", n(r.on_hand))}
         ${fig("inbound", n(r.inbound))}
         ${fig("booked", n(r.pre_window))}
