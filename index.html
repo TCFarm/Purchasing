@@ -323,6 +323,33 @@ function coverOf(r){
      seasonal      — sized on the SEASONAL profile, never the annual mean
      recipe_kit    — kit demand is ADDITIVE and does not appear in the sales rate
    ⭐ These are reported as "different basis", never as risk. */
+/* ⭐⭐ WHAT UNIT ARE WE ORDERING IN? (Jack, 2026-09-06.) A buyer looking at "1"
+   cannot tell one popcorn bag from one 50 lb sack we break down and sell as
+   fifty. Both are real lines on the same order, they price differently, and
+   getting it wrong is a 50x error. The engine knows; it just never said so.
+   ⛔ The OPERATOR may override it — `order_unit_override` — because the engine's
+   pack data can be wrong and the person holding the invoice is the authority.
+   The override is RECORDED, not silently applied. */
+function unitOf(r){
+  const e=EDIT[r.sku], s=SAVED[r.sku];
+  return (e&&e.order_unit) || (s&&s.order_unit_override) || r.order_unit || 'each';
+}
+function perOrderUnit(r){
+  return unitOf(r)==='case' ? (Number(r.units_per_order_unit)||1) : 1;
+}
+/* -> {cases, units} for the CURRENT quantity on screen, honouring an override. */
+function packOf(r){
+  const per=perOrderUnit(r), need=qtyOf(r);
+  if(per<=1) return {cases:null, units:need, per:1};
+  const cases=Math.ceil(need/per)||0;
+  return {cases, units:cases*per, per};
+}
+/* ⭐ The one line a buyer reads to know what arrives. ⛔ Never just a number. */
+function unitLabel(r){
+  const p=packOf(r);
+  if(p.per<=1) return `${p.units} unit${p.units===1?'':'s'}`;
+  return `${p.cases} case${p.cases===1?'':'s'} <b>(${p.units} units)</b>`;
+}
 const NOT_VELOCITY=/promo_probe|min_presence|seasonal|recipe_kit/;
 function riskOf(r){
   if(NOT_VELOCITY.test((r.flags||[]).join(" "))) return "basis";
@@ -484,6 +511,7 @@ function lineHtml(r){
         style="color:var(--good)">●</span> `}${esc(r.description||r.sku)}</div>
       <div class="meta">${esc(r.brand||"")} · ${esc(r.sku)}
         · ${money(c)}/unit → <b data-linecost>${money(q*c)}</b>
+        · ordering <b data-unitlabel>${unitLabel(r)}</b>
         · <span data-cover>${cw!=null?cw+"w cover":"cover unknown"}</span>
         ${r.shelf_days?` · ${r.shelf_days}d life`:" · life unknown"}</div>
       <div class="tags">
@@ -495,6 +523,10 @@ function lineHtml(r){
           other than the shelf sales rate, so cover-vs-life does not apply">sized on a
           different basis</span>`:""}
         ${inc>1?`<span class="tag">orders in ${inc}s</span>`:""}
+        ${perOrderUnit(r)>1?`<span class="tag warn" title="${escAttr(r.order_unit_basis||'')}"
+          >BULK — one case is ${perOrderUnit(r)} sellable units</span>`:""}
+        ${(EDIT[r.sku]||{}).order_unit||(SAVED[r.sku]||{}).order_unit_override
+          ?`<span class="tag warn">ordering unit corrected by hand</span>`:""}
         ${(r.flags||[]).slice(0,3).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}
         ${changed&&st!=="remove"?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
         ${st==="remove"?`<span class="tag bad">removed</span>`:""}
@@ -512,6 +544,11 @@ function lineHtml(r){
     <div class="acts">
       <input type="number" min="0" step="${inc}" value="${q}" data-q="${escAttr(r.sku)}"
              aria-label="quantity" ${st==="remove"?"disabled":""}>
+      <button class="mini unit" data-unit="${escAttr(r.sku)}"
+              title="${unitOf(r)==='case'
+                ? 'We are ordering CASES and breaking them down. Click if that is wrong and this is sold as it comes.'
+                : 'We are ordering EACHES. Click if this is really a case we break down and sell individually.'}"
+              >${unitOf(r)==='case'?'case':'each'}</button>
       <button class="mini ok ${rs!=="new"?"on":""}" data-ok="${escAttr(r.sku)}"
               title="${rs==="new"?"mark this line reviewed — the quantity stays as it is"
                                  :"un-mark it as reviewed"}">✓</button>
@@ -588,6 +625,10 @@ function applyQty(i, commit){
              pip.style.color=nw?"var(--ink3)":"var(--good)"; }
     const c=el.querySelector("[data-linecost]");
     if(c) c.textContent=money(v*unitCost(r));   // ⛔ BUG 4 — live extended cost
+    // ⛔ the ordering-unit label moves with the quantity: 2 units of chia and 60
+    // units of chia are both "1 case" and "2 cases" respectively.
+    const ul=el.querySelector("[data-unitlabel]");
+    if(ul) ul.innerHTML=unitLabel(r);
     const cv=el.querySelector("[data-cover]");
     if(cv){ const cw=coverOf(r), rk=riskOf(r);
       cv.textContent=cw!=null?`${cw}w cover`:"cover unknown";
@@ -634,6 +675,27 @@ document.addEventListener("keydown",e=>{
    calls stopPropagation, which killed the row-level buttons silently for a day
    (PM-512). ⭐ A bubble-phase listener here would never fire and would look like
    a button that does nothing. */
+/* ⛔ Capture phase — an ancestor calls stopPropagation (PM-512). */
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button[data-unit]"); if(!b) return;
+  const sku=b.dataset.unit, r=LINES.find(x=>x.sku===sku); if(!r) return;
+  const now=unitOf(r), next=now==='case'?'each':'case';
+  /* ⛔ A LINE WITH NO PACK RATIO CANNOT BECOME A CASE. Flipping it would invent
+     a pack size, which is the one thing packsize.py refuses to do — a guessed
+     ratio produces a confident wrong order quantity. */
+  if(next==='case' && !(Number(r.units_per_order_unit)>1)){
+    alert("We have no pack size for this item, so it cannot be ordered as a case "
+      +"here.\n\nFinale's Std packing is what supplies that number. Fix it there "
+      +"and it will come through on the next build — the app will not guess it.");
+    return;
+  }
+  EDIT[sku]={...(EDIT[sku]||{}), order_unit:next};
+  if(next===(r.order_unit||'each')){          // back to the engine's own answer
+    const {order_unit, ...rest}=EDIT[sku];
+    if(Object.keys(rest).length||SAVED[sku]) EDIT[sku]=rest; else delete EDIT[sku];
+  }
+  render();
+},true);
 document.addEventListener("click",e=>{
   const b=e.target.closest("button[data-ok]"); if(!b) return;
   const sku=b.dataset.ok, r=LINES.find(x=>x.sku===sku); if(!r) return;
@@ -695,6 +757,10 @@ document.getElementById("save").onclick=async()=>{
          SharePoint and Excel — a silent 5-6 hour shift on every decision
          timestamp, in the audit trail we would use to reconstruct who decided
          what and when. */
+      /* ⭐ the ordering-unit correction, recorded rather than silently applied —
+         it is evidence that Finale's pack data is wrong for this SKU. */
+      order_unit_override:(e.order_unit && e.order_unit!==(r.order_unit||'each'))
+                          ? e.order_unit : "",
       reviewer:account, decided_at:new Date().toISOString().slice(0,19)+"Z",
       reviewer_note:(e.note||"").slice(0,255), build_stamp:stamp.slice(0,255)};
     try{
