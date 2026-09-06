@@ -50,6 +50,10 @@ main{padding:14px 18px 90px;max-width:1500px}
 .mini.on{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:600}
 .mini.rm.on{background:var(--bad);border-color:var(--bad);color:#fff}
 .mini.ok.on{background:var(--good);border-color:var(--good);color:#fff}
+/* ⭐ reason chips — smaller than a filter chip so a row of twelve does not
+   compete with the line itself, and clearly ON when chosen. */
+.chip.rsn{font-size:11.5px;padding:2px 8px;cursor:pointer;user-select:none}
+.chip.rsn.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
 /* ⭐ An UNREVIEWED line is the default state, so it must not shout — the cue is a
    quiet left rail plus the ○ pip, distinct from the accent rail that means
    "changed". ⛔ Never a fill: 282 tinted rows would read as 282 problems. */
@@ -350,6 +354,37 @@ function unitLabel(r){
   if(p.per<=1) return `${p.units} unit${p.units===1?'':'s'}`;
   return `${p.cases} case${p.cases===1?'':'s'} <b>(${p.units} units)</b>`;
 }
+/* ⭐⭐ WHY DID YOU CHANGE IT? (Jack, 2026-09-06: *"they could click some tags of
+   common reasons of why they changed it, or write in some comments on each line
+   item for what they changed and why, so that every line item itself has a spot
+   to know what they did different."*)
+   ⛔ THE POINT IS GROUPING, NOT RECORD-KEEPING. Free text cannot be grouped, and
+   grouping is what turns a week of operator edits into a model correction —
+   "11 lines cut for 'already have enough'" is a cover-model finding; eleven
+   sentences are not. The free-text box stays for everything the tags miss.
+   ⭐ The vocabulary is taken from the reasons Julia actually gave in operator
+   feedback #1-#14, not invented: cover, dating, promo, kit, reservations,
+   seasonality, assortment, and the two data faults she kept hitting. */
+const REASONS=[
+  ["cover",      "already have enough"],
+  ["dating",     "will date out before it sells"],
+  ["promo",      "on promo — worth going deeper"],
+  ["promo_off",  "promo I know about that the engine cannot see"],
+  ["reserved",   "covering a customer reservation"],
+  ["kit",        "recipe kit needs it"],
+  ["seasonal",   "season is turning"],
+  ["assortment", "not carrying this any more"],
+  ["short",      "vendor cannot supply it"],
+  ["data_cost",  "⛔ the cost looks wrong"],
+  ["data_pack",  "⛔ the pack size looks wrong"],
+  ["data_stock", "⛔ the on-hand looks wrong"],
+];
+function reasonsOf(r){
+  const e=EDIT[r.sku], s=SAVED[r.sku];
+  const raw=(e&&e.reasons!=null) ? e.reasons
+          : ((s&&s.change_reasons) || "");
+  return String(raw).split(";").map(x=>x.trim()).filter(Boolean);
+}
 const NOT_VELOCITY=/promo_probe|min_presence|seasonal|recipe_kit/;
 function riskOf(r){
   if(NOT_VELOCITY.test((r.flags||[]).join(" "))) return "basis";
@@ -535,6 +570,12 @@ function lineHtml(r){
       </div>
       ${r.why?`<details class="why"><summary>why the engine chose ${r.engine_qty??r.order_qty}</summary>
         <div>${esc(r.why)}</div></details>`:""}
+      ${changed?`<div class="reasons" style="margin-top:7px;display:flex;flex-wrap:wrap;gap:5px">
+         <span class="mut small" style="align-self:center">why?</span>
+         ${REASONS.map(([k,lbl])=>`<span class="chip rsn${reasonsOf(r).includes(k)?" on":""}"
+            data-rsn="${escAttr(r.sku)}|${k}" role="button" tabindex="0"
+            aria-pressed="${reasonsOf(r).includes(k)}">${esc(lbl)}</span>`).join("")}
+       </div>`:""}
       ${changed?`<input class="note" data-n="${escAttr(r.sku)}" value="${escAttr(note)}"
          placeholder="why did you change it? (this is the signal that improves the model)"
          style="margin-top:6px;width:100%;max-width:520px;border:1px solid var(--line);
@@ -676,6 +717,18 @@ document.addEventListener("keydown",e=>{
    (PM-512). ⭐ A bubble-phase listener here would never fire and would look like
    a button that does nothing. */
 /* ⛔ Capture phase — an ancestor calls stopPropagation (PM-512). */
+/* ⛔ Capture phase, and a SPAN not a button — the row's own click handlers must
+   not swallow it. */
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-rsn]"); if(!t) return;
+  e.stopPropagation();
+  const [sku,key]=t.dataset.rsn.split("|");
+  const r=LINES.find(x=>x.sku===sku); if(!r) return;
+  const cur=reasonsOf(r);
+  const next=cur.includes(key)?cur.filter(x=>x!==key):cur.concat(key);
+  EDIT[sku]={...(EDIT[sku]||{}), reasons:next.join(";")};
+  render();
+},true);
 document.addEventListener("click",e=>{
   const b=e.target.closest("button[data-unit]"); if(!b) return;
   const sku=b.dataset.unit, r=LINES.find(x=>x.sku===sku); if(!r) return;
@@ -761,6 +814,7 @@ document.getElementById("save").onclick=async()=>{
          it is evidence that Finale's pack data is wrong for this SKU. */
       order_unit_override:(e.order_unit && e.order_unit!==(r.order_unit||'each'))
                           ? e.order_unit : "",
+      change_reasons:reasonsOf(r).join(";").slice(0,255),
       reviewer:account, decided_at:new Date().toISOString().slice(0,19)+"Z",
       reviewer_note:(e.note||"").slice(0,255), build_stamp:stamp.slice(0,255)};
     try{
