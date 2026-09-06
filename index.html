@@ -155,6 +155,16 @@ details.why div{color:var(--ink2);font-size:12.5px;margin-top:5px;
   font-weight:600}
 .line.added{border-color:var(--good);box-shadow:inset 3px 0 0 var(--good)}
 .tag.add{border-color:var(--good);color:var(--good);font-weight:600}
+/* ⛔⛔ `[hidden]` LOSES TO A CLASS SELECTOR, AND THAT SHIPPED (Jack, 2026-09-06:
+   *"a refresh this pops up and won't close"*). The browser's own rule is
+   `[hidden]{display:none}` — ONE attribute selector — while `.modal{display:flex}`
+   below is a CLASS, which outranks it. So the panel rendered on every page load
+   and `closeAdd()`'s `w.hidden=true` changed nothing on screen: the element was
+   correctly marked hidden and correctly painted anyway.
+   ⭐ THE GUARD IS FIRST, DELIBERATELY: an attribute+class selector beats the bare
+   class, so any future `display:` added to `.modal` cannot resurrect this. */
+[hidden]{display:none!important}
+.modal[hidden]{display:none!important}
 .modal{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.42);
   display:flex;align-items:flex-start;justify-content:center;padding:36px 14px}
 .modalbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;
