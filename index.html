@@ -49,6 +49,11 @@ main{padding:14px 18px 90px;max-width:1500px}
   color:var(--ink2);cursor:pointer;font:inherit;font-size:13px;padding:0 9px}
 .mini.on{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:600}
 .mini.rm.on{background:var(--bad);border-color:var(--bad);color:#fff}
+.mini.ok.on{background:var(--good);border-color:var(--good);color:#fff}
+/* ⭐ An UNREVIEWED line is the default state, so it must not shout — the cue is a
+   quiet left rail plus the ○ pip, distinct from the accent rail that means
+   "changed". ⛔ Never a fill: 282 tinted rows would read as 282 problems. */
+.line.unreviewed{box-shadow:inset 3px 0 0 var(--line)}
 details.why{margin-top:6px}
 details.why summary{cursor:pointer;color:var(--ink3);font-size:12px}
 details.why div{color:var(--ink2);font-size:12.5px;margin-top:5px;
@@ -75,6 +80,20 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
   <div class="totals" id="totals"></div>
   <div class="filters">
     <input type="search" id="q" placeholder="Find an item, brand, SKU or UPC…" style="min-width:220px">
+    <!-- ⭐ OUTSIDE the repainted #filters region, like the search box: paintFilters()
+         rebuilds its own innerHTML on every render, which once destroyed a focused
+         control mid-interaction. Wired once in _app.js. -->
+    <label class="mut small" for="sort">Sort</label>
+    <select id="sort" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;
+            background:var(--card);color:var(--ink);font:inherit;font-size:12.5px">
+      <option value="engine">the engine's order</option>
+      <option value="cost">biggest spend first</option>
+      <option value="risk">dating risk first</option>
+      <option value="cover">most weeks of cover first</option>
+      <option value="name">A–Z</option>
+      <option value="source">by source</option>
+    </select>
+    <span id="progress" class="mut small"></span>
     <span id="subtot" class="mut small"></span>
   </div>
   <div class="filters" id="filters"></div>
@@ -181,7 +200,8 @@ function flat(v,max){
    operator changes the ORDER, never the programming (hard boundary 7). */
 const LIST="PurchaseReview", DIR="PurchaseReview";
 let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
-    FILTER="all", Q="", RISK=false, UNK=false, ONLYCH=false;
+    FILTER="all", Q="", RISK=false, UNK=false, ONLYCH=false,
+    SORT="engine", NEWONLY=false;
 
 const money=n=>n==null?"—":"$"+Number(n).toLocaleString(undefined,
   {minimumFractionDigits:2,maximumFractionDigits:2});
@@ -250,10 +270,40 @@ function stateOf(r){
 /* ⭐ has a human touched this line at all — saved or pending? */
 function touched(r){
   const e=EDIT[r.sku], s=SAVED[r.sku];
-  if(e) return true;
+  /* ⛔ THE PRESENCE OF AN EDIT IS NOT A CHANGE (fixed 2026-09-05, found by
+     driving the real page). This read `if(e) return true`, so the new "✓ mark
+     reviewed" button — which writes `{ack:true}` and deliberately leaves the
+     quantity alone — painted the line as CHANGED: accent rail, a "changed from
+     24" tag, and a note box demanding to know why they changed it. The buyer had
+     just agreed with the engine. ⭐ A change is a QUANTITY edit, a removal or a
+     note — never the mere existence of a record.
+     ⚠️ The earlier fix this must not undo (BUG 3): an edit whose snapped value
+     equals the engine's still carries `qty`, so it stays "touched" and Save
+     stays enabled — the case where a silent no-op looked like a lost edit. */
+  if(e && (e.qty!=null || e.decision || e.note)) return true;
   return !!(s && (s.decision==="remove" || (s.approved_qty!=null &&
             Number(s.approved_qty)!==(r.order_qty||0))));
 }
+/* ⭐⭐ HAS THIS LINE BEEN LOOKED AT? — added 2026-09-05 (PM-527).
+   ⛔ `touched()` answers "did the quantity move", which is NOT the same question.
+   On a 282-line order the buyer's real problem is "where did I get to" — and a
+   line they read and agreed with was indistinguishable from one they never
+   opened. Both rendered identically, so the only way to resume was to start
+   again.
+   ⭐ NO NEW SHAREPOINT COLUMN. `decision` is already one of remove/changed/keep,
+   so "I looked and I agree" is just a saved `keep` at the engine's quantity —
+   which the save path already writes. ⛔ That matters: an array or an unknown
+   field sent to this list is a bare HTTP 400 that loses the whole submit. */
+function reviewState(r){
+  if(stateOf(r)==="remove") return "removed";
+  if(qtyOf(r)!==(r.order_qty||0)) return "changed";
+  const e=EDIT[r.sku];
+  if(e && e.ack===false) return "new";          // explicitly un-marked
+  if((e && e.ack) || SAVED[r.sku]) return "ok"; // a saved row IS a decision
+  return "new";
+}
+const reviewed=r=>reviewState(r)!=="new";
+
 /* ⭐⭐ BUG 5 — COVER AND DATING RISK MUST FOLLOW THE QUANTITY ON SCREEN. Frozen at
    the engine's figure, the buyer could not tell whether they had fixed the very
    thing the red banner was shouting about. */
@@ -317,9 +367,16 @@ function paintTotals(){
   const st=document.getElementById("subtot");
   if(st){
     const v=visible().filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0);
-    st.textContent = (FILTER==="all"&&!RISK&&!UNK&&!ONLYCH&&!Q) ? "" :
+    st.textContent = (FILTER==="all"&&!RISK&&!UNK&&!ONLYCH&&!NEWONLY&&!Q) ? "" :
       `this view: ${v.length} lines · ${v.reduce((n,r)=>n+qtyOf(r),0).toLocaleString()} units · `
       + money0(v.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0));
+  }
+  /* ⭐ WHERE DID I GET TO — the question a 282-line order actually raises. */
+  const pg=document.getElementById("progress");
+  if(pg){
+    const done=LINES.filter(reviewed).length;
+    pg.textContent=`${done} of ${LINES.length} reviewed`;
+    pg.style.color = done===LINES.length ? "var(--good)" : "";
   }
   const dirty=Object.keys(EDIT).length>0;
   document.getElementById("save").disabled=!dirty;
@@ -344,12 +401,13 @@ function paintFilters(){
       `<span class="chip" data-f="${escAttr(k)}" aria-pressed="${FILTER===k}">${esc(k)}<span class="n">${v}</span></span>`).join("")
     + (risky?`<span class="chip" id="riskchip" aria-pressed="${RISK}" style="border-color:var(--bad);color:var(--bad)">⛔ dating risk<span class="n">${risky}</span></span>`:"")
     + (unknown?`<span class="chip" id="unkchip" aria-pressed="${UNK}">⚠️ no dating info<span class="n">${unknown}</span></span>`:"")
-    + `<span class="chip" id="chgchip" aria-pressed="${ONLYCH}">only what I changed<span class="n">${LINES.filter(touched).length}</span></span>`;
+    + `<span class="chip" id="chgchip" aria-pressed="${ONLYCH}">only what I changed<span class="n">${LINES.filter(touched).length}</span></span>`
+    + `<span class="chip" id="newchip" aria-pressed="${NEWONLY}">not yet reviewed<span class="n">${LINES.filter(r=>!reviewed(r)).length}</span></span>`;
   document.querySelectorAll("#filters .chip[data-f]").forEach(x=>x.onclick=()=>{
     // ⛔ BUG 7 — "All" must clear the OTHER filters too. It used to leave the
     // risk filter on, so the chip read 118 while 7 lines rendered.
     FILTER=x.dataset.f;
-    if(FILTER==="all"){ RISK=false; UNK=false; ONLYCH=false; }
+    if(FILTER==="all"){ RISK=false; UNK=false; ONLYCH=false; NEWONLY=false; }
     render();});
   const rc=document.getElementById("riskchip");
   if(rc) rc.onclick=()=>{RISK=!RISK; render();};
@@ -357,7 +415,16 @@ function paintFilters(){
   if(uc) uc.onclick=()=>{UNK=!UNK; render();};
   const cc=document.getElementById("chgchip");
   if(cc) cc.onclick=()=>{ONLYCH=!ONLYCH; render();};
+  const nc=document.getElementById("newchip");
+  if(nc) nc.onclick=()=>{NEWONLY=!NEWONLY; render();};
 }
+/* ⭐ wired ONCE, outside every repaint — same reason as the search box. */
+(function wireSort(){
+  const sel=document.getElementById("sort");
+  if(!sel) return;
+  sel.value=SORT;
+  sel.onchange=()=>{SORT=sel.value; render();};
+})();
 /* ⭐ wired ONCE, outside every repaint */
 (function wireSearch(){
   let t; const q=document.getElementById("q");
@@ -374,12 +441,32 @@ function visible(){
     if(RISK){ const x=riskOf(r); if(x!=="⛔ over its life"&&x!=="⚠️ tight") return false; }
     if(UNK && riskOf(r)!=="unknown") return false;
     if(ONLYCH && !touched(r)) return false;
+    if(NEWONLY && reviewed(r)) return false;
     if(q && !((r.description||"").toLowerCase().includes(q)
            || (r.brand||"").toLowerCase().includes(q)
            || (r.sku||"").toLowerCase().includes(q)
            || String(r.upc||"").includes(q))) return false;     // ⭐ UPC is searchable
     return true;
-  });
+  }).sort(sorter());
+}
+/* ⛔ The DEFAULT is the engine's own order and must stay a stable no-op — the
+   `why` on each line refers to the sizing pass that produced it, and a reader
+   comparing two lines is comparing that sequence. Every other sort is explicit.
+   ⚠️ Sorting is applied INSIDE visible(), so the subtotal, the counts and the
+   rendered list can never disagree about which lines are on screen. */
+function sorter(){
+  const RANK={"⛔ over its life":0,"⚠️ tight":1,"unknown":2,"basis":3,"ok":4};
+  switch(SORT){
+    case "cost":   return (a,b)=>qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
+    case "risk":   return (a,b)=>(RANK[riskOf(a)]??9)-(RANK[riskOf(b)]??9)
+                                 || qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
+    case "cover":  return (a,b)=>(coverOf(b)??-1)-(coverOf(a)??-1);
+    case "name":   return (a,b)=>String(a.description||a.sku)
+                                   .localeCompare(String(b.description||b.sku));
+    case "source": return (a,b)=>String(a.source||"").localeCompare(String(b.source||""))
+                                 || qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
+    default:       return ()=>0;              // ⭐ Array.prototype.sort is stable
+  }
 }
 
 /* ── one line ────────────────────────────────────────────────────────────── */
@@ -388,9 +475,13 @@ function lineHtml(r){
   const changed=touched(r), cw=coverOf(r), rk=riskOf(r);
   const inc=r.unit_of_sale||1;
   const note=(EDIT[r.sku]||{}).note ?? (SAVED[r.sku]||{}).reviewer_note ?? "";
-  return `<div class="line ${changed?"changed":""} ${st==="remove"?"removed":""}" data-sku="${escAttr(r.sku)}">
+  const rs=reviewState(r);
+  return `<div class="line ${changed?"changed":""} ${st==="remove"?"removed":""}${
+      rs==="new"?" unreviewed":""}" data-sku="${escAttr(r.sku)}">
     <div>
-      <div class="nm">${esc(r.description||r.sku)}</div>
+      <div class="nm">${rs==="new"?`<span title="you have not looked at this line yet"
+        style="color:var(--ink3)">○</span> `:`<span title="reviewed"
+        style="color:var(--good)">●</span> `}${esc(r.description||r.sku)}</div>
       <div class="meta">${esc(r.brand||"")} · ${esc(r.sku)}
         · ${money(c)}/unit → <b data-linecost>${money(q*c)}</b>
         · <span data-cover>${cw!=null?cw+"w cover":"cover unknown"}</span>
@@ -421,6 +512,9 @@ function lineHtml(r){
     <div class="acts">
       <input type="number" min="0" step="${inc}" value="${q}" data-q="${escAttr(r.sku)}"
              aria-label="quantity" ${st==="remove"?"disabled":""}>
+      <button class="mini ok ${rs!=="new"?"on":""}" data-ok="${escAttr(r.sku)}"
+              title="${rs==="new"?"mark this line reviewed — the quantity stays as it is"
+                                 :"un-mark it as reviewed"}">✓</button>
       <button class="mini rm ${st==="remove"?"on":""}" data-rm="${escAttr(r.sku)}"
               title="remove this line">✕</button>
     </div>
@@ -484,6 +578,14 @@ function applyQty(i, commit){
   if(el){
     el.classList.toggle("changed", touched(r));
     el.classList.toggle("removed", v<=0);
+    /* ⛔ the review rail and pip are part of the row's state too — left out, an
+       edited line kept its "you have not looked at this" rail for as long as the
+       page went without a full render (found 2026-09-05 driving the page). */
+    el.classList.toggle("unreviewed", reviewState(r)==="new");
+    const pip=el.querySelector(".nm span");
+    if(pip){ const nw=reviewState(r)==="new";
+             pip.textContent=nw?"○":"●";
+             pip.style.color=nw?"var(--ink3)":"var(--good)"; }
     const c=el.querySelector("[data-linecost]");
     if(c) c.textContent=money(v*unitCost(r));   // ⛔ BUG 4 — live extended cost
     const cv=el.querySelector("[data-cover]");
@@ -500,6 +602,20 @@ function applyQty(i, commit){
     i.title=big?`⛔ ${money(v*unitCost(r))} on one line — check this is intended`:"";
   }
   paintTotals();
+  /* ⛔⛔ THE CHIP COUNTS ARE STATE, AND THIS PATH NEVER REFRESHED THEM.
+     `applyQty` patches the row in place ON PURPOSE — a full render mid-keystroke
+     would destroy the focused input — but it also skipped `paintFilters()`, so
+     "only what I changed" sat at 0 while a line was visibly changed. Latent
+     before 2026-09-05 and inherited by "not yet reviewed". The chips hold no
+     focusable input, so repainting them here is safe at any time. */
+  paintFilters();
+  /* ⭐ ON COMMIT ONLY, do a full render. The note box — *"why did you change it?
+     (this is the signal that improves the model)"* — is emitted by `lineHtml`,
+     so before this it never appeared for the line you had just edited: you had
+     to filter or save to make it show up, and by then the reason was gone.
+     ⛔ Safe here and nowhere else: `commit` is blur/Enter, so focus has already
+     left the box (Enter's handler blurs it immediately after). */
+  if(commit) render();
 }
 document.addEventListener("input",e=>{
   const i=e.target.closest("input[data-q]"); if(i) applyQty(i,false);},true);
@@ -514,6 +630,22 @@ document.addEventListener("input",e=>{
 document.addEventListener("keydown",e=>{
   const i=e.target.closest("input[data-q]");
   if(i&&e.key==="Enter"){ applyQty(i,true); i.blur(); }},true);
+/* ⛔ CAPTURE PHASE, like every other delegated handler on this page: an ancestor
+   calls stopPropagation, which killed the row-level buttons silently for a day
+   (PM-512). ⭐ A bubble-phase listener here would never fire and would look like
+   a button that does nothing. */
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button[data-ok]"); if(!b) return;
+  const sku=b.dataset.ok, r=LINES.find(x=>x.sku===sku); if(!r) return;
+  const was=reviewState(r)!=="new";
+  const cur=EDIT[sku]||{};
+  EDIT[sku]={...cur, ack:!was};
+  /* ⛔ Un-marking a line that was never anything BUT an ack must leave no edit
+     behind, or Save stays enabled with nothing to save. */
+  if(EDIT[sku].ack===false && EDIT[sku].qty==null && !EDIT[sku].decision
+     && !EDIT[sku].note && !SAVED[sku]) delete EDIT[sku];
+  render();
+},true);
 document.addEventListener("click",e=>{
   const b=e.target.closest("button[data-rm]"); if(!b) return;
   const sku=b.dataset.rm;
@@ -558,7 +690,12 @@ document.getElementById("save").onclick=async()=>{
          the audit trail say the opposite of what the reviewer did. */
       cover_weeks:coverOf(r), shelf_days:r.shelf_days??null,
       dating_risk:riskOf(r), why:flat(r.why), flags:flat(r.flags),
-      reviewer:account, decided_at:new Date().toISOString().slice(0,19),
+      /* ⛔ THE Z IS LOAD-BEARING. toISOString() is UTC; slicing to 19 chars dropped
+         the marker, so the same instant read as UTC here and as LOCAL in
+         SharePoint and Excel — a silent 5-6 hour shift on every decision
+         timestamp, in the audit trail we would use to reconstruct who decided
+         what and when. */
+      reviewer:account, decided_at:new Date().toISOString().slice(0,19)+"Z",
       reviewer_note:(e.note||"").slice(0,255), build_stamp:stamp.slice(0,255)};
     try{
       const ex=(SAVED[sku]||{})._id;
@@ -618,11 +755,38 @@ document.getElementById("final").onclick=async()=>{
     <p class="mut small" style="margin-top:14px">Save first, then run this to produce the
       KeHE upload — it honours the approved quantities and a human's edit always wins:</p>
     <div class="banner"><code>python3 kehe_order.py finalize --sunday ${esc(ORDER.meta.order_sunday)}</code></div>
-    <p class="mut small">Or take the approved lines as CSV:</p>
-    <textarea readonly style="width:100%;height:190px;font:12px ui-monospace,Menlo,monospace;
+    <p class="mut small">Or take the approved lines as CSV:
+      <button class="ghost" id="csvcopy" style="margin-left:8px">Copy</button>
+      <button class="ghost" id="csvdl">Download</button>
+      <span id="csvmsg" class="mut small"></span></p>
+    <textarea id="csvbox" readonly style="width:100%;height:190px;font:12px ui-monospace,Menlo,monospace;
       border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
       padding:9px">${esc(csv)}</textarea>
     <p style="margin-top:12px"><button class="ghost" onclick="render()">← back to the lines</button></p>`;
+  /* ⛔ Selecting 280 lines out of a textarea by hand is not a way to get data out
+     of a page, and it was the ONLY way (PM-527). Wired AFTER innerHTML, because
+     these nodes do not exist until the panel is painted. */
+  const msg=document.getElementById("csvmsg");
+  const say=t=>{ if(msg){ msg.textContent=t; setTimeout(()=>{msg.textContent="";},2500); } };
+  const cc=document.getElementById("csvcopy");
+  if(cc) cc.onclick=async()=>{
+    try{ await navigator.clipboard.writeText(csv); say("✓ copied"); }
+    catch(err){
+      /* ⛔ clipboard access is refused outside a secure context or without the
+         permission — falling back silently would look like a dead button. */
+      const b=document.getElementById("csvbox");
+      if(b){ b.focus(); b.select(); say("⛔ could not copy — selected it for you, press ⌘C"); }
+      else say("⛔ could not copy");
+    }};
+  const dl=document.getElementById("csvdl");
+  if(dl) dl.onclick=()=>{
+    const name=`approved_order_${ORDER.meta.order_sunday}.csv`;
+    const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+    const a=document.createElement("a");
+    a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+    say("✓ "+name);
+  };
 };
 
 /* ── boot ────────────────────────────────────────────────────────────────── */
