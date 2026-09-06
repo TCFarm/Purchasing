@@ -262,9 +262,22 @@ function coverOf(r){
   if(!rate) return null;
   return Math.round(qtyOf(r)/rate*10)/10;
 }
+/* ⛔⛔ COVER-VS-LIFE IS THE WRONG TEST FOR SOME LINE TYPES, and applying it
+   anyway produces a confident false accusation. Corrected 2026-09-05 after Jack
+   pushed back on a finding of mine: several "over its life" lines were nothing of
+   the kind, because their demand basis is NOT the shelf sales rate.
+     promo_probe   — a deliberate bounded buy; its own `why` carries the estimate
+                     it was sized from (one probe read "6u = p90 of 8 observed
+                     weeks 1.0/wk x 1.50 lift" while q75_wk was 0.0)
+     min_presence  — we keep one on the shelf on purpose; velocity is not the point
+     seasonal      — sized on the SEASONAL profile, never the annual mean
+     recipe_kit    — kit demand is ADDITIVE and does not appear in the sales rate
+   ⭐ These are reported as "different basis", never as risk. */
+const NOT_VELOCITY=/promo_probe|min_presence|seasonal|recipe_kit/;
 function riskOf(r){
+  if(NOT_VELOCITY.test((r.flags||[]).join(" "))) return "basis";
   const sd=r.shelf_days, c=coverOf(r);
-  if(!sd||c==null) return "unknown";          // ⛔ BUG 11 — unknown is NOT "ok"
+  if(!sd||c==null) return "unknown";          // ⛔ unknown is NOT "ok"
   if(qtyOf(r)<=0) return "ok";
   return c*7>sd ? "⛔ over its life" : c*7>sd*0.7 ? "⚠️ tight" : "ok";
 }
@@ -385,7 +398,11 @@ function lineHtml(r){
       <div class="tags">
         <span class="tag src">${esc(r.source)}</span>
         <span class="tag ${rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":""}"
-              data-risk ${rk==="ok"?'style="display:none"':""}>${rk==="ok"?"":esc(rk)}</span>
+              data-risk ${rk==="ok"||rk==="basis"?'style="display:none"':""}
+              >${rk==="ok"||rk==="basis"?"":esc(rk)}</span>
+        ${rk==="basis"?`<span class="tag" title="its quantity was sized on something
+          other than the shelf sales rate, so cover-vs-life does not apply">sized on a
+          different basis</span>`:""}
         ${inc>1?`<span class="tag">orders in ${inc}s</span>`:""}
         ${(r.flags||[]).slice(0,3).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}
         ${changed&&st!=="remove"?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
@@ -431,6 +448,11 @@ function render(){
     and this count drops as you go.</div>`;
   if(unk) head+=`<div class="banner">⚠️ <b>${unk} line(s) have no dating information at
     all</b> — no shelf life or no sales rate. ⛔ Unknown is not the same as safe.</div>`;
+  const basis=LINES.filter(r=>riskOf(r)==="basis").length;
+  if(basis) head+=`<div class="banner">${basis} line(s) were sized on something other than
+    the shelf sales rate — a promo probe, a minimum-presence line, a seasonal buy or a
+    recipe-kit top-off. ⛔ Cover-vs-life does not apply to those, so they carry no dating
+    verdict here.</div>`;
   const nr=ORDER.meta.not_ordered_by_reason||{};
   head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} lines the engine
     wants to buy, from ${ORDER.meta.lines_considered.toLocaleString()} considered.
