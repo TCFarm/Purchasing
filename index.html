@@ -58,6 +58,11 @@ main{padding:14px 18px 90px;max-width:1500px}
    quiet left rail plus the ○ pip, distinct from the accent rail that means
    "changed". ⛔ Never a fill: 282 tinted rows would read as 282 problems. */
 .line.unreviewed{box-shadow:inset 3px 0 0 var(--line)}
+/* ⭐ the plain-English reason, ABOVE the raw working. Jack, 2026-09-06: the old
+   panel "just has a whole bunch of random stuff underneath it". The working is
+   still there — collapsed — because it is the audit trail. */
+.explain{margin-top:7px;font-size:13px;line-height:1.5;color:var(--ink2);
+  border-left:2px solid var(--line);padding-left:9px;max-width:74ch}
 details.why{margin-top:6px}
 details.why summary{cursor:pointer;color:var(--ink3);font-size:12px}
 details.why div{color:var(--ink2);font-size:12.5px;margin-top:5px;
@@ -568,7 +573,8 @@ function lineHtml(r){
         ${r.prior_edit?`<span class="tag warn">someone already changed this from the
           engine's ${r.engine_qty}</span>`:""}
       </div>
-      ${r.why?`<details class="why"><summary>why the engine chose ${r.engine_qty??r.order_qty}</summary>
+      ${r.explain?`<div class="explain">${esc(r.explain)}</div>`:""}
+      ${r.why?`<details class="why"><summary>the engine's own working</summary>
         <div>${esc(r.why)}</div></details>`:""}
       ${changed?`<div class="reasons" style="margin-top:7px;display:flex;flex-wrap:wrap;gap:5px">
          <span class="mut small" style="align-self:center">why?</span>
