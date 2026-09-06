@@ -55,6 +55,59 @@ main{padding:14px 18px 90px;max-width:1500px}
 .tag.src{border-color:var(--accent);color:var(--accent)}
 .tag.bad{border-color:var(--bad);color:var(--bad);font-weight:600}
 .tag.warn{border-color:var(--warn);color:var(--warn)}
+/* ⭐⭐ THE POSITION STRIP (Jack, 2026-09-06): *"I don't even know. You're telling
+   me to order twelve of them. I don't know how many I have. I don't know how many
+   pending orders there are in a quick look, and the engine's own wording has a lot
+   of information that is just in a long string of text that I can't read...
+   everything needs to be positioned and visually structured so that it's the same
+   on each row."*
+   ⛔ THE DEFECT WAS NOT MISSING DATA — on_hand / inbound / pre_window were all on
+   the row already, buried inside the `why` prose behind a <details>. A number a
+   buyer must expand a disclosure to read is a number they do not have.
+   ⭐ SO: FIXED COLUMNS, FIXED ORDER, EVERY ROW. The eye lands in the same place on
+   line 1 and line 157, which is what makes 157 lines scannable at all. */
+.pos{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));margin-top:9px;
+  border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.pos>div{padding:4px 8px 5px;border-right:1px solid var(--line);min-width:0}
+.pos>div:last-child{border-right:0}
+.pos b{display:block;font-size:14px;line-height:1.2;color:var(--ink);
+  font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pos s{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink3);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ⭐ A ZERO IS INFORMATION AND MUST NOT LOOK LIKE THE HEADLINE FIGURE — greyed,
+   never hidden. "0 on hand" is exactly the fact that justifies the buy. */
+.pos .z b{color:var(--ink3);font-weight:400}
+.pos .add b{color:var(--accent);font-weight:700}
+.pos .hot b{color:var(--bad);font-weight:700}
+/* The cover bar: the track is WHICHEVER IS LONGER of what we would hold and what
+   the dating allows, so the ceiling is always on screen and an overrun is visible
+   as overrun rather than as a full bar. */
+.cov{margin-top:7px;display:flex;align-items:center;gap:9px}
+.covtrack{position:relative;flex:1;height:9px;border-radius:5px;background:var(--chip);
+  overflow:hidden;min-width:80px}
+.covtrack i{position:absolute;top:0;height:100%}
+.covtrack i.have{background:var(--ink3);opacity:.55}
+.covtrack i.add{background:var(--accent)}
+.covtrack i.over{background:var(--bad)}
+/* the dating ceiling — a hairline the fill is read against, not a segment */
+.covtrack u{position:absolute;top:-2px;width:2px;height:13px;background:var(--ink2);
+  text-decoration:none;border-radius:1px}
+.covnote{font-size:11.5px;color:var(--ink2);font-variant-numeric:tabular-nums;
+  white-space:nowrap}
+.covnote.bad{color:var(--bad);font-weight:600}
+.covnote.none{color:var(--ink3)}
+/* ⭐⭐ THE SELL-THROUGH DATE (Jack, 2026-09-06): *"we are buying 24, but that
+   should sell out by XYZ date? … if I adjust that to 55 when would it sell out
+   by?"* ⛔ SAME PLACE ON EVERY ROW, including when it cannot be computed — a row
+   that simply omits the sentence reads as a row with nothing to worry about. */
+.sell{margin-top:5px;font-size:11.5px;color:var(--ink2);line-height:1.45}
+.sell b{color:var(--ink);font-variant-numeric:tabular-nums}
+.sell.bad{color:var(--bad)} .sell.bad b{color:var(--bad)}
+.sell.none{color:var(--ink3)}
+@media(max-width:720px){
+  .pos{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .pos>div:nth-child(4n){border-right:0}
+}
 .acts{display:flex;gap:6px;align-items:flex-start}
 .acts input{width:74px;height:34px;text-align:center;font-variant-numeric:tabular-nums;
   border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink);font:inherit}
@@ -92,6 +145,56 @@ details.why div{color:var(--ink2);font-size:12.5px;margin-top:5px;
 .banner{background:var(--chip);border:1px solid var(--line);border-radius:9px;
   padding:9px 12px;margin-bottom:10px;font-size:12.5px;color:var(--ink2)}
 .banner.bad{border-color:var(--bad);color:var(--bad)}
+/* ⭐⭐ ADD AN ITEM — the panel, and the way an added line reads on the list.
+   ⛔ AN ADDED LINE MUST NOT LOOK LIKE AN ENGINE LINE SOMEONE EDITED. Those are
+   different facts: one is "the model was wrong by 12", the other is "the model
+   never saw this at all". The accent rail already means "changed", so an added
+   line gets its own GREEN rail plus a tag that says so in words — colour alone
+   is not a label. */
+.addbtn{padding:5px 12px;font-size:12.5px;border-color:var(--accent);color:var(--accent);
+  font-weight:600}
+.line.added{border-color:var(--good);box-shadow:inset 3px 0 0 var(--good)}
+.tag.add{border-color:var(--good);color:var(--good);font-weight:600}
+.modal{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.42);
+  display:flex;align-items:flex-start;justify-content:center;padding:36px 14px}
+.modalbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;
+  width:100%;max-width:920px;max-height:calc(100vh - 72px);display:flex;
+  flex-direction:column;padding:14px 16px 12px;box-shadow:0 14px 40px rgba(0,0,0,.28)}
+.modalhead{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:9px}
+.modalhead b{font-size:16px}
+.modalhead .ghost{margin-left:auto;padding:5px 12px;font-size:12.5px}
+#addq{width:100%;background:var(--card);color:var(--ink);border:1px solid var(--line);
+  border-radius:8px;padding:8px 11px;font:inherit;font-size:13.5px}
+#addbody{overflow:auto;margin-top:10px;min-height:120px}
+.cand{border:1px solid var(--line);border-radius:9px;background:var(--card);
+  padding:9px 11px;margin-bottom:7px;display:grid;grid-template-columns:1fr auto;gap:10px}
+.cand.on{border-color:var(--good)}
+.cand .nm{font-weight:600;font-size:13.5px}
+.cand .meta{color:var(--ink2);font-size:12px;margin-top:2px}
+/* the same figures the position strip shows, so the buyer judges an addable item
+   on the numbers they will see on the row once it is added */
+.candfig{display:flex;flex-wrap:wrap;gap:12px;margin-top:6px;font-size:11.5px;
+  color:var(--ink2);font-variant-numeric:tabular-nums}
+.candfig b{color:var(--ink);font-weight:600}
+.candwhy{margin-top:5px;font-size:11.5px;color:var(--ink3);border-left:2px solid var(--line);
+  padding-left:8px;max-width:78ch}
+.cand .acts{align-items:center}
+.cand .acts input{width:70px;height:32px}
+.candmore{text-align:center;color:var(--ink2);font-size:12.5px;padding:9px}
+/* ⭐⭐ AN ITEM WE DO NOT CARRY IS A DIFFERENT KIND OF THING, and the panel must
+   say so before the buyer types a quantity into it. ⛔ Not a colour alone: the
+   section carries a heading in words, and every such card repeats the one fact
+   that matters — no Finale SKU, so it can go OUT to KeHE but the PO cannot come
+   back IN until ProductPipeline creates the product. */
+.catsec{margin:14px 0 8px;border-top:1px dashed var(--line);padding-top:11px}
+.cand.newitem{border-style:dashed;border-color:var(--warn)}
+.cand.newitem .nm:after{content:"NOT CARRIED";margin-left:8px;font-size:10px;
+  font-weight:700;letter-spacing:.05em;color:var(--warn);border:1px solid var(--warn);
+  border-radius:20px;padding:0 7px;vertical-align:middle}
+.catwarn{margin-top:5px;font-size:11.5px;color:var(--warn);
+  border-left:2px solid var(--warn);padding-left:8px;max-width:78ch}
+.line.notcarried{border-color:var(--warn);box-shadow:inset 3px 0 0 var(--warn)}
+.tag.nc{border-color:var(--warn);color:var(--warn);font-weight:600}
 table.out{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
 table.out td,table.out th{padding:4px 10px 4px 0;text-align:left;white-space:nowrap}
 table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--line)}
@@ -128,11 +231,33 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
       <option value="name">A–Z</option>
       <option value="source">by source</option>
     </select>
+    <!-- ⭐⭐ ADD AN ITEM (Jack, 2026-09-06): *"there doesn't appear to be a way to
+         add items to the order in the purchasing app — like what if I want to use
+         some of her ideas and add them in manually?"* A reviewer compares this
+         order against Julia's own hand-built sheet; until now they could change a
+         quantity, zero a line or mark it reviewed, but never put a SKU ON.
+         ⛔ OUTSIDE #filters, which paintFilters() rebuilds on every render. -->
+    <button class="ghost addbtn" id="addopen" title="add a SKU the engine did not propose">
+      + Add an item</button>
     <span id="progress" class="mut small"></span>
     <span id="subtot" class="mut small"></span>
   </div>
   <div class="filters" id="filters"></div>
 </header>
+<!-- ⛔ OUTSIDE <main>, which the finalize panel replaces wholesale, and outside
+     <header>, which is sticky and would clip it. -->
+<div class="modal" id="addwrap" hidden>
+  <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="addtitle">
+    <div class="modalhead">
+      <b id="addtitle">Add an item to this order</b>
+      <span class="mut small" id="addsub"></span>
+      <button class="ghost" id="addclose" aria-label="close">Close</button>
+    </div>
+    <input type="search" id="addq" autocomplete="off"
+           placeholder="Search by description, brand, SKU or UPC…">
+    <div id="addbody"></div>
+  </div>
+</div>
 <main id="main"><div class="center">Loading…</div></main>
 <div class="foot">
   <!-- ⛔ The week again, beside the buttons that act on it. The header badge can be
@@ -253,6 +378,54 @@ let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
                the picker can say which weeks have work in them */
 let WEEKS=[], WEEK=null, ALLSAVED={}, SWITCHING=false, WEEK_REASON="";
 const WEEK_MEM="purchasing.week";
+/* ⭐⭐ ADD AN ITEM THE ENGINE DID NOT PROPOSE (Jack, 2026-09-06: *"there doesn't
+   appear to be a way to add items to the order in the purchasing app — like what
+   if I want to use some of her ideas and add them in manually?"*).
+   ⛔ THE PAYLOAD IS ONLY WHAT WE ARE BUYING — 265 rows of 2,260 — so there was no
+   pool to search. `publish_order.py` now publishes the other ~2,000 as a separate
+   slim `candidates_<sunday>.json`, fetched ONLY when the panel is opened so the
+   ordinary review still downloads one file.
+     CAND_STATE  idle | loading | ready | error — ⛔ the panel must never show an
+                 empty search box on a failed load: "nothing to add" is FALSE and
+                 a buyer would believe it.
+     CAND_WARN   a non-fatal disagreement worth saying out loud (a candidate file
+                 from a different build than the order on screen). */
+let CAND=null, CAND_BY={}, CAND_STATE="idle", CAND_ERR="", CAND_WEEK=null,
+    CAND_WARN="", ADDQ="", ADD_NOTE="";
+const ADDED_SOURCE="added by hand", ADD_MAX=60;
+/* ⭐⭐ AND THE ITEMS WE DO **NOT** CARRY (Jack, 2026-09-06: the add panel
+   *"needs to allow for new items too based on KEHE ID or UPC code"*).
+   ⛔⛔ A CATALOGUE ITEM IS NOT A CANDIDATE AND MUST NEVER RENDER LIKE ONE. A
+   candidate is a row `order_sheet.csv` already carries — it has a Finale SKU,
+   an on-hand, a sales rate and a best-by. A catalogue item has NONE of those:
+   it can be ordered from KeHE (they key on UPC and item number) but it cannot
+   come back through the Finale PO import until ProductPipeline creates the
+   product, and no figure on it can be computed. ⛔ Unknown renders as unknown —
+   a fabricated cover or sell-through date on one of these would be the exact
+   failure the rest of this file keeps naming.
+   ⛔ 2.4 MB / 20,580 rows, so it is NEVER fetched during ordinary review: only
+   when a search finds nothing among the carried items, or when what was typed
+   looks like an item number or a UPC.
+     CAT_ROWS  the positional rows decoded into objects (the file stores arrays
+               plus a `cols` header, to keep 20,580 rows fetchable)
+     CAT_BY    synthetic sku -> row. ⭐ The sku is `KEHE-<item number>`, so the
+               ONE thing `purchase_drain.py` must have to put the line on a PO
+               travels inside the decision key itself and cannot be lost by a
+               SharePoint column that does not exist. */
+let CAT=null, CAT_ROWS=[], CAT_BY={}, CAT_STATE="idle", CAT_ERR="",
+    CAT_WEEK=null, CAT_WARN="";
+const CAT_PREFIX="KEHE-", CAT_MAX=30;
+/* ⭐ The two dates that bound a new unit's life, stated once. Arrival is the
+   delivery lag after the order goes out; a customer must receive at least
+   CUSTOMER_MIN_DAYS of life, so the last day we can SELL a unit is that far
+   before its best-by. */
+const DELIVERY_LAG_DAYS=2, CUSTOMER_MIN_DAYS=5;
+/* ⛔ THE ONE FIELD VALUE THIS PAGE HAS NEVER WRITTEN BEFORE. If PurchaseReview's
+   `decision` column turns out to be a Choice rather than free text, an unlisted
+   value is rejected and the whole row is lost. The save path retries ONCE as
+   "changed" (which is also true: 0 -> n) and flips this, so `pendingFor` keeps
+   comparing against what was actually stored instead of warning forever. */
+let DECISION_ADDED="added", ADDED_FALLBACK=false;
 
 const money=n=>n==null?"—":"$"+Number(n).toLocaleString(undefined,
   {minimumFractionDigits:2,maximumFractionDigits:2});
@@ -333,22 +506,347 @@ const savedCount=k=>Object.keys(ALLSAVED[String(k)]||{}).length;
    ⛔ IT FAILS TOWARD "UNSAVED" ON PURPOSE. No line, no stored row, an unparseable
    quantity — every one of those returns "pending", because the cost of one extra
    confirm dialog is a click and the cost of a missed one is a buyer's morning. */
+/* ⛔⛔ ONE DEFINITION OF WHAT WOULD BE SAVED, used by BOTH `pendingFor` and the
+   save path. They used to compute it twice, and the moment a third decision
+   value existed ("added") the two copies disagreed: `pendingFor` would say
+   "changed", the store would hold "added", and every added line would count as
+   unsaved FOREVER — the switch-week confirm firing on every switch, which is the
+   "warning that always fires is a warning nobody reads" failure this file
+   already names once. */
+function saveQtyFor(r,e){
+  return e.decision==="remove" ? 0 : (e.qty!=null ? e.qty : (r.order_qty||0));
+}
+function decisionFor(r,e){
+  if(e.decision==="remove") return "remove";
+  /* ⭐ A HUMAN INTRODUCED THIS LINE. The engine proposed nothing, so calling it
+     "changed" would be a change to nothing — and the scorecard could never tell
+     an override apart from an addition. */
+  if(r.added) return DECISION_ADDED;
+  return saveQtyFor(r,e)!==(r.order_qty||0) ? "changed" : "keep";
+}
+/* ⛔ "added" may already be stored as "changed", because the save path falls back
+   to it when the list rejects the new value (see DECISION_ADDED) — and the
+   session that reads the row back may not be the one that did the fallback.
+   Treating those as different would mark every added line unsaved forever. */
+const decisionMatches=(stored,want)=>
+  stored===want || (want==="added" && stored==="changed");
 function pendingFor(sku){
   const e=EDIT[sku];
   if(!e) return false;
   const r=LINES.find(x=>x.sku===sku); if(!r) return true;
   const s=SAVED[sku]; if(!s) return true;
-  const q=e.decision==="remove"?0:(e.qty!=null?e.qty:(r.order_qty||0));
-  const dec=e.decision==="remove"?"remove":(q!==(r.order_qty||0)?"changed":"keep");
+  const q=saveQtyFor(r,e);
+  const dec=decisionFor(r,e);
   const unit=(e.order_unit&&e.order_unit!==(r.order_unit||'each'))?e.order_unit:"";
   const note=e.note!=null?String(e.note).slice(0,255):String(s.reviewer_note||"");
   return !(Number(s.approved_qty)===q
-           && String(s.decision||"")===dec
+           && decisionMatches(String(s.decision||""),dec)
            && String(s.reviewer_note||"")===note
            && String(s.change_reasons||"")===reasonsOf(r).join(";").slice(0,255)
            && String(s.order_unit_override||"")===unit);
 }
 const unsavedSkus=()=>Object.keys(EDIT).filter(pendingFor);
+
+/* ── the addable pool ────────────────────────────────────────────────────── */
+/* ⛔ NOT `order_*.json`. `listWeeks()` treats every `order_*.json` in this folder
+   as a published order week, so `order_candidates_<sunday>.json` would appear in
+   the picker as a week named "candidates_2026-09-06" that loads a document with
+   no `meta.order_sunday` at all. */
+const candName=week=>`candidates_${week}.json`;
+/* ⭐ Fetched ONCE per week, on first open of the add panel. ⛔ IT NEVER THROWS —
+   a failed load must leave the panel able to SAY WHY, because a search box over
+   an empty array answers "there is nothing to add", and that is false. */
+async function loadCandidates(week, orderMeta){
+  orderMeta=orderMeta||(ORDER&&ORDER.meta)||{};
+  if(CAND_WEEK===week && CAND_STATE==="ready") return true;
+  if(CAND_WEEK===week && CAND_STATE==="error") return false;
+  CAND_WEEK=week; CAND_STATE="loading"; CAND_ERR=""; CAND_WARN="";
+  try{
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent(candName(week))}:/content`,
+      {headers:{Authorization:"Bearer "+t}});
+    if(r.status===404)
+      throw new Error(`no ${candName(week)} has been published for this week. `
+        +`Re-publish it with: python3 scripts/publish_order.py `
+        +`--order-dir output/orders/${week} --publish`);
+    if(!r.ok) throw new Error(`download failed ${r.status}`);
+    const doc=await r.json();
+    const rows=(doc&&doc.rows)||[];
+    /* ⛔⛔ THE FILE MUST BE THIS WEEK'S. The same trap the payload already guards:
+       adding a line off another week's candidate list would put that week's
+       cost, on-hand and pack data onto this week's order, and nothing downstream
+       would ever disagree. */
+    const got=(doc&&doc.meta&&doc.meta.order_sunday)||"";
+    if(String(got)!==String(week))
+      throw new Error(`${candName(week)} declares order week "${got}" inside it, `
+        +`not ${week} — do not add lines from it`);
+    if(!rows.length)
+      throw new Error(`${candName(week)} is empty. That can only mean the engine `
+        +`bought every SKU it considered, which has never happened — treat it as a `
+        +`broken publish, not as "nothing to add"`);
+    /* ⚠️ NON-FATAL, but say it: two files from different builds carry different
+       on-hand and cost readings, so an added line's figures would be from another
+       day than the line above it. */
+    const mine=orderMeta.source_dir||"";
+    const theirs=(doc.meta&&doc.meta.source_dir)||"";
+    if(mine&&theirs&&mine!==theirs)
+      CAND_WARN=`⚠️ this list was built from ${theirs} but the order on screen is `
+        +`${mine} — stock and cost figures below may be from a different build.`;
+    else if((doc.meta&&doc.meta.built_at)&&orderMeta.built_at
+            && doc.meta.built_at!==orderMeta.built_at)
+      CAND_WARN=`⚠️ built ${String(doc.meta.built_at).slice(0,16)}, while the order `
+        +`on screen was built ${String(orderMeta.built_at).slice(0,16)}.`;
+    CAND=doc; CAND_BY={};
+    for(const c of rows) if(c&&c.sku) CAND_BY[String(c.sku)]=c;
+    CAND_STATE="ready";
+    return true;
+  }catch(e){
+    CAND=null; CAND_BY={}; CAND_ERR=e.message||String(e); CAND_STATE="error";
+    return false;
+  }
+}
+/* ── the KeHE catalogue we do not carry ──────────────────────────────────── */
+/* ⛔ NOT `order_*.json`, for the same reason as the candidate file — see
+   candName(). ⭐ Same shape of name so the two sidecars stay obviously related. */
+const catName=week=>`catalog_${week}.json`;
+/* ⭐ ONE NORMALISER FOR BOTH CODES. KeHE's own price row carries `ITEM_#` as
+   `"00000276"` while the published catalogue stores it stripped as `"276"`, and
+   a UPC is written with and without its leading zeros everywhere it appears.
+   ⛔ So both sides of every comparison go through this — comparing the raw
+   strings makes a buyer who pasted the padded form from KeHE Connect see
+   "no such item" for an item we can order today. */
+const codeKey=v=>String(v??"").replace(/\D+/g,"").replace(/^0+(?=\d)/,"");
+/* ⭐ Does what they typed look like a code rather than a name? Then go to the
+   catalogue even if the carried pool already matched something — a buyer typing
+   an item number is asking about THAT item, not about a description that happens
+   to contain the digits. */
+const looksLikeCode=t=>/^\d{3,14}$/.test(String(t||"").replace(/[\s-]/g,""));
+/* ⭐ Fetched ONCE per week, and only on demand. ⛔ IT NEVER THROWS — like
+   loadCandidates, because a failed load must be able to SAY WHY. "No such item"
+   and "we could not look" are different answers and a buyer cannot tell them
+   apart from an empty result list. */
+async function loadCatalog(week, orderMeta){
+  orderMeta=orderMeta||(ORDER&&ORDER.meta)||{};
+  if(CAT_WEEK===week && (CAT_STATE==="ready"||CAT_STATE==="loading"))
+    return CAT_STATE==="ready";
+  if(CAT_WEEK===week && CAT_STATE==="error") return false;
+  CAT_WEEK=week; CAT_STATE="loading"; CAT_ERR=""; CAT_WARN="";
+  try{
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent(catName(week))}:/content`,
+      {headers:{Authorization:"Bearer "+t}});
+    if(r.status===404)
+      throw new Error(`no ${catName(week)} has been published for this week, so the `
+        +`items we do NOT carry cannot be searched. Re-publish it with: python3 `
+        +`scripts/publish_order.py --order-dir output/orders/${week} --publish`);
+    if(!r.ok) throw new Error(`download failed ${r.status}`);
+    const doc=await r.json();
+    const cols=(doc&&doc.cols)||[], rows=(doc&&doc.rows)||[];
+    /* ⛔⛔ THE FILE MUST BE THIS WEEK'S — the same guard the payload and the
+       candidate pool already carry. Another week's catalogue is another price
+       file's costs and pack sizes, and nothing downstream would disagree. */
+    const got=(doc&&doc.meta&&doc.meta.order_sunday)||"";
+    if(String(got)!==String(week))
+      throw new Error(`${catName(week)} declares order week "${got}", not ${week} `
+        +`— do not add lines from it`);
+    if(!cols.length||!rows.length)
+      throw new Error(`${catName(week)} has no rows or no column header — treat that `
+        +`as a broken publish, not as "KeHE does not sell it"`);
+    const mine=orderMeta.source_dir||"", theirs=(doc.meta&&doc.meta.source_dir)||"";
+    if(mine&&theirs&&mine!==theirs)
+      CAT_WARN=`⚠️ this catalogue was built from ${theirs} but the order on screen is `
+        +`${mine} — costs and pack sizes below may be from a different price file.`;
+    /* ⭐ POSITIONAL -> OBJECTS, once. The file is arrays plus a header on purpose
+       (20,580 rows of repeated JSON keys is megabytes of nothing but field
+       names); every consumer below wants named fields. */
+    CAT_ROWS=rows.map(a=>{const o={};
+      for(let i=0;i<cols.length;i++) o[cols[i]]=a[i];
+      o._sku=CAT_PREFIX+String(o.item??"").trim();
+      o._itemKey=codeKey(o.item); o._upcKey=codeKey(o.upc);
+      return o;});
+    CAT_BY={};
+    for(const c of CAT_ROWS) CAT_BY[c._sku]=c;
+    CAT=doc; CAT_STATE="ready";
+    return true;
+  }catch(e){
+    CAT=null; CAT_ROWS=[]; CAT_BY={};
+    CAT_ERR=e.message||String(e); CAT_STATE="error";
+    return false;
+  }
+}
+/* ⭐ Exact on either code, substring on the description or brand. ⛔ The code
+   match is EXACT on purpose: a substring match on a 12-digit UPC returns items
+   that merely share a run of digits, and a buyer keying a code is entitled to
+   read a single hit as confirmation. */
+function catMatch(c,q,key){
+  if(!q) return false;
+  if(key && (c._itemKey===key || c._upcKey===key)) return true;
+  return (c.description||"").toLowerCase().includes(q)
+      || (c.brand||"").toLowerCase().includes(q);
+}
+/* ⭐ WHAT WE EXPECT TO PAY. ⛔ `reg_whlsl` — the REGULAR cost — never `net`.
+   A published promo net is not a price we can buy at (canon:
+   `Recipe Kit Tool/SUPPLIER-COST-FILES.md`), and understating the cost of a
+   line nobody has ever bought is the direction that hides a bad buy. KeHE
+   restates the real price on the download, which is where a gap gets caught. */
+const catCost=c=>Number(c.reg_whlsl||c.net||0);
+/* ⭐⭐ A CATALOGUE ITEM BECOMES A REAL LINE — and every figure it does not have
+   is left NULL rather than zeroed. ⛔ A zero here is a lie the rest of the page
+   believes: `posStrip` renders 0 on-hand as a fact, `riskOf` would read a
+   0-week cover as "ok", and the sell-through line would print a confident date.
+   ⛔ `unit_of_sale`, falling back to 1 — NEVER `casepack` (incOf()). */
+function rowFromCatalog(c){
+  const size=[c.size,c.uom].filter(Boolean).join(" ").trim();
+  return {sku:c._sku, upc:c.upc||"",
+    description:(c.description||c._sku)+(size?` - ${size}`:""),
+    brand:c.brand||"", category:"",
+    order_qty:0, engine_qty:0, source:ADDED_SOURCE,
+    flags:["added_by_hand","not_carried"],
+    unit_cost:catCost(c), supplier_price:catCost(c), reg_whlsl:c.reg_whlsl??null,
+    item_price:c.srp??null,
+    unit_of_sale:c.unit_of_sale||1, casepack:c.casepack||null,
+    /* ⛔ NOT ZERO — UNKNOWN. We hold no Finale record for this item at all, so
+       there is nothing to say about stock, demand or dating. */
+    on_hand:null, inbound:null, pre_window:null,
+    q75_wk:null, mean_wk:null, shelf_days:null, on_hand_effective:null,
+    order_unit:'each', units_per_order_unit:1,
+    order_unit_basis:"KeHE unit of sale — we hold no Finale pack data for this item",
+    kehe_item:String(c.item??"").trim(),
+    promo_start:c.promo_start||"", promo_end:c.promo_end||"",
+    why:"",
+    explain:"⛔ WE DO NOT CARRY THIS ITEM. It has no Finale SKU, no sales history, "
+      +"no on-hand and no best-by, so nothing on this page can tell you whether the "
+      +"quantity is right — you are sizing it blind. ⭐ It CAN be ordered from KeHE: "
+      +"the export keys on the UPC and the item number. ⛔ But the PO cannot be "
+      +"imported back into Finale until ProductPipeline creates the product, so "
+      +"receiving it needs that done first. ⭐ This panel is for a ONE-OFF buy; if we "
+      +"mean to CARRY it, it belongs in the new-item review (newitem_week.py), which "
+      +"creates the product, the store channels and the Finale row.",
+    added:true, notCarried:true};
+}
+/* ⭐ A CANDIDATE BECOMES A REAL LINE. ⛔ Every field the row machinery reads is
+   filled here — `posStrip` needs on_hand/inbound/pre_window/q75_wk/shelf_days,
+   `unitCost` needs the cost chain, `packOf`/`unitLabel` need order_unit and
+   units_per_order_unit, `applyQty` needs unit_of_sale. A row missing any of them
+   does not error; it renders a confident wrong figure, which is worse. */
+function rowFromCandidate(c){
+  return {sku:c.sku, upc:c.upc||"", description:c.description||"",
+    brand:c.brand||"", category:c.category||"",
+    /* ⛔ THE ENGINE PROPOSED NOTHING. Both of these are 0 on purpose: `order_qty`
+       is what `qtyOf`/`touched`/`reviewState` measure a human's number against,
+       and `engine_qty` is what the save path records as the model's proposal. */
+    order_qty:0, engine_qty:0,
+    source:ADDED_SOURCE,
+    /* ⭐ the engine's own flags travel with the row — "covered",
+       "dnr_no_auto_reorder" and the rest are exactly what the buyer is choosing
+       to disagree with — plus a marker of our own. */
+    flags:(c.flags||[]).concat(["added_by_hand"]),
+    unit_cost:c.unit_cost, supplier_price:c.supplier_price,
+    promo_cost:c.promo_cost, reg_whlsl:c.reg_whlsl, item_price:c.item_price,
+    unit_of_sale:c.unit_of_sale, casepack:c.casepack,
+    on_hand:c.on_hand, inbound:c.inbound, pre_window:c.pre_window,
+    q75_wk:c.q75_wk, mean_wk:c.mean_wk, shelf_days:c.shelf_days,
+    order_unit:c.order_unit||'each',
+    units_per_order_unit:c.units_per_order_unit||1,
+    order_unit_basis:c.order_unit_basis||"",
+    kehe_item:c.kehe_item||"",
+    why:c.why_not||"",
+    explain:"⭐ You added this line — the engine did not propose it."
+      +(c.why_not?" It left the item off the order because: "+c.why_not:"")
+      +" ⛔ Nothing sized this quantity but you, so the cover bar above is the only"
+      +" check on it.",
+    added:true};
+}
+/* ⭐ The order increment. ⛔ `unit_of_sale`, falling back to 1 — NEVER `casepack`.
+   `CASEPACK` is the MASTER case and is an exact multiple of `UNIT_OF_SALE`
+   (verified n=21,984, 0 exceptions), so rounding on it over-orders by that
+   multiple: GoMacro bars are 144/12 and a one-off script once asked for 144
+   against a need of 12. ⛔ And `unit_of_sale || casepack` is the same bug wearing
+   a fallback — it picks the LARGER increment exactly when we know least. */
+const incOf=r=>Number(r.unit_of_sale)>0?Number(r.unit_of_sale):1;
+
+/* ⛔⛔ AN ADDED LINE MUST SURVIVE A RELOAD, AND THE OLD CODE WOULD HAVE DROPPED
+   IT SILENTLY. `switchWeek` replays SAVED onto LINES with
+   `LINES.find(...); if(!r) continue;` — and an added SKU is by definition NOT in
+   the payload, so its saved decision would be skipped. The decision would still
+   be in SharePoint and `purchase_drain.py` would still order it, so the ORDER
+   would be right while the SCREEN said the line had vanished: the buyer adds it
+   again, and now two people believe two different things about the same order.
+   ⭐ So: any saved SKU with no payload row is reinstated, from the candidate file
+   where it can be reached and from the stored fields where it cannot.
+   ⛔ NEVER THROWS — a failed candidate load must not stop the week from opening.
+   Returns the extra rows; sets ADD_NOTE when the reinstatement was partial. */
+async function reinstateAdded(rows, saved, week, orderMeta){
+  ADD_NOTE="";
+  const have=new Set(rows.map(r=>String(r.sku)));
+  const orphan=Object.keys(saved).filter(s=>!have.has(String(s)));
+  if(!orphan.length) return [];
+  let ok=false;
+  try{ ok=await loadCandidates(week, orderMeta); }catch(_){ ok=false; }
+  /* ⛔ THE CATALOGUE IS FETCHED HERE ONLY WHEN A SAVED LINE ACTUALLY NEEDS IT.
+     It is 2.4 MB, so pulling it on every week-open would be exactly the cost the
+     lazy load exists to avoid — but a reviewer who added an item we do not carry
+     must get that row back with its figures, not the stub. */
+  let catOk=false;
+  if(orphan.some(s=>String(s).startsWith(CAT_PREFIX))){
+    try{ catOk=await loadCatalog(week, orderMeta); }catch(_){ catOk=false; }
+  }
+  const out=[], partial=[];
+  for(const sku of orphan){
+    if(catOk && String(sku).startsWith(CAT_PREFIX) && CAT_BY[String(sku)]){
+      out.push(rowFromCatalog(CAT_BY[String(sku)])); continue;
+    }
+    const c=ok?CAND_BY[String(sku)]:null;
+    if(c){ out.push(rowFromCandidate(c)); continue; }
+    /* ⛔ REINSTATED FROM THE DECISION ROW ALONE. The store keeps on_hand, inbound
+       and shelf_days but NOT the sales rate, the pack ratio or the order
+       increment — so this row's cover CANNOT be computed and must not pretend
+       otherwise. `posStrip` already renders a missing rate as "no sales rate —
+       cover cannot be computed" rather than drawing a bar, which is the honest
+       output here. */
+    const f=saved[sku]||{};
+    partial.push(sku);
+    /* ⭐ A CATALOGUE LINE'S ITEM NUMBER IS IN ITS OWN KEY, so even the stub can
+       still reach a KeHE PO — `purchase_drain.py` reads it back out of the sku.
+       ⛔ That is the whole reason the synthetic sku is `KEHE-<item>` and not a
+       random id: a decision row carries no column for it. */
+    const cat=String(sku).startsWith(CAT_PREFIX);
+    out.push({sku:String(sku), upc:f.upc||"", description:f.item||String(sku),
+      brand:f.brand||"", order_qty:0, engine_qty:0, source:ADDED_SOURCE,
+      kehe_item:cat?String(sku).slice(CAT_PREFIX.length):"",
+      notCarried:cat,
+      flags:["added_by_hand","partial_record"].concat(cat?["not_carried"]:[]),
+      unit_cost:Number(f.unit_cost)||0,
+      on_hand:f.on_hand??null, inbound:f.inbound??null, pre_window:null,
+      q75_wk:null, mean_wk:null, shelf_days:f.shelf_days??null,
+      order_unit:'each', units_per_order_unit:1, unit_of_sale:1,
+      why:f.why||"",
+      explain:"⛔ This line was added by hand in an earlier session and the "
+        +"candidate list for this week could not be read, so only what was saved "
+        +"with the decision is shown. Its sales rate, shelf life and order "
+        +"increment are NOT known here — do not judge the quantity from this row.",
+      added:true, partial:true});
+  }
+  if(partial.length){
+    /* ⛔ NAME THE FILE THAT ACTUALLY FAILED. A catalogue line stubs out because
+       `catalog_<sunday>.json` could not be read or does not list that item — the
+       candidate pool has nothing to do with it, and blaming it sends whoever
+       investigates to the wrong file. */
+    const nc=partial.filter(s=>String(s).startsWith(CAT_PREFIX));
+    const err = nc.length===partial.length
+      ? `the KeHE catalogue for this week could not be read, or no longer lists `
+        +`them${CAT_ERR?": "+esc(CAT_ERR):""}`
+      : `the candidate list${nc.length?" or the KeHE catalogue":""} for this week `
+        +`could not be read${CAND_ERR?": "+esc(CAND_ERR):""}`;
+    ADD_NOTE=`⛔ ${partial.length} line(s) added by hand earlier could only be `
+      +`partly reinstated (${esc(partial.slice(0,6).join(", "))}`
+      +`${partial.length>6?", …":""}) — ${err}. Their quantities are intact and `
+      +`will still be ordered; only the figures beside them are missing.`;
+  }
+  return out;
+}
 
 /* ── the week switcher ───────────────────────────────────────────────────── */
 /* ⭐ WHICH WEEK DO WE OPEN? ⛔ NOT simply "the newest". A publish must never move
@@ -410,9 +908,22 @@ async function switchWeek(key, opts){
     const doc=await loadOrder(w);
     const sunday=(doc.meta&&doc.meta.order_sunday)||key;
     const saved=opts.cached ? (ALLSAVED[String(sunday)]||{}) : await loadSaved(sunday);
-    ORDER=doc; LINES=doc.rows||[]; SAVED=saved; EDIT={}; WEEK=key;
+    const rows=doc.rows||[];
+    /* ⭐ lines a human ADDED in an earlier session are not in the payload — put
+       them back before anything is committed. ⛔ Best-effort by construction: it
+       never throws, so a candidate file that cannot be read costs the figures
+       beside those rows, never the week. */
+    const extra=await reinstateAdded(rows, saved, sunday, doc.meta||{});
+    ORDER=doc; LINES=rows.concat(extra); SAVED=saved; EDIT={}; WEEK=key;
     WEEK_REASON=opts.reason||WEEK_REASON;
     FILTER="all"; RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
+    /* ⛔ THE ADD PANEL BELONGS TO ONE WEEK. Left loaded across a switch, the next
+       search would offer week A's costs and stock levels for a line added to
+       week B — and every figure would look perfectly ordinary. */
+    closeAdd(); ADDQ="";
+    if(CAND_WEEK!==sunday){ CAND=null; CAND_BY={}; CAND_STATE="idle"; CAND_ERR=""; CAND_WARN=""; }
+    if(CAT_WEEK!==sunday){ CAT=null; CAT_ROWS=[]; CAT_BY={}; CAT_STATE="idle";
+                           CAT_ERR=""; CAT_WARN=""; }
     try{ sessionStorage.setItem(WEEK_MEM,key); }catch(_){}
     /* ⭐ a saved change is the state of the world — reapply it so opening a week
        does not silently discard work someone already did. */
@@ -543,6 +1054,22 @@ function coverOf(r){
   if(!rate) return null;
   return Math.round(qtyOf(r)/rate*10)/10;
 }
+/* ⭐⭐ HOW LONG THE POSITION LASTS — stock + inbound + what we are ordering,
+   against this SKU's own weekly rate. ⛔ THIS, NOT `coverOf`, IS THE DATING TEST
+   (ruling: Jack, 2026-09-06 — "yes, move the chip onto the position").
+   ⛔ `coverOf` measures the ORDER ALONE, which answers a different question and
+   answers the dating one too quietly: on the 2026-09-06 build 17 lines got a
+   different verdict and the order-only measure was the QUIETER one every single
+   time. Buying 24 of something that sells 41/wk is 0.6 weeks of order — but if we
+   already hold 110, the pile is 3.3 weeks and it is the PILE that dates out.
+   ⭐ ONE DEFINITION, used by the risk chip, the strip and the sort, so the page
+   can never show a bar disagreeing with the flag beside it. */
+function positionCoverOf(r){
+  const rate=r.q75_wk||r.mean_wk||0;
+  if(!rate) return null;
+  const pos=(+r.on_hand||0)+(+r.inbound||0)+qtyOf(r);
+  return Math.round(pos/rate*10)/10;
+}
 /* ⛔⛔ COVER-VS-LIFE IS THE WRONG TEST FOR SOME LINE TYPES, and applying it
    anyway produces a confident false accusation. Corrected 2026-09-05 after Jack
    pushed back on a finding of mine: several "over its life" lines were nothing of
@@ -614,8 +1141,15 @@ function reasonsOf(r){
 }
 const NOT_VELOCITY=/promo_probe|min_presence|seasonal|recipe_kit/;
 function riskOf(r){
-  if(NOT_VELOCITY.test((r.flags||[]).join(" "))) return "basis";
-  const sd=r.shelf_days, c=coverOf(r);
+  /* ⛔ THE EXEMPTION IS THE ENGINE'S, NOT THE FLAG'S. "sized on a different
+     basis" means the ENGINE chose that quantity from something other than the
+     shelf rate. A line a human added carries the engine's old flags for
+     information, but nothing sized it except the person typing — so cover
+     against shelf life is exactly the right test, and letting an inherited
+     `promo_probe` flag suppress the dating verdict would silence the only check
+     an added line has. */
+  if(!r.added && NOT_VELOCITY.test((r.flags||[]).join(" "))) return "basis";
+  const sd=r.shelf_days, c=positionCoverOf(r);
   if(!sd||c==null) return "unknown";          // ⛔ unknown is NOT "ok"
   if(qtyOf(r)<=0) return "ok";
   return c*7>sd ? "⛔ over its life" : c*7>sd*0.7 ? "⚠️ tight" : "ok";
@@ -743,7 +1277,10 @@ function visible(){
     if(q && !((r.description||"").toLowerCase().includes(q)
            || (r.brand||"").toLowerCase().includes(q)
            || (r.sku||"").toLowerCase().includes(q)
-           || String(r.upc||"").includes(q))) return false;     // ⭐ UPC is searchable
+           || String(r.upc||"").includes(q)
+           // ⭐ the KeHE item number is what a buyer holds for an item we do not
+           // carry — it is the only id such a line has besides its UPC.
+           || String(r.kehe_item||"").toLowerCase().includes(q))) return false;
     return true;
   }).sort(sorter());
 }
@@ -758,7 +1295,9 @@ function sorter(){
     case "cost":   return (a,b)=>qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
     case "risk":   return (a,b)=>(RANK[riskOf(a)]??9)-(RANK[riskOf(b)]??9)
                                  || qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
-    case "cover":  return (a,b)=>(coverOf(b)??-1)-(coverOf(a)??-1);
+    /* ⛔ sort the number the row SHOWS. The strip displays position cover, so
+       sorting on order-only cover ranked the list by an invisible figure. */
+    case "cover":  return (a,b)=>(positionCoverOf(b)??-1)-(positionCoverOf(a)??-1);
     case "name":   return (a,b)=>String(a.description||a.sku)
                                    .localeCompare(String(b.description||b.sku));
     case "source": return (a,b)=>String(a.source||"").localeCompare(String(b.source||""))
@@ -768,13 +1307,181 @@ function sorter(){
 }
 
 /* ── one line ────────────────────────────────────────────────────────────── */
+/* ⭐⭐ THE POSITION STRIP — the seven numbers a buyer needs to approve a line,
+   in the SAME SEVEN PLACES on every row (Jack, 2026-09-06).
+   ⛔ EVERY ONE OF THESE WAS ALREADY ON THE ROW, inside the `why` string behind a
+   collapsed <details>. Data that requires a click is data the reviewer does not
+   have while scanning 157 lines.
+   ⛔ AN UNKNOWN IS RENDERED AS UNKNOWN, NEVER AS ZERO AND NEVER AS A FULL BAR.
+   A SKU with no sales rate has no cover — that is an abstention, and drawing a
+   confident bar for it would be the exact failure this whole engine keeps hitting
+   (an absent signal read as a positive one). */
+/* ⭐⭐ WHEN DOES THE ORDER WE ARE PLACING SELL OUT? (Jack, 2026-09-06: *"we are
+   buying 24, but that should sell out by XYZ date? … if I adjust that to 55 when
+   would it sell out by?"*) The live recalculation as the quantity changes IS the
+   feature — a static date answers a question nobody asked.
+   ⛔⛔ AN EARLIER VERSION OF THIS WAS WRONG TWICE, AND BOTH ERRORS MADE SAFE
+   LINES LOOK DANGEROUS:
+     1. it divided the WHOLE POSITION by the rate, which answers "when does
+        everything run out", not "when does the order I am placing run out";
+     2. it judged that date against the OLD stock's best-by. New units arrive
+        fresh with their own dating — condemning them by the date on shelf stock
+        failed lines that were perfectly fine.
+   ⭐ THE MODEL, in the order things actually happen (FIFO):
+     live_old  what we hold that will really sell before it dates. ⛔ THE ENGINE
+               ALREADY COMPUTES THIS — `on_hand_effective`. Never re-derive it:
+               a crude `rate x days_left` read 45 where the engine said 16 and
+               falsely condemned a whole-milk line.
+     start     live_old / rate weeks — when the NEW stock begins selling
+     sellout   start + order_qty / rate weeks — when this order runs out
+     deadline  the new units arrive after the delivery lag and must be GONE
+               CUSTOMER_MIN_DAYS before their own best-by
+   ⛔ NO RATE OR NO SHELF LIFE ⇒ NO VERDICT, and no rate at all ⇒ no date either.
+   A large share of lines carry `no_dating_evidence`: that SKU has never been
+   scanned, and inventing a deadline for it is worse than saying so. */
+function sellThrough(r){
+  const rate=+r.q75_wk||+r.mean_wk||0;
+  const q=qtyOf(r);
+  if(!rate||q<=0) return null;
+  const eff=r.on_hand_effective;
+  if(eff==null||eff==="") return null;          // ⛔ unknown, not zero
+  const start=Math.max(0,+eff)/rate*7;
+  const sellout=start+q/rate*7;
+  const sd=+r.shelf_days||0;
+  const deadline=sd?(DELIVERY_LAG_DAYS+sd-CUSTOMER_MIN_DAYS):null;
+  return {start, sellout, deadline,
+          late: deadline!=null && sellout>deadline,
+          over: deadline!=null ? sellout-deadline : null};
+}
+/* ⭐ Day 0 is the ORDER SUNDAY — the same origin the deadline is measured from
+   (arrival = day DELIVERY_LAG_DAYS). ⛔ Built with the local-date constructor,
+   never `new Date("2026-09-06")`, which parses as UTC and renders as the day
+   before west of Greenwich. */
+function dayZero(){
+  const s=(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK||"";
+  const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s));
+  return m?new Date(+m[1],+m[2]-1,+m[3]):null;
+}
+function dayLabel(days){
+  const z=dayZero(); if(!z) return null;
+  const d=new Date(z.getTime());
+  d.setDate(d.getDate()+Math.round(days));
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})
+    + (d.getFullYear()!==z.getFullYear()?" "+d.getFullYear():"");
+}
+/* ⛔ SAME PLACE ON EVERY ROW, including when it cannot be computed — a line that
+   simply omits the sentence reads as a line with nothing to worry about. */
+function sellLine(r){
+  const st=sellThrough(r);
+  if(!st){
+    const why = qtyOf(r)<=0 ? "nothing on order"
+      : (!(+r.q75_wk||+r.mean_wk)) ? "no sales rate for this item"
+      : "no effective-stock reading";
+    return `<div class="sell none">sell-through date unknown — ${esc(why)}</div>`;
+  }
+  const out=dayLabel(st.sellout), begin=dayLabel(st.start);
+  if(!out) return `<div class="sell none">sell-through date unknown — the order
+    week is not a date</div>`;
+  const startBit = st.start>=1
+    ? ` (starts selling ~${esc(begin)}, after the ${Math.round(st.start)}d of stock
+        already on the floor)` : "";
+  if(st.deadline==null)
+    return `<div class="sell">sells out ~<b>${esc(out)}</b>${startBit}
+      · <span class="mut">no shelf life on record, so nothing checks that against
+      its dating</span></div>`;
+  const by=dayLabel(st.deadline);
+  return st.late
+    ? `<div class="sell bad">sells out ~<b>${esc(out)}</b>${startBit}
+       — ⛔ <b>${Math.round(st.over)} day(s) past</b> the ${esc(by)} it must be
+       sold by (${r.shelf_days}d of life, less the ${CUSTOMER_MIN_DAYS}d a customer
+       must receive)</div>`
+    : `<div class="sell ok">sells out ~<b>${esc(out)}</b>${startBit}
+       — within the ${esc(by)} it must be sold by</div>`;
+}
+function posStrip(r){
+  const rate = +r.q75_wk || +r.mean_wk || 0;
+  const oh   = +r.on_hand || 0, inb = +r.inbound || 0, bk = +r.pre_window || 0;
+  const addQ = qtyOf(r), have = oh + inb;
+  const lifeW = r.shelf_days ? (+r.shelf_days)/7 : null;
+  const haveW = rate ? have/rate : null;
+  const addW  = rate ? addQ/rate : null;
+  // ⭐ one definition — see positionCoverOf. Never recompute this here.
+  const totW  = positionCoverOf(r);
+  const cell=(v,lbl,cls)=>`<div class="${cls||""}"><b>${v}</b><s>${lbl}</s></div>`;
+  const n=v=>Number.isInteger(v)?String(v):String(Math.round(v*10)/10);
+
+  let bar;
+  if(totW==null){
+    // no rate ⇒ no cover. Say so; do not draw a bar that implies a measurement.
+    bar = `<div class="cov"><div class="covtrack"></div>
+      <span class="covnote none">no sales rate — cover cannot be computed</span></div>`;
+  }else{
+    const ceil  = lifeW || 0;
+    const scale = Math.max(totW, ceil) || 1;
+    const s1 = Math.min(haveW, ceil||totW);
+    const s2 = Math.max(0, Math.min(totW, ceil||totW) - s1);
+    const s3 = ceil ? Math.max(0, totW - ceil) : 0;
+    const pct = w => (w/scale*100).toFixed(1);
+    /* ⛔ SAY WHICH COVER THIS IS. The risk chip beside it measures the ORDER
+       alone (`coverOf`), this bar measures the POSITION we would hold — stock +
+       inbound + order. On a slow mover with deep stock those differ by weeks, so
+       an unqualified "cover" on both would read as the page contradicting
+       itself. Measured 2026-09-06: 17 lines where the two verdicts disagree,
+       every one of them the chip being the QUIETER of the two. */
+    const note = !ceil ? `${n(totW)}w on hand+order · life unknown`
+      : s3 > 0.05 ? `${n(totW)}w on hand+order vs ${n(ceil)}w of life — ${n(s3)}w past it`
+      : `${n(totW)}w on hand+order within ${n(ceil)}w of life`;
+    bar = `<div class="cov"><div class="covtrack">
+        <i class="have" style="left:0;width:${pct(s1)}%"></i>
+        <i class="add"  style="left:${pct(s1)}%;width:${pct(s2)}%"></i>
+        ${s3>0?`<i class="over" style="left:${pct(ceil)}%;width:${pct(s3)}%"></i>`:""}
+        ${ceil?`<u style="left:${pct(ceil)}%" title="what the dating allows"></u>`:""}
+      </div><span class="covnote ${s3>0.05?"bad":""}">${esc(note)}</span></div>`;
+  }
+  /* ⛔⛔ A MISSING FIGURE IS NOT A ZERO. `+r.on_hand||0` renders an item we hold
+     no Finale record for as "0 on hand" — a confident measurement of nothing,
+     and the strongest possible argument for buying it. ⭐ For a SKU we carry, 0
+     IS the measurement and still prints as 0; only absent prints as "—". Found
+     driving the real page after the first catalogue line was added, 2026-09-06. */
+  const nn=(raw,v)=>(raw==null||raw==="")?"—":n(v);
+  const zz=raw=>(raw==null||raw==="")?"z":"";
+  return `<div class="pos">
+    ${cell(nn(r.on_hand,oh),   "on hand", oh?zz(r.on_hand):"z")}
+    ${cell(nn(r.inbound,inb),  "inbound", inb?zz(r.inbound):"z")}
+    ${cell(nn(r.pre_window,bk),"booked",  bk?zz(r.pre_window):"z")}
+    ${cell(rate?n(rate):"—", "sells/wk", rate?"":"z")}
+    ${cell(`<span data-posqty>${n(addQ)}</span>`, "ordering", addQ?"add":"z")}
+    ${cell(totW==null?"—":n(totW)+"w", "total cover", totW==null?"z":(lifeW&&totW>lifeW?"hot":""))}
+    ${cell(r.shelf_days?r.shelf_days+"d":"—", "shelf life", r.shelf_days?"":"z")}
+  </div>${bar}${sellLine(r)}`;
+}
+/* ⭐ Cover and shelf life live in the fixed strip below the name, not in the
+   prose line — same seven columns on every row. There is no `data-cover` span
+   any more; applyQty repaints the whole strip instead.
+   ⛔⛔ AND A HARD RULE LEARNED THE EXPENSIVE WAY (2026-09-06): the note above
+   used to sit INSIDE this function's returned template literal, as an HTML
+   comment, written with backticks around the identifiers. A BACKTICK INSIDE A
+   TEMPLATE LITERAL CLOSES IT — so the rest of the markup was parsed as
+   JavaScript and the whole file died on `SyntaxError: Unexpected identifier
+   'data'`. Nothing rendered; the page was a blank shell. ⛔ NEVER put a comment
+   inside a template literal here: JS comments go ABOVE the return, where a
+   backtick is harmless and where they cost no bytes in 265 rows of markup.
+   ⭐ The tags below say WHAT a line is in WORDS, never only in a colour: "the
+   engine never proposed this" (added by hand, green rail) and "someone edited
+   the engine's number" (changed, accent rail) are different facts and must not
+   share one cue.
+   ⭐ `added_by_hand` is filtered out of the three displayed engine flags — the
+   ADDED BY HAND tag already says it, and spending a slot repeating it hides an
+   engine flag the buyer has not seen. It stays in `r.flags`, so it is still what
+   gets SAVED with the decision. */
 function lineHtml(r){
   const st=stateOf(r), q=qtyOf(r), c=unitCost(r);
-  const changed=touched(r), cw=coverOf(r), rk=riskOf(r);
-  const inc=r.unit_of_sale||1;
+  const changed=touched(r), rk=riskOf(r);
+  const inc=incOf(r);
   const note=(EDIT[r.sku]||{}).note ?? (SAVED[r.sku]||{}).reviewer_note ?? "";
   const rs=reviewState(r);
-  return `<div class="line ${changed?"changed":""} ${st==="remove"?"removed":""}${
+  return `<div class="line ${changed?"changed":""} ${r.added?"added":""} ${
+      r.notCarried?"notcarried":""} ${st==="remove"?"removed":""}${
       rs==="new"?" unreviewed":""}" data-sku="${escAttr(r.sku)}">
     <div>
       <div class="nm">${rs==="new"?`<span title="you have not looked at this line yet"
@@ -782,9 +1489,8 @@ function lineHtml(r){
         style="color:var(--good)">●</span> `}${esc(r.description||r.sku)}</div>
       <div class="meta">${esc(r.brand||"")} · ${esc(r.sku)}
         · ${money(c)}/unit → <b data-linecost>${money(q*c)}</b>
-        · ordering <b data-unitlabel>${unitLabel(r)}</b>
-        · <span data-cover>${cw!=null?cw+"w cover":"cover unknown"}</span>
-        ${r.shelf_days?` · ${r.shelf_days}d life`:" · life unknown"}</div>
+        · ordering <b data-unitlabel>${unitLabel(r)}</b></div>
+      <div data-pos>${posStrip(r)}</div>
       <div class="tags">
         <span class="tag src">${esc(r.source)}</span>
         <span class="tag ${rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":""}"
@@ -798,8 +1504,19 @@ function lineHtml(r){
           >BULK — one case is ${perOrderUnit(r)} sellable units</span>`:""}
         ${(EDIT[r.sku]||{}).order_unit||(SAVED[r.sku]||{}).order_unit_override
           ?`<span class="tag warn">ordering unit corrected by hand</span>`:""}
-        ${(r.flags||[]).slice(0,3).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}
-        ${changed&&st!=="remove"?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
+        ${(r.flags||[]).filter(f=>f!=="added_by_hand").slice(0,3)
+             .map(f=>`<span class="tag">${esc(f)}</span>`).join("")}
+        ${r.added?`<span class="tag add" title="the engine did not propose this line
+          — a reviewer put it on the order">ADDED BY HAND</span>`:""}
+        ${r.notCarried?`<span class="tag nc" title="we hold no Finale product for this
+          item: it can be ordered from KeHE, but the PO cannot be imported into Finale
+          until ProductPipeline creates it">⚠️ NOT CARRIED — KeHE item ${
+          esc(r.kehe_item||"?")}</span>`:""}
+        ${r.partial?`<span class="tag bad" title="only the fields stored with the
+          decision are known — the sales rate and shelf life are not">partial record</span>`:""}
+        ${r.added&&!r.kehe_item&&!r.partial?`<span class="tag bad" title="finalize
+          needs a KeHE item number to put a line on the PO">⛔ no KeHE item number</span>`:""}
+        ${changed&&st!=="remove"&&!r.added?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
         ${st==="remove"?`<span class="tag bad">removed</span>`:""}
         ${r.prior_edit?`<span class="tag warn">someone already changed this from the
           engine's ${r.engine_qty}</span>`:""}
@@ -873,15 +1590,424 @@ function render(){
     the shelf sales rate — a promo probe, a minimum-presence line, a seasonal buy or a
     recipe-kit top-off. ⛔ Cover-vs-life does not apply to those, so they carry no dating
     verdict here.</div>`;
+  /* ⛔ A LINE A HUMAN ADDED THAT COULD NOT BE FULLY REINSTATED IS NOT A DETAIL.
+     Its quantity is intact and will be ordered, but the figures beside it are
+     absent — so it must say that rather than render as an ordinary row whose
+     numbers happen to be blank. */
+  if(ADD_NOTE) head+=`<div class="banner bad">${ADD_NOTE}</div>`;
+  const added=LINES.filter(r=>r.added);
+  if(added.length){
+    const au=added.filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0);
+    head+=`<div class="banner">⭐ <b>${au.length} line(s) on this order were added by
+      hand</b> — the engine did not propose them
+      (${money0(au.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0))} at cost). They are
+      marked <b>ADDED BY HAND</b> and carry a green rail. ⛔ They reach the order the
+      same way every other change does: Save, then
+      <code>purchase_drain.py</code>.</div>`;
+    /* ⛔⛔ A LINE FOR SOMETHING WE DO NOT CARRY IS A DIFFERENT COMMITMENT and must
+       be counted separately: nothing on this page checked its quantity, and the
+       PO it lands on cannot be imported into Finale until the product exists. */
+    const nc=au.filter(r=>r.notCarried);
+    if(nc.length)
+      head+=`<div class="banner bad">⚠️ <b>${nc.length} of those are items we do NOT
+        carry</b> (${money0(nc.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0))} at cost):
+        ${nc.map(r=>esc(r.description||r.sku)).join(" · ")}.
+        ⛔ They have no sales history, no on-hand and no dating, so <b>nothing here
+        checked the quantity</b>. They WILL go on the KeHE order; the PO cannot be
+        imported into Finale until ProductPipeline creates each product. ⭐ If we mean
+        to CARRY any of them, put it through <code>newitem_week.py</code>.</div>`;
+  }
   const nr=ORDER.meta.not_ordered_by_reason||{};
-  head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} lines the engine
-    wants to buy for the <b>week of ${esc(ORDER.meta.order_sunday)}</b>,
-    from ${ORDER.meta.lines_considered.toLocaleString()} considered.
+  /* ⛔ "lines the engine wants to buy" stopped being true the moment a reviewer
+     could add one, and a count that quietly changes meaning is worse than a
+     longer sentence. The engine's own figure is stated separately. */
+  head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} line(s) on this
+    order for the <b>week of ${esc(ORDER.meta.order_sunday)}</b> —
+    ${ORDER.meta.lines_buying} proposed by the engine
+    from ${ORDER.meta.lines_considered.toLocaleString()} considered${
+      added.length?`, plus ${added.length} added by hand`:""}.
     <span class="mut">Not ordered: ${Object.entries(nr).slice(0,4)
       .map(([k,n])=>`${esc(k)} ${n}`).join(" · ")}.</span></div>`;
   m.innerHTML=head+(v.length?v.map(lineHtml).join(""):`<div class="center">nothing matches</div>`);
   paintTotals();
 }
+
+/* ── add an item ─────────────────────────────────────────────────────────── */
+/* ⭐⭐ THE GAP THIS CLOSES: the reviewer could change a quantity, zero a line or
+   mark it reviewed, but never put a SKU ON the order — so every idea from
+   Julia's own hand-built sheet that the engine had not proposed had nowhere to
+   go except a conversation.
+   ⛔ THE POOL IS THE ORDER SHEET, NOT THE CATALOGUE. Every SKU offered here is a
+   row `order_sheet.csv` already carries, which is precisely what makes an added
+   line EXECUTABLE — `purchase_drain.py` writes `approved_qty` onto the matching
+   sheet row and `kehe_order.py finalize` orders it. A SKU with no row in that
+   sheet has nowhere for the decision to land: it would look added on screen and
+   silently never be ordered. ⭐ A genuinely NEW item (no Finale product, no
+   store channels) goes through `newitem_week.py`, which is gated for good
+   reasons this must not route around. */
+function closeAdd(){
+  const w=document.getElementById("addwrap");
+  if(w) w.hidden=true;
+}
+async function openAdd(){
+  const w=document.getElementById("addwrap"); if(!w) return;
+  w.hidden=false;
+  const week=(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK;
+  /* ⛔ NO ORDER, NO POOL. Without a week there is nothing to key the candidate
+     file on, and fetching `candidates_undefined.json` would report a 404 as
+     though the week's file were missing. */
+  if(!week){
+    CAND_STATE="error";
+    CAND_ERR="no order week is loaded yet — the order itself has not been read, "
+            +"so there is nothing to add to.";
+    paintAdd(); return;
+  }
+  if(CAND_STATE!=="ready"||CAND_WEEK!==week){
+    CAND_STATE="loading"; paintAdd();
+    await loadCandidates(week);
+  }
+  paintAdd();
+  const q=document.getElementById("addq");
+  if(q && CAND_STATE==="ready"){ q.disabled=false; q.focus(); }
+}
+/* ⭐ The candidate's own increment, cost and pack — read through the SAME helpers
+   the list rows use, by building the row first. ⛔ Never a second copy of the
+   cost chain or the pack rule. */
+function candMatch(c,q,key){
+  if(!q) return true;
+  /* ⛔⛔ A CODE MUST FIND THE CARRIED ITEM FIRST. Without this, pasting a KeHE
+     item number for something we DO stock matched nothing here and the catalogue
+     section then offered it as "not carried" — which is false, and acting on it
+     would create a second, unimportable line for a SKU we already have. ⭐ Both
+     sides are normalised, because the price file pads the item number and the
+     catalogue stores it stripped. */
+  if(key && (codeKey(c.upc)===key || codeKey(c.kehe_item)===key)) return true;
+  return (c.description||"").toLowerCase().includes(q)
+      || (c.brand||"").toLowerCase().includes(q)
+      || (c.category||"").toLowerCase().includes(q)
+      || String(c.sku||"").toLowerCase().includes(q)
+      || String(c.upc||"").includes(q);
+}
+function candHtml(c){
+  const r=rowFromCandidate(c);
+  const inc=incOf(r), per=Number(r.units_per_order_unit)||1;
+  const rate=+r.q75_wk||+r.mean_wk||0;
+  const on=LINES.some(x=>String(x.sku)===String(c.sku));
+  const n=v=>v==null?"—":(Number.isInteger(+v)?String(+v):String(Math.round(+v*10)/10));
+  const fig=(lbl,v)=>`<span>${lbl} <b>${v}</b></span>`;
+  return `<div class="cand ${on?"on":""}" data-cand="${escAttr(c.sku)}">
+    <div>
+      <div class="nm">${esc(c.description||c.sku)}</div>
+      <div class="meta">${esc(c.brand||"")} · ${esc(c.sku)}
+        · ${money(unitCost(r))}/unit${c.category?" · "+esc(c.category):""}</div>
+      <div class="candfig">
+        ${fig("on hand", n(r.on_hand))}
+        ${fig("inbound", n(r.inbound))}
+        ${fig("booked", n(r.pre_window))}
+        ${fig("sells/wk", rate?n(rate):"—")}
+        ${fig("shelf life", r.shelf_days?r.shelf_days+"d":"—")}
+        ${inc>1?fig("orders in", inc+"s"):""}
+        ${per>1?`<span style="color:var(--warn)">BULK — one case is ${per} units</span>`:""}
+        ${!c.kehe_item?`<span style="color:var(--bad)">⛔ no KeHE item number —
+          <code>kehe_order.py finalize</code> cannot put this on the PO</span>`:""}
+        ${!unitCost(r)?`<span style="color:var(--bad)">⛔ no cost on record —
+          it would go on the order at $0.00</span>`:""}
+      </div>
+      ${c.why_not?`<div class="candwhy">the engine left it off: ${esc(c.why_not)}</div>`:""}
+    </div>
+    <div class="acts">
+      ${on?`<span class="tag add">✓ on the order</span>`
+          :`<input type="number" min="${inc}" step="${inc}" value="${inc}"
+                   data-addq="${escAttr(c.sku)}" aria-label="quantity to add">
+            <button class="primary" data-add="${escAttr(c.sku)}">Add</button>`}
+    </div>
+  </div>`;
+}
+/* ⭐ ONE CARD FOR AN ITEM WE DO NOT CARRY. ⛔ It shows only what the price file
+   actually knows — item number, UPC, size, cost, pack, SRP — and says plainly
+   that everything else is unknown. There is deliberately no on-hand, no
+   sells/wk and no shelf life here: printing "—" in the same row of figures a
+   candidate uses invites the eye to read them as measurements of zero. */
+/* ⛔⛔ AN ITEM WE ALREADY CARRY CAN APPEAR IN THE "NOT CARRIED" CATALOGUE, AND
+   ADDING IT WOULD BE THE WORST OUTCOME THIS PANEL CAN PRODUCE: a second line for
+   a product we stock, keyed to no Finale SKU, which cannot be imported and would
+   arrive as a duplicate buy. ⭐ MEASURED on the 2026-09-06 build: 489 of 20,580
+   catalogue rows share a UPC with something on the order sheet — Organic Valley
+   Half & Half is `1-120` to us and item 539437 in the catalogue, the same
+   physical case. The engine's own exclusion compares item numbers as RAW
+   STRINGS, and the sheet stores `00539437` where the price file's key is
+   `539437`, so the padding alone was enough to leak it through.
+   ⭐ So the page checks BOTH keys against everything we carry — the candidate
+   pool plus the lines already on the order — and offers no Add button when it
+   hits. ⛔ It says which SKU instead of hiding the row: silently dropping it
+   would answer "KeHE does not sell that" for an item we buy every week. */
+function carriedIndex(){
+  const ix={};
+  const put=(k,v)=>{ if(k&&!ix[k]) ix[k]=v; };
+  for(const r of LINES){
+    if(r.notCarried) continue;                 // ⛔ not evidence that we carry it
+    put(codeKey(r.upc), r); put(codeKey(r.kehe_item), r);
+  }
+  for(const c of ((CAND&&CAND.rows)||[])){
+    put(codeKey(c.upc), c); put(codeKey(c.kehe_item), c);
+  }
+  return ix;
+}
+const carriedAs=(c,ix)=>ix[c._upcKey]||ix[c._itemKey]||null;
+function catCardHtml(c,ix){
+  const r=rowFromCatalog(c);
+  const inc=incOf(r);
+  const dup=ix?carriedAs(c,ix):null;
+  const on=LINES.some(x=>String(x.sku)===String(r.sku));
+  const fig=(lbl,v)=>`<span>${lbl} <b>${v}</b></span>`;
+  const promo=(c.promo_start||c.promo_end)
+    ? `promo ${esc(c.promo_start||"?")} → ${esc(c.promo_end||"?")}` : "";
+  return `<div class="cand newitem ${on?"on":""}" data-cand="${escAttr(r.sku)}">
+    <div>
+      <div class="nm">${esc(c.description||r.sku)}</div>
+      <div class="meta">${esc(c.brand||"")} · KeHE item <b>${esc(String(c.item??""))}</b>
+        · UPC ${esc(String(c.upc||"—"))}
+        · ${money(catCost(c))}/unit at regular cost</div>
+      <div class="candfig">
+        ${fig("size", esc([c.size,c.uom].filter(Boolean).join(" ")||"—"))}
+        ${fig("orders in", (c.unit_of_sale||1)+"s")}
+        ${fig("master case", c.casepack||"—")}
+        ${fig("KeHE SRP", c.srp!=null?money(c.srp):"—")}
+        ${promo?`<span style="color:var(--warn)">${promo}</span>`:""}
+        ${!catCost(c)?`<span style="color:var(--bad)">⛔ no regular cost in the price
+          file — it would go on the order at $0.00</span>`:""}
+      </div>
+      ${dup?`<div class="catwarn" style="color:var(--bad);border-color:var(--bad)">
+        ⛔ <b>We already carry this.</b> It is
+        <b>${esc(dup.description||dup.sku)}</b> (SKU <b>${esc(dup.sku)}</b>) on this
+        week's sheet — the catalogue lists it separately because the item number is
+        written differently in the two files. ⛔ Do NOT add it from here: that would
+        be a second line for the same product, keyed to no Finale SKU. ⭐ Search for
+        <b>${esc(dup.sku)}</b> above and change THAT line's quantity.</div>`
+        :`<div class="catwarn">⚠️ <b>We do not carry this.</b> No Finale SKU, no sales
+        history, no on-hand and no best-by — so no cover, no sell-through date and
+        no dating verdict can be shown, and you are sizing it blind. It CAN be
+        ordered from KeHE (they key on the UPC and item number); the PO cannot be
+        imported into Finale until ProductPipeline creates the product. ⭐ To CARRY
+        it, use the new-item review (<code>newitem_week.py</code>) instead — this is
+        for a one-off buy.</div>`}
+    </div>
+    <div class="acts">
+      ${dup?`<span class="tag bad">already carried</span>`
+        :on?`<span class="tag add">✓ on the order</span>`
+          :`<input type="number" min="${inc}" step="${inc}" value="${inc}"
+                   data-addq="${escAttr(r.sku)}" aria-label="quantity to add">
+            <button class="primary" data-add="${escAttr(r.sku)}">Add</button>`}
+    </div>
+  </div>`;
+}
+/* ⭐⭐ THE CATALOGUE HALF OF THE PANEL. ⛔ It is loaded LAZILY and only when it is
+   actually wanted — 2.4 MB must never be pulled during ordinary review — so this
+   returns markup for whatever state it is in, and kicks the fetch off when it
+   should. ⛔ A LOADING STATE IS MANDATORY: on a slow link this is a visible wait,
+   and a panel that says "nothing matches" while a fetch is in flight tells the
+   buyer an item does not exist when we simply have not looked yet. */
+function catSection(term, key, candHits){
+  /* ⭐ WHEN TO REACH FOR IT: the user typed something that looks like an item
+     number or a UPC (they are asking about THAT item, whatever the descriptions
+     matched), or nothing among the SKUs we carry matched at all. */
+  const want = !!term && (looksLikeCode(term) || candHits===0);
+  if(!want) return "";
+  const week=(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK;
+  if(!week) return "";
+  const LOADING=`<div class="catsec"><div class="center">searching the full KeHE
+      catalogue (2.4 MB, first search only)…</div></div>`;
+  /* ⛔⛔ THE STATES ARE TESTED ONE AT A TIME, IN ORDER, AND NOT AS ONE BOOLEAN.
+     Written as `STATE!=="ready" && STATE!=="loading" || WEEK!==week` this read
+     `(A&&B)||C`, so an ERRORED load took the first branch: it rendered the
+     LOADING message, called loadCatalog again, got an instant `false` back from
+     its own error guard, repainted — and sat there telling the buyer we were
+     still searching, forever. ⛔ That is the "a failed load must not look like an
+     empty shelf" rule this file already states once, in a new costume: the buyer
+     must be told we could not look. Caught by driving the real page, 2026-09-06. */
+  if(CAT_WEEK!==week || CAT_STATE==="idle"){
+    /* ⛔ Fire and repaint when it lands. loadCatalog sets its state SYNCHRONOUSLY
+       before its first await, so a burst of keystrokes cannot start a storm. */
+    loadCatalog(week).then(()=>paintAdd());
+    return LOADING;
+  }
+  if(CAT_STATE==="loading") return LOADING;
+  if(CAT_STATE!=="ready")
+    return `<div class="catsec"><div class="banner bad">⛔ <b>The items we do NOT
+      carry could not be searched.</b><br>${esc(CAT_ERR||"unknown error")}
+      <br><br>⛔ This is NOT "KeHE does not sell it" — we simply could not look.
+      Everything else on the page is unaffected.</div></div>`;
+  const hits=CAT_ROWS.filter(c=>catMatch(c,term,key));
+  const shown=hits.slice(0,CAT_MAX);
+  /* ⭐ Built ONCE per paint, not per card — carriedIndex() walks 2,200 rows. */
+  const ix=carriedIndex();
+  const dups=shown.filter(c=>carriedAs(c,ix)).length;
+  return `<div class="catsec">
+    <div class="banner">${hits.length
+      ? `<b>${hits.length.toLocaleString()}</b> KeHE item(s) we do <b>not</b> carry
+         match "${esc(ADDQ)}" (of ${CAT_ROWS.length.toLocaleString()} searched by
+         item number, UPC, description and brand).`
+      : `<b>No KeHE item we do not carry</b> matches "${esc(ADDQ)}" either —
+         ${CAT_ROWS.length.toLocaleString()} searched by item number, UPC,
+         description and brand.`}
+      ⛔ These have <b>no Finale SKU and no history</b>: orderable from KeHE, but
+      the PO cannot be imported into Finale until the product exists.
+      ${dups?`<br>⛔ <b>${dups} of them we ALREADY carry</b> under a different item
+        number — those cannot be added here, and say which SKU to use instead.`:""}</div>
+    ${CAT_WARN?`<div class="banner bad">${esc(CAT_WARN)}</div>`:""}
+    ${shown.map(c=>catCardHtml(c,ix)).join("")}
+    ${hits.length>shown.length
+      ? `<div class="candmore">${(hits.length-shown.length).toLocaleString()} more —
+         search by the exact KeHE item number or UPC to land on one.</div>`:""}
+  </div>`;
+}
+function paintAdd(){
+  const wrap=document.getElementById("addwrap");
+  /* ⛔ Nothing to paint while it is closed — and `idle` would otherwise render
+     the failure banner ("unknown error") for a panel that has simply never been
+     opened. Callers repaint it freely after an edit; this is the guard. */
+  if(!wrap||wrap.hidden) return;
+  const box=document.getElementById("addbody"),
+        sub=document.getElementById("addsub"),
+        q=document.getElementById("addq");
+  if(!box) return;
+  if(CAND_STATE==="loading"){
+    if(q) q.disabled=true;
+    if(sub) sub.textContent="";
+    box.innerHTML=`<div class="center">loading the items the engine considered…</div>`;
+    return;
+  }
+  /* ⛔⛔ A FAILED LOAD MUST NOT LOOK LIKE AN EMPTY SHELF. A search box over zero
+     rows answers "there is nothing you can add", which is false, and a buyer has
+     no way to tell the two apart. So the box is DISABLED and the reason — with
+     the command that fixes it — is what fills the panel. */
+  if(CAND_STATE!=="ready"){
+    if(q){ q.disabled=true; q.value=""; }
+    if(sub) sub.textContent="";
+    box.innerHTML=`<div class="banner bad">⛔ <b>The list of addable items could not
+      be loaded, so nothing can be added right now.</b><br>${esc(CAND_ERR||"unknown error")}
+      <br><br>⛔ This is NOT "there is nothing to add" — the engine considered
+      ${ORDER&&ORDER.meta?Number(ORDER.meta.lines_considered||0).toLocaleString():"thousands of"}
+      SKUs for this week. Everything else on the page is unaffected.</div>`;
+    return;
+  }
+  if(q) q.disabled=false;
+  const all=(CAND&&CAND.rows)||[];
+  const term=ADDQ.trim().toLowerCase();
+  /* ⭐ Computed ONCE and passed down: an item number or UPC, stripped of padding
+     and punctuation, or "" when what was typed is not a code. */
+  const key=looksLikeCode(term)?codeKey(term):"";
+  let hits=all.filter(c=>candMatch(c,term,key));
+  /* ⭐ WITH NO SEARCH TERM, SHOW THE FASTEST SELLERS THE ENGINE DECLINED rather
+     than nothing. A blank panel reads as an empty pool; this is both a real
+     answer to "what am I missing?" and proof the list loaded. */
+  let headline="";
+  if(!term){
+    hits=all.filter(c=>(+c.q75_wk||+c.mean_wk||0)>0)
+            .sort((a,b)=>((+b.q75_wk||+b.mean_wk||0)-(+a.q75_wk||+a.mean_wk||0)));
+    headline=`Showing the fastest-selling items the engine did <b>not</b> buy this
+      week. Type above to search all ${all.length.toLocaleString()}.`;
+  }
+  const shown=hits.slice(0,ADD_MAX);
+  if(sub) sub.textContent=`${all.length.toLocaleString()} SKUs the engine `
+    +`considered and did not buy · week of ${(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK}`;
+  box.innerHTML=
+     (CAND_WARN?`<div class="banner bad">${esc(CAND_WARN)}</div>`:"")
+   + `<div class="banner">${headline||`<b>${hits.length.toLocaleString()}</b> match
+       "${esc(ADDQ)}".`}
+       ⛔ Adding a line records a DECISION — it orders nothing. Quantities round
+       <b>up</b> to what KeHE will ship. ⭐ Type a <b>KeHE item number</b> or a
+       <b>UPC</b> to search the whole KeHE catalogue, including items we do not
+       carry.</div>`
+   + (shown.length?shown.map(candHtml).join("")
+                  :(term?`<div class="center">nothing we carry matches
+                          "${esc(ADDQ)}"</div>`:""))
+   + (hits.length>shown.length
+      ? `<div class="candmore">${(hits.length-shown.length).toLocaleString()} more —
+         narrow the search to see them.</div>` : "")
+   /* ⭐⭐ THE ITEMS WE DO NOT CARRY, in their own section BELOW the carried ones —
+      the carried pool is always the better answer when it has one, and mixing the
+      two would put a line with no history beside one with three years of it under
+      the same heading. ⛔ Lazily fetched: see catSection(). */
+   + catSection(term, key, hits.length);
+}
+/* ⭐ PUT THE LINE ON THE ORDER. ⛔ The quantity rounds UP to the order increment,
+   never to nearest: `Math.round(1/12)*12` is 0, and adding a line at zero is a
+   REMOVAL wearing an add's clothes. ⛔ And the increment is `unit_of_sale`,
+   never `casepack` — see incOf(). */
+function addSku(sku, want){
+  /* ⭐ TWO POOLS, ONE ADD PATH. A candidate is a SKU the order sheet already
+     carries; a catalogue item is one we do not carry at all. They differ in what
+     is KNOWN about them, not in how the decision is recorded — so everything
+     downstream (EDIT, Save, the unsaved guard, the totals) sees one shape. */
+  const cat=CAT_BY[String(sku)];
+  const c=cat?null:CAND_BY[String(sku)];
+  if(!c&&!cat) return {ok:false, msg:`⛔ ${sku} is not in this week's candidate list`};
+  if(LINES.some(x=>String(x.sku)===String(sku)))
+    return {ok:false, msg:`⛔ ${sku} is already on the order`};
+  /* ⛔⛔ THE GUARD IS HERE TOO, NOT ONLY IN THE MARKUP. The card that renders a
+     duplicate has no Add button, but a click can still arrive from a card painted
+     before the pool changed — and the cost of getting this wrong is a second,
+     unimportable line for a product we already stock. */
+  if(cat){
+    const dup=carriedAs(cat, carriedIndex());
+    if(dup) return {ok:false, msg:`⛔ we already carry this — it is `
+      +`${esc(dup.description||dup.sku)} (SKU ${esc(dup.sku)}). Change THAT line's `
+      +`quantity instead; adding it here would be a duplicate with no Finale SKU.`};
+  }
+  const r=cat?rowFromCatalog(cat):rowFromCandidate(c), inc=incOf(r);
+  let v=Number(want);
+  if(!Number.isFinite(v)||v<=0) v=inc;
+  v=Math.max(inc, Math.ceil(v/inc)*inc);
+  LINES.push(r);
+  /* ⭐ The quantity lives in EDIT exactly like any other human change, so Save,
+     the unsaved-work guard and the totals all pick it up with no special case. */
+  EDIT[String(sku)]={qty:v};
+  return {ok:true, qty:v, row:r,
+          msg:`✓ added ${esc(r.description||sku)} — ${v} unit(s). `
+             +(r.notCarried
+               ? `⚠️ We do NOT carry this — no sales history, no on-hand, no `
+                +`dating, so nothing here checks the quantity. It will go on the `
+                +`KeHE order; the PO cannot be imported into Finale until the `
+                +`product exists. `
+               : "")
+             +`⛔ nothing is saved until you press Save.`};
+}
+(function wireAdd(){
+  const open=document.getElementById("addopen");
+  if(open) open.onclick=()=>{ openAdd(); };
+  const close=document.getElementById("addclose");
+  if(close) close.onclick=()=>{ closeAdd(); };
+  /* ⛔ Clicking the backdrop closes; clicking INSIDE the box must not. */
+  const wrap=document.getElementById("addwrap");
+  if(wrap) wrap.onclick=e=>{ if(e.target===wrap) closeAdd(); };
+  document.addEventListener("keydown",e=>{
+    const w=document.getElementById("addwrap");
+    if(e.key==="Escape" && w && !w.hidden) closeAdd();
+  });
+  /* ⭐ wired ONCE, outside paintAdd() — the same rule as #q and #sort: paintAdd
+     rebuilds #addbody, and a <input> rebuilt under the cursor loses focus
+     mid-word. #addq lives OUTSIDE #addbody for exactly that reason. */
+  let t; const q=document.getElementById("addq");
+  if(q) q.oninput=e=>{clearTimeout(t);
+    t=setTimeout(()=>{ADDQ=e.target.value;paintAdd();},170);};
+})();
+/* ⛔ Capture phase, like every other delegated handler here (PM-512). */
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button[data-add]"); if(!b) return;
+  e.stopPropagation();
+  const sku=b.dataset.add;
+  const box=document.querySelector(`input[data-addq="${CSS.escape(sku)}"]`);
+  const res=addSku(sku, box?box.value:null);
+  const st=document.getElementById("status");
+  if(st) st.innerHTML=res.msg;
+  if(!res.ok) return;
+  /* ⭐ The panel stays OPEN — a reviewer working from Julia's sheet is adding
+     several, and closing after each one would make them re-search every time.
+     Both surfaces repaint so the row appears behind the panel and the candidate
+     flips to "✓ on the order". */
+  paintAdd(); render();
+},true);
 
 /* ── edits ───────────────────────────────────────────────────────────────── */
 /* ⛔⛔ BUG 2 — THE SNAP MUST BE VISIBLE. It used to change the stored value while
@@ -893,7 +2019,7 @@ function render(){
    and always keep the edit so the intent is recorded. */
 function applyQty(i, commit){
   const sku=i.dataset.q, r=LINES.find(x=>x.sku===sku); if(!r) return;
-  const inc=r.unit_of_sale||1;
+  const inc=incOf(r);
   let v=Number(i.value);
   if(!Number.isFinite(v)||v<0) v=0;
   if(commit){
@@ -919,13 +2045,17 @@ function applyQty(i, commit){
     // units of chia are both "1 case" and "2 cases" respectively.
     const ul=el.querySelector("[data-unitlabel]");
     if(ul) ul.innerHTML=unitLabel(r);
-    const cv=el.querySelector("[data-cover]");
-    if(cv){ const cw=coverOf(r), rk=riskOf(r);
-      cv.textContent=cw!=null?`${cw}w cover`:"cover unknown";
-      const t=el.querySelector("[data-risk]");
-      if(t){ t.textContent=rk==="ok"?"":rk;
-             t.className="tag "+(rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":"");
-             t.style.display=rk==="ok"?"none":""; } }
+    /* ⛔ THE STRIP MUST MOVE WITH THE QUANTITY. It shows "ordering" and "cover",
+       both of which change on every keystroke — a strip left stale would be a
+       confidently-wrong number sitting in the buyer's primary read. It holds no
+       focusable input, so a full repaint here is safe mid-edit. */
+    const ps=el.querySelector("[data-pos]");
+    if(ps) ps.innerHTML=posStrip(r);
+    const rk=riskOf(r);
+    const t=el.querySelector("[data-risk]");
+    if(t){ t.textContent=rk==="ok"||rk==="basis"?"":rk;
+           t.className="tag "+(rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":"");
+           t.style.display=rk==="ok"||rk==="basis"?"none":""; }
     // ⛔ BUG 9 — say something when a quantity is absurd. Nothing objected to a
     // two-million-dollar order before this.
     const big=v*unitCost(r)>2000;
@@ -1013,6 +2143,21 @@ document.addEventListener("click",e=>{
 document.addEventListener("click",e=>{
   const b=e.target.closest("button[data-rm]"); if(!b) return;
   const sku=b.dataset.rm;
+  /* ⭐⭐ REMOVING AN ADDED LINE THAT WAS NEVER SAVED TAKES IT OFF THE PAGE
+     ENTIRELY. There is no engine proposal underneath it to fall back to, so the
+     struck-through ghost the ordinary path leaves would be a row representing
+     nothing — and it would sit in the "removed" count as though the engine had
+     wanted it. ⛔ NOT so once it is SAVED: SharePoint then holds a row for that
+     SKU, and hiding it would hide a decision `purchase_drain.py` still applies.
+     Those stay on screen, struck through, at quantity 0. */
+  const r=LINES.find(x=>x.sku===sku);
+  if(r && r.added && !SAVED[sku]){
+    LINES=LINES.filter(x=>x.sku!==sku);
+    delete EDIT[sku];
+    const st=document.getElementById("status");
+    if(st) st.textContent=`removed the line you had added for ${sku} — it was never saved`;
+    paintAdd(); render(); return;
+  }
   const cur=EDIT[sku]||{};
   EDIT[sku]={...cur, decision: cur.decision==="remove"?null:"remove"};
   if(!EDIT[sku].decision && EDIT[sku].qty==null) delete EDIT[sku];
@@ -1020,12 +2165,20 @@ document.addEventListener("click",e=>{
 },true);
 document.getElementById("reset").onclick=()=>{
   const n=Object.keys(EDIT).length, saved=LINES.filter(r=>SAVED[r.sku]).length;
+  /* ⭐ Lines a human ADDED but never saved have no engine number to revert TO —
+     resetting them means taking them off the order, so say the count out loud
+     rather than letting them silently reappear at quantity 0. */
+  const adds=LINES.filter(r=>r.added&&!SAVED[r.sku]).length;
   /* ⛔ Reset clears UNSAVED work only. It used to leave the screen and the store
      disagreeing with no indication that saved changes were still in force. */
   if(n && !confirm(`Discard ${n} unsaved change(s)?`+
+      (adds?`\n\n⛔ ${adds} of those are lines you ADDED by hand and never saved — `+
+            `they will be taken off the order entirely.`:"")+
       (saved?`\n\n⛔ ${saved} change(s) already SAVED stay in force — use the ✕/quantity `+
              `to alter those, or they will be in the order.`:""))) return;
-  EDIT={}; render();
+  EDIT={};
+  LINES=LINES.filter(r=>!(r.added&&!SAVED[r.sku]));
+  paintAdd(); render();
   document.getElementById("status").textContent=
     saved?`unsaved changes discarded · ${saved} saved change(s) still apply`:"";
 };
@@ -1036,9 +2189,10 @@ document.getElementById("save").onclick=async()=>{
   btn.disabled=true; s.textContent="saving…";
   const id=await listId(); let ok=0, fail=0;
   const stamp=`${ORDER.meta.order_sunday} · built ${ORDER.meta.built_at||""}`;
+  let addedOk=0;
   for(const [sku,e] of Object.entries(EDIT)){
     const r=LINES.find(x=>x.sku===sku); if(!r) continue;
-    const q=e.decision==="remove"?0:(e.qty!=null?e.qty:(r.order_qty||0));
+    const q=saveQtyFor(r,e);
     /* ⭐ RECORD THE ENGINE'S NUMBER AND THE HUMAN'S SIDE BY SIDE. Storing only the
        final quantity loses the fact that a human overrode the model — which is
        the single most useful signal for improving it (order_feedback exists for
@@ -1046,13 +2200,21 @@ document.getElementById("save").onclick=async()=>{
     const f={Title:`${ORDER.meta.order_sunday}:${sku}`,
       order_sunday:ORDER.meta.order_sunday, sku, upc:r.upc||"",
       item:(r.description||"").slice(0,255), brand:r.brand||"", source:r.source||"",
-      engine_qty:r.order_qty??null, approved_qty:q,
-      decision:e.decision==="remove"?"remove":(q!==(r.order_qty||0)?"changed":"keep"),
+      /* ⭐ AN ADDED LINE HAS NO ENGINE QUANTITY, and 0 is the honest record of
+         that: the model proposed nothing. ⛔ Leaving it null would make an
+         addition indistinguishable from a decision row whose engine number was
+         simply never written, and the scorecard would have to guess. */
+      engine_qty:r.added?0:(r.order_qty??null), approved_qty:q,
+      decision:decisionFor(r,e),
       unit_cost:unitCost(r)||null, line_cost:Number((q*unitCost(r)).toFixed(2)),
       /* ⛔ the cover and risk RECORDED must describe the quantity actually
          approved. Storing the engine's cover_weeks against a halved quantity made
          the audit trail say the opposite of what the reviewer did. */
-      cover_weeks:coverOf(r), shelf_days:r.shelf_days??null,
+      /* ⛔ BOTH covers are recorded and NAMED. `dating_risk` is now judged on the
+         position, so storing only the order-cover would leave an audit trail whose
+         verdict could not be reproduced from its own numbers. */
+      cover_weeks:coverOf(r), position_cover_weeks:positionCoverOf(r),
+      on_hand:r.on_hand??null, inbound:r.inbound??null, shelf_days:r.shelf_days??null,
       dating_risk:riskOf(r), why:flat(r.why), flags:flat(r.flags),
       /* ⛔ THE Z IS LOAD-BEARING. toISOString() is UTC; slicing to 19 chars dropped
          the marker, so the same instant read as UTC here and as LOCAL in
@@ -1066,7 +2228,7 @@ document.getElementById("save").onclick=async()=>{
       change_reasons:reasonsOf(r).join(";").slice(0,255),
       reviewer:account, decided_at:new Date().toISOString().slice(0,19)+"Z",
       reviewer_note:(e.note||"").slice(0,255), build_stamp:stamp.slice(0,255)};
-    try{
+    const write=async()=>{
       const ex=(SAVED[sku]||{})._id;
       if(ex){ await graph(`/sites/${CFG.siteId}/lists/${id}/items/${ex}/fields`,
                           {method:"PATCH",body:JSON.stringify(f)});
@@ -1074,14 +2236,40 @@ document.getElementById("save").onclick=async()=>{
       else{ const j=await graph(`/sites/${CFG.siteId}/lists/${id}/items`,
               {method:"POST",body:JSON.stringify({fields:{...f,finalized:"false"}})});
             SAVED[sku]={...f,_id:j.id}; }
-      ok++;
+    };
+    try{
+      try{ await write(); }
+      catch(err){
+        /* ⛔⛔ "added" IS THE ONLY VALUE THIS PAGE HAS EVER SENT THAT THE LIST HAS
+           NOT SEEN BEFORE. If `decision` was created as a Choice column, an
+           unlisted value is rejected outright and the whole row is lost — and a
+           lost row is a line that shows as added on screen and never reaches the
+           order. ⭐ So retry ONCE as "changed", which is also true of an addition
+           (0 -> n), and SAY SO: a fallback nobody is told about is how a page
+           comes to disagree with its own store. ⛔ Once, and only for this one
+           value — everything else still fails loudly. */
+        if(f.decision==="added" && DECISION_ADDED==="added"){
+          DECISION_ADDED="changed"; ADDED_FALLBACK=true;
+          f.decision="changed";
+          await write();
+        } else throw err;
+      }
+      ok++; if(r.added) addedOk++;
     }catch(err){ fail++; console.error(sku,err); }
   }
   /* ⛔ SAY WHICH WEEK IT WENT TO. The one thing a reviewer cannot check afterwards
      is which order their decisions landed on. */
-  s.textContent = fail?`⛔ ${ok} saved, ${fail} FAILED on week ${ORDER.meta.order_sunday} — see the console`
-                      :`✓ ${ok} change(s) saved to week ${ORDER.meta.order_sunday}`
-                       +` · ${new Date().toLocaleTimeString()}`;
+  s.textContent = (fail?`⛔ ${ok} saved, ${fail} FAILED on week ${ORDER.meta.order_sunday} — see the console`
+                       :`✓ ${ok} change(s) saved to week ${ORDER.meta.order_sunday}`
+                        +` · ${new Date().toLocaleTimeString()}`)
+    + (addedOk?` · ${addedOk} line(s) you added by hand`:"")
+    /* ⛔ SAY IT. The store now records those additions as ordinary "changed"
+       rows, so anyone reading the list later cannot tell an addition from an
+       override — that is a real loss of signal and someone has to widen the
+       column. A silent fallback here would hide it forever. */
+    + (ADDED_FALLBACK?` · ⛔ this list would not accept decision="added", so added `
+        +`lines were recorded as "changed" — the quantities are correct, but tell `
+        +`Jack: the PurchaseReview "decision" column needs to allow "added"`:"");
   btn.disabled=false;
   /* ⭐ the picker's per-week counts are now stale — refresh them from what we just
      wrote, so "no decisions yet" does not persist on a week that now has some. */
@@ -1111,8 +2299,13 @@ document.getElementById("final").onclick=async()=>{
     .map(r=>({sku:r.sku, upc:r.upc, item:r.description, qty:qtyOf(r),
               unit:unitCost(r),          // ⛔ the real unit cost, not cost/qty
               cost:Number((qtyOf(r)*unitCost(r)).toFixed(2)),
-              engine:r.engine_qty??r.order_qty, source:r.source}));
-  const changed=live.filter(x=>x.qty!==x.engine);
+              engine:r.engine_qty??r.order_qty, source:r.source, added:!!r.added,
+              notCarried:!!r.notCarried}));
+  /* ⭐ AN ADDITION IS NOT AN OVERRIDE. Counting them together would report "42
+     changed from the engine" on an order where 12 of those lines the engine
+     never saw — two different facts about how much the model was trusted. */
+  const addedL=live.filter(x=>x.added);
+  const changed=live.filter(x=>!x.added && x.qty!==x.engine);
   const removed=LINES.filter(r=>stateOf(r)==="remove").map(r=>r.sku);
   const csv=["sku,upc,description,approved_qty,engine_qty,unit_cost,line_cost,source"]
     .concat(live.map(x=>[x.sku,x.upc,`"${String(x.item||"").replace(/"/g,'""')}"`,
@@ -1128,8 +2321,20 @@ document.getElementById("final").onclick=async()=>{
       <tr><th>units</th><td>${t.units.toLocaleString()}</td></tr>
       <tr><th>cost</th><td>${money(t.cost)}</td></tr>
       <tr><th>changed from the engine</th><td>${changed.length}</td></tr>
+      <tr><th>added by hand (engine proposed none)</th><td>${addedL.length}${
+        addedL.length?` — ${money(addedL.reduce((n,x)=>n+x.cost,0))}`:""}</td></tr>
       <tr><th>removed</th><td>${removed.length}</td></tr>
     </table>
+    ${addedL.length?`<div class="banner">⭐ <b>Lines you added:</b> ${
+      addedL.map(x=>`${esc(x.item||x.sku)} <b>×${x.qty}</b>`).join(" · ")}.
+      ⛔ They reach the KeHE upload only if their decisions are SAVED —
+      <code>purchase_drain.py</code> reads the store, not this screen.</div>`:""}
+    ${live.some(x=>x.notCarried)?`<div class="banner bad">⚠️ <b>${
+      live.filter(x=>x.notCarried).length} line(s) are for items we do NOT carry:</b> ${
+      live.filter(x=>x.notCarried).map(x=>`${esc(x.item||x.sku)} <b>×${x.qty}</b>`).join(" · ")}.
+      ⛔ They go on the KeHE upload keyed by UPC and item number, but the resulting
+      PO cannot be imported into Finale until ProductPipeline creates each product —
+      so plan receiving for them before the truck arrives.</div>`:""}
     <p class="mut small" style="margin-top:14px">Save first, then run this to produce the
       KeHE upload — it honours the approved quantities and a human's edit always wins:</p>
     <div class="banner"><code>python3 kehe_order.py finalize --sunday ${esc(ORDER.meta.order_sunday)}</code></div>
