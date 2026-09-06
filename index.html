@@ -16,6 +16,19 @@ header{position:sticky;top:0;z-index:20;background:var(--bg);
   border-bottom:1px solid var(--line);padding:12px 18px 10px}
 h1{font-size:18px;margin:0;letter-spacing:-.01em}
 .sub{color:var(--ink2);font-size:12.5px;margin-top:2px}
+/* ⭐ THE ORDER WEEK, stated where it cannot be missed. ⛔ Never smaller than the
+   quantity fields it governs — a buyer who edits the wrong week finds out at the
+   invoice. The amber state means "a newer week exists and you are not on it",
+   which is a legitimate thing to be doing on purpose, so it warns, never blocks. */
+.weekbar{display:flex;flex-wrap:wrap;gap:9px;margin-top:7px;align-items:center}
+.weekbadge{font-size:15px;font-weight:700;letter-spacing:-.01em;padding:1px 12px;
+  border:1.5px solid var(--accent);color:var(--accent);border-radius:20px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.weekbadge.stale{border-color:var(--warn);color:var(--warn)}
+#week{max-width:420px}
+.footweek{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--accent);
+  border:1px solid var(--accent);border-radius:20px;padding:1px 10px;white-space:nowrap}
+.footweek.stale{color:var(--warn);border-color:var(--warn)}
 .totals{display:flex;flex-wrap:wrap;gap:14px;margin-top:9px;align-items:center}
 .tot{display:flex;flex-direction:column;line-height:1.25}
 .tot b{font-size:17px;font-variant-numeric:tabular-nums}
@@ -85,6 +98,19 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
 </style>
 <header>
   <h1>Purchase review</h1>
+  <!-- ⭐⭐ WHICH WEEK AM I EDITING? Until 2026-09-06 the page loaded whichever
+       order_*.json sorted newest and said so only in small grey text, so
+       publishing next week's recommendations SILENTLY replaced the week a buyer
+       was working on. ⛔ The badge is in the STICKY header on purpose — it must be
+       on screen at the moment any quantity is typed, not scrolled away.
+       ⛔ These controls live OUTSIDE #filters, which paintFilters() rebuilds on
+       every render; a <select> rebuilt mid-interaction closes under the cursor. -->
+  <div class="weekbar">
+    <label class="mut small" for="week">Order week</label>
+    <select id="week" aria-label="which order week to review"><option>loading…</option></select>
+    <span class="weekbadge" id="weeknow">—</span>
+    <span class="mut small" id="weeknote"></span>
+  </div>
   <div class="sub" id="sub">signing in…</div>
   <div class="totals" id="totals"></div>
   <div class="filters">
@@ -109,6 +135,9 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
 </header>
 <main id="main"><div class="center">Loading…</div></main>
 <div class="foot">
+  <!-- ⛔ The week again, beside the buttons that act on it. The header badge can be
+       scrolled past on a long order; this bar cannot — it is fixed. -->
+  <b id="footweek" class="footweek">—</b>
   <span id="tally" class="mut small">—</span>
   <span class="mut small">⛔ nothing is saved until you press Save</span>
   <button class="ghost" id="reset">Reset changes</button>
@@ -130,7 +159,6 @@ const AUTH=`https://login.microsoftonline.com/${CFG.tenantId}/oauth2/v2.0`;
 const GRAPH="https://graph.microsoft.com/v1.0";
 const store=sessionStorage;
 let token=null,tokenExp=0,refreshTok=null,account="";
-/* ⭐ which order week we are deciding, and every week available to switch to */
 
 /* ── auth: authorization code + PKCE (same shape as the receiving page) ── */
 const rand=n=>{const a=new Uint8Array(n);crypto.getRandomValues(a);
@@ -211,20 +239,53 @@ const LIST="PurchaseReview", DIR="PurchaseReview";
 let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
     FILTER="all", Q="", RISK=false, UNK=false, ONLYCH=false,
     SORT="engine", NEWONLY=false;
+/* ⭐⭐ WHICH ORDER WEEK ARE WE DECIDING — and every week available to switch to.
+   ⛔⛔ Until 2026-09-06 this page could only ever show ONE week: loadOrder() listed
+   the folder, took the newest name and that was that. So publishing 2026-09-13 to
+   let Julia look ahead would have SILENTLY MOVED whoever was mid-review on
+   2026-09-06 onto a different order, with the same header, the same buttons and
+   no event of any kind. ⭐ The fix is not just "list them all": the DEFAULT must
+   stay on the week someone is already working (the newest with saved decisions),
+   because a publish is not a reason to move a buyer.
+     WEEKS     [{key,name,id}] newest first — key is the order Sunday
+     WEEK      the key we are editing right now
+     ALLSAVED  {sunday: {sku: fields}} — every decision on the list, by week, so
+               the picker can say which weeks have work in them */
+let WEEKS=[], WEEK=null, ALLSAVED={}, SWITCHING=false, WEEK_REASON="";
+const WEEK_MEM="purchasing.week";
 
 const money=n=>n==null?"—":"$"+Number(n).toLocaleString(undefined,
   {minimumFractionDigits:2,maximumFractionDigits:2});
 const money0=n=>n==null?"—":"$"+Math.round(Number(n)).toLocaleString();
 
-async function loadOrder(){
-  const ls=await graph(`/sites/${CFG.siteId}/drive/root:/${DIR}:/children?$select=name,id`);
+/* ⛔ `publish_order.py` writes `order_<sunday>.json`, so the Sunday is IN the name
+   and ISO dates sort lexicographically. ⭐ But a name that does not carry a date is
+   KEPT, not dropped — a dropped file is an order week nobody on this page can
+   reach, and it would look exactly like "that week was never published". */
+function weekKeyOf(name){
+  const m=/^order_(\d{4}-\d{2}-\d{2})/.exec(name);
+  return m ? m[1] : String(name).replace(/^order_/,"").replace(/\.json$/,"");
+}
+const isDate=k=>/^\d{4}-\d{2}-\d{2}$/.test(k);
+async function listWeeks(){
+  const ls=await graph(`/sites/${CFG.siteId}/drive/root:/${DIR}:/children?$select=name,id&$top=200`);
   const f=(ls.value||[]).filter(x=>/^order_.*\.json$/.test(x.name))
-                        .sort((a,b)=>a.name<b.name?1:-1)[0];
-  if(!f) throw new Error("no order has been published yet — run scripts/publish_order.py --publish");
+    .map(x=>({key:weekKeyOf(x.name), name:x.name, id:x.id}));
+  f.sort((a,b)=>{                       // newest first; undated names last
+    if(isDate(a.key)!==isDate(b.key)) return isDate(a.key)?-1:1;
+    return a.key<b.key?1:a.key>b.key?-1:0;
+  });
+  return f;
+}
+/* ⛔ TAKES THE WEEK IT IS ASKED FOR. It used to pick `[0]` itself, which is how one
+   publish could move a reviewer onto another order. The choice is made once, in
+   pickWeek(), and every other caller must pass what it wants. */
+async function loadOrder(w){
+  if(!w) throw new Error("no order has been published yet — run scripts/publish_order.py --publish");
   const t=await getToken();
-  const r=await fetch(`${GRAPH}/sites/${CFG.siteId}/drive/items/${f.id}/content`,
+  const r=await fetch(`${GRAPH}/sites/${CFG.siteId}/drive/items/${w.id}/content`,
                       {headers:{Authorization:"Bearer "+t}});
-  if(!r.ok) throw new Error("order download failed "+r.status);
+  if(!r.ok) throw new Error(`order download failed ${r.status} for ${w.name}`);
   return await r.json();
 }
 async function listId(){
@@ -234,18 +295,179 @@ async function listId(){
   if(!l) throw new Error(`list ${LIST} not found`);
   return (LISTID=l.id);
 }
-async function loadSaved(sunday){
-  const id=await listId(); let url=`/sites/${CFG.siteId}/lists/${id}/items?expand=fields&$top=500`, out={};
+/* ⭐⭐ EVERY WEEK'S DECISIONS, GROUPED BY `order_sunday` — one read, not one per
+   week. ⛔ That field is the ONLY thing separating one week's decisions from
+   another's: `purchase_drain.decisions()` filters on it, and the save path writes
+   it plus a `Title` of `<sunday>:<sku>`. A row with no `order_sunday` belongs to
+   no week and is skipped rather than leaking into the week on screen. */
+async function loadAllSaved(){
+  const id=await listId();
+  let url=`/sites/${CFG.siteId}/lists/${id}/items?expand=fields&$top=500`, out={};
   while(url){
     const j=await graph(url);
     for(const it of j.value||[]){
       const f=it.fields||{};
-      if(f.order_sunday===sunday) out[f.sku]={...f,_id:it.id};
+      const w=f.order_sunday==null?"":String(f.order_sunday);
+      if(!w||!f.sku) continue;
+      (out[w]=out[w]||{})[f.sku]={...f,_id:it.id};
     }
     const n=j["@odata.nextLink"]; url=n?n.replace(GRAPH,""):null;
   }
   return out;
 }
+async function loadSaved(sunday){
+  ALLSAVED=await loadAllSaved();
+  return ALLSAVED[String(sunday)]||{};
+}
+const savedCount=k=>Object.keys(ALLSAVED[String(k)]||{}).length;
+
+/* ── unsaved work ────────────────────────────────────────────────────────── */
+/* ⛔⛔ `Object.keys(EDIT).length` IS NOT "UNSAVED". boot() deliberately seeds EDIT
+   from SAVED so a reload does not look like the saved work vanished — so a buyer
+   who saved 40 lines and refreshed has 40 EDIT entries with nothing pending. Using
+   that count as the switch guard would warn EVERY time, and a warning that always
+   fires is a warning nobody reads.
+   ⭐ So this asks the only question that matters: would pressing Save change what
+   the store holds? It recomputes exactly what the save path would write and
+   compares it field for field.
+   ⛔ IT FAILS TOWARD "UNSAVED" ON PURPOSE. No line, no stored row, an unparseable
+   quantity — every one of those returns "pending", because the cost of one extra
+   confirm dialog is a click and the cost of a missed one is a buyer's morning. */
+function pendingFor(sku){
+  const e=EDIT[sku];
+  if(!e) return false;
+  const r=LINES.find(x=>x.sku===sku); if(!r) return true;
+  const s=SAVED[sku]; if(!s) return true;
+  const q=e.decision==="remove"?0:(e.qty!=null?e.qty:(r.order_qty||0));
+  const dec=e.decision==="remove"?"remove":(q!==(r.order_qty||0)?"changed":"keep");
+  const unit=(e.order_unit&&e.order_unit!==(r.order_unit||'each'))?e.order_unit:"";
+  const note=e.note!=null?String(e.note).slice(0,255):String(s.reviewer_note||"");
+  return !(Number(s.approved_qty)===q
+           && String(s.decision||"")===dec
+           && String(s.reviewer_note||"")===note
+           && String(s.change_reasons||"")===reasonsOf(r).join(";").slice(0,255)
+           && String(s.order_unit_override||"")===unit);
+}
+const unsavedSkus=()=>Object.keys(EDIT).filter(pendingFor);
+
+/* ── the week switcher ───────────────────────────────────────────────────── */
+/* ⭐ WHICH WEEK DO WE OPEN? ⛔ NOT simply "the newest". A publish must never move
+   someone mid-review, so a week that already has decisions in it outranks a week
+   that has none, however new. And an explicit choice made in this browser session
+   outranks both — being returned to another week by a reload is the same failure
+   wearing a different hat. */
+function pickWeek(){
+  let mem=null; try{ mem=sessionStorage.getItem(WEEK_MEM); }catch(_){}
+  if(mem && WEEKS.some(w=>w.key===mem))
+    return {key:mem, reason:"the week you chose earlier in this session"};
+  const withWork=WEEKS.filter(w=>savedCount(w.key)>0);
+  if(withWork.length)
+    return {key:withWork[0].key, reason:"the newest week that already has saved decisions"};
+  return {key:WEEKS[0].key, reason:"the newest published week — none has decisions yet"};
+}
+/* ⛔ Rebuilt only when the week set, the selection or the decision counts change —
+   never on render(). Repainting a <select> the user has open closes it. */
+function paintWeeks(){
+  const sel=document.getElementById("week"); if(!sel) return;
+  sel.innerHTML=WEEKS.map((w,i)=>{
+    const n=savedCount(w.key);
+    return `<option value="${escAttr(w.key)}">${esc(w.key)}`
+      + (i===0?" · newest":"")
+      + ` — ${n?`${n} decision${n===1?"":"s"} saved`:"no decisions yet"}</option>`;
+  }).join("");
+  if(WEEK!=null) sel.value=WEEK;
+}
+/* ⭐ The badge, the note and the footer copy all say the SAME week, and they take
+   it from `ORDER.meta.order_sunday` — the value the save path stamps on every row
+   and `purchase_drain.py` filters on. ⛔ Not from the filename: if those two ever
+   disagree the file is not what it claims, and render() says so in red. */
+function paintWeekHeader(){
+  const sunday=(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK||"—";
+  const stale=!!(WEEKS.length&&WEEK!=null&&WEEKS[0].key!==WEEK);
+  const b=document.getElementById("weeknow");
+  if(b){ b.textContent="week of "+sunday; b.classList.toggle("stale",stale); }
+  const f=document.getElementById("footweek");
+  if(f){ f.textContent="week of "+sunday; f.classList.toggle("stale",stale); }
+  const n=document.getElementById("weeknote");
+  if(n) n.innerHTML = stale
+    ? `⚠️ a newer order week (<b>${esc(WEEKS[0].key)}</b>) has been published — you are `
+      + `NOT editing it. ${esc(WEEK_REASON)}.`
+    : (WEEKS.length>1?`${WEEKS.length} weeks published · ${esc(WEEK_REASON)}.`
+                     :`${esc(WEEK_REASON)}.`);
+}
+/* ⛔⛔ NOTHING IS COMMITTED UNTIL BOTH READS SUCCEED. Clearing the state first and
+   loading after would leave week A's lines on screen under week B's heading if the
+   download failed — which is precisely the "editing A while believing it is B"
+   state this whole feature exists to make impossible. */
+async function switchWeek(key, opts){
+  opts=opts||{};
+  const w=WEEKS.find(x=>x.key===key);
+  if(!w) throw new Error(`no published order for ${key}`);
+  const sel=document.getElementById("week"), st=document.getElementById("status");
+  SWITCHING=true; if(sel) sel.disabled=true;
+  if(st) st.textContent=`loading week ${key}…`;
+  try{
+    const doc=await loadOrder(w);
+    const sunday=(doc.meta&&doc.meta.order_sunday)||key;
+    const saved=opts.cached ? (ALLSAVED[String(sunday)]||{}) : await loadSaved(sunday);
+    ORDER=doc; LINES=doc.rows||[]; SAVED=saved; EDIT={}; WEEK=key;
+    WEEK_REASON=opts.reason||WEEK_REASON;
+    FILTER="all"; RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
+    try{ sessionStorage.setItem(WEEK_MEM,key); }catch(_){}
+    /* ⭐ a saved change is the state of the world — reapply it so opening a week
+       does not silently discard work someone already did. */
+    for(const [sku,f] of Object.entries(SAVED)){
+      const r=LINES.find(x=>x.sku===sku); if(!r) continue;
+      if(f.decision==="remove") EDIT[sku]={decision:"remove"};
+      else if(f.approved_qty!=null && Number(f.approved_qty)!==(r.order_qty||0))
+        EDIT[sku]={qty:Number(f.approved_qty)};
+    }
+    const m=ORDER.meta;
+    document.getElementById("sub").textContent=
+      `order ${m.order_sunday} · ${m.lines_buying} lines to buy of `
+      +`${(m.lines_considered||0).toLocaleString()} considered · built ${(m.built_at||"").slice(0,16)}`
+      +` · signed in as ${account}`;
+    paintWeeks(); paintWeekHeader(); render();
+    if(st) st.textContent = opts.boot
+      ? (Object.keys(EDIT).length?`restored ${Object.keys(EDIT).length} saved change(s)`:"")
+      : `now reviewing week ${m.order_sunday} · ${savedCount(m.order_sunday)} decision(s) already saved`;
+  } finally {
+    SWITCHING=false;
+    const s2=document.getElementById("week"); if(s2) s2.disabled=false;
+  }
+}
+/* ⛔ Wired ONCE, outside every repaint — the same rule as #q and #sort. */
+(function wireWeek(){
+  const sel=document.getElementById("week");
+  if(!sel) return;
+  sel.onchange=async()=>{
+    const want=sel.value;
+    if(SWITCHING||want==null||want===WEEK){ if(WEEK!=null) sel.value=WEEK; return; }
+    const u=unsavedSkus();
+    /* ⛔⛔ LOSING A BUYER'S UNSAVED WORK IS THE WORST OUTCOME ON THIS PAGE. Nothing
+       here is written until Save, so a switch discards it — say so in those words,
+       name both weeks and the count, and default to NOT switching. */
+    if(u.length && !confirm(
+        `⛔ ${u.length} change(s) on week ${WEEK} are NOT saved.\n\n`
+        +`Nothing on this page is kept until you press Save, so opening week ${want} `
+        +`DISCARDS them.\n\nDiscard ${u.length} unsaved change(s) and open week ${want}?`)){
+      /* ⛔ The control must never show a week we are not actually on. */
+      sel.value=WEEK; return;
+    }
+    try{ await switchWeek(want,{reason:"you chose this week by hand"}); }
+    catch(e){
+      if(WEEK!=null) sel.value=WEEK;         // the old week is still loaded — say so
+      document.getElementById("status").textContent=
+        `⛔ could not open week ${want}: ${e.message} — still on week ${WEEK}`;
+    }
+  };
+})();
+/* ⛔ The other way unsaved work disappears: a reload or a closed tab. Same test, so
+   it cannot fire on a page whose edits are all already in SharePoint. */
+window.addEventListener("beforeunload",e=>{
+  if(!unsavedSkus().length) return;
+  e.preventDefault(); e.returnValue="";
+});
 
 /* ── the numbers a buyer is actually deciding on ─────────────────────────── */
 /* ⛔⛔ THE CHAIN IS promo_cost -> supplier_price -> reg_whlsl, in that order, and it
@@ -405,7 +627,16 @@ function totals(){
   const units=live.reduce((n,r)=>n+qtyOf(r),0);
   const cost=live.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0);
   const changed=LINES.filter(touched).length;
-  const pending=Object.keys(EDIT).length;
+  /* ⛔⛔ "UNSAVED" IS NOT `Object.keys(EDIT).length` (corrected 2026-09-06). boot()
+     and switchWeek() SEED EDIT from what is already stored, so a buyer who saved
+     40 lines and refreshed was told "40 unsaved" with nothing whatever pending —
+     and the finalize dialog warned them about work that was safely in SharePoint.
+     ⭐ A count nobody can act on is worse than no count: it teaches people to click
+     past the one warning that matters.
+     ⛔ This does NOT gate the Save button, which stays enabled whenever any edit
+     exists. A redundant re-save costs a round trip; a Save button wrongly disabled
+     costs the work. */
+  const pending=unsavedSkus().length;
   return {lines:live.length, units, cost, changed, pending,
           removed:LINES.length-live.length};
 }
@@ -609,6 +840,17 @@ function render(){
   paintFilters();
   const v=visible(), m=document.getElementById("main");
   let head="";
+  /* ⛔⛔ THE FILE AND ITS CONTENTS MUST AGREE ABOUT WHICH WEEK THIS IS. The picker
+     keys off the FILENAME; every decision is saved against `meta.order_sunday` and
+     `purchase_drain.py` reads that. If they ever diverge, a reviewer would pick
+     "2026-09-13" and write decisions onto another week, and no single screen would
+     show the contradiction. This one does. */
+  if(ORDER.meta&&WEEK!=null&&String(ORDER.meta.order_sunday||"")!==String(WEEK))
+    head+=`<div class="banner bad">⛔ <b>This file is not the week it is named after.</b>
+      <code>order_${esc(WEEK)}.json</code> declares order week
+      <b>${esc(ORDER.meta.order_sunday)}</b> inside it, and that is the week your
+      decisions are saved against — it is what <code>purchase_drain.py</code> reads.
+      Do not review this until whoever published it has looked.</div>`;
   /* ⛔⛔ BUG 10 — THE ENGINE'S OWN ALERTS WERE DROPPED. Two of them are decisions
      this page exists to capture: "the smallest purchase possible is months of
      stock — buy it or cut the item", and "1,328 units are on a prior order Finale
@@ -633,7 +875,8 @@ function render(){
     verdict here.</div>`;
   const nr=ORDER.meta.not_ordered_by_reason||{};
   head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} lines the engine
-    wants to buy, from ${ORDER.meta.lines_considered.toLocaleString()} considered.
+    wants to buy for the <b>week of ${esc(ORDER.meta.order_sunday)}</b>,
+    from ${ORDER.meta.lines_considered.toLocaleString()} considered.
     <span class="mut">Not ordered: ${Object.entries(nr).slice(0,4)
       .map(([k,n])=>`${esc(k)} ${n}`).join(" · ")}.</span></div>`;
   m.innerHTML=head+(v.length?v.map(lineHtml).join(""):`<div class="center">nothing matches</div>`);
@@ -834,9 +1077,16 @@ document.getElementById("save").onclick=async()=>{
       ok++;
     }catch(err){ fail++; console.error(sku,err); }
   }
-  s.textContent = fail?`⛔ ${ok} saved, ${fail} FAILED — see the console`
-                      :`✓ ${ok} change(s) saved · ${new Date().toLocaleTimeString()}`;
+  /* ⛔ SAY WHICH WEEK IT WENT TO. The one thing a reviewer cannot check afterwards
+     is which order their decisions landed on. */
+  s.textContent = fail?`⛔ ${ok} saved, ${fail} FAILED on week ${ORDER.meta.order_sunday} — see the console`
+                      :`✓ ${ok} change(s) saved to week ${ORDER.meta.order_sunday}`
+                       +` · ${new Date().toLocaleTimeString()}`;
   btn.disabled=false;
+  /* ⭐ the picker's per-week counts are now stale — refresh them from what we just
+     wrote, so "no decisions yet" does not persist on a week that now has some. */
+  ALLSAVED[String(ORDER.meta.order_sunday)]=SAVED;
+  paintWeeks();
   /* ⛔⛔ EDIT is cleared ONLY because SAVED now carries the same state and
      qtyOf()/stateOf() read it. Clearing it while the screen read only EDIT is
      what made Save revert everything and Finalize export the engine's order. */
@@ -869,9 +1119,11 @@ document.getElementById("final").onclick=async()=>{
       x.qty,x.engine,x.unit.toFixed(2),x.cost.toFixed(2),
       `"${x.source}"`].join(","))).join("\n");
   const m=document.getElementById("main");
-  m.innerHTML=`<div class="banner"><b>Ready to execute.</b> Nothing has been sent —
+  m.innerHTML=`<div class="banner"><b>Ready to execute — week of
+      ${esc(ORDER.meta.order_sunday)}.</b> Nothing has been sent —
       this is the review artifact a human approves.</div>
     <table class="out">
+      <tr><th>order week</th><td><b>${esc(ORDER.meta.order_sunday)}</b></td></tr>
       <tr><th>lines</th><td>${t.lines}</td></tr>
       <tr><th>units</th><td>${t.units.toLocaleString()}</td></tr>
       <tr><th>cost</th><td>${money(t.cost)}</td></tr>
@@ -921,25 +1173,14 @@ async function boot(){
   try{
     if(!loadToken()){ if(!await completeLogin()){ await beginLogin(); return; } }
     sub.textContent="loading the order…";
-    ORDER=await loadOrder();
-    LINES=ORDER.rows||[];
-    SAVED=await loadSaved(ORDER.meta.order_sunday);
-    /* ⭐ a saved change is the state of the world — reapply it so a reload does
-       not silently discard work someone already did. */
-    for(const [sku,f] of Object.entries(SAVED)){
-      const r=LINES.find(x=>x.sku===sku); if(!r) continue;
-      if(f.decision==="remove") EDIT[sku]={decision:"remove"};
-      else if(f.approved_qty!=null && Number(f.approved_qty)!==(r.order_qty||0))
-        EDIT[sku]={qty:Number(f.approved_qty)};
-    }
-    const m=ORDER.meta;
-    sub.textContent=`order ${m.order_sunday} · ${m.lines_buying} lines to buy of `
-      +`${m.lines_considered.toLocaleString()} considered · built ${(m.built_at||"").slice(0,16)}`
-      +` · signed in as ${account}`;
-    render();
-    if(Object.keys(EDIT).length)
-      document.getElementById("status").textContent=
-        `restored ${Object.keys(EDIT).length} saved change(s)`;
+    /* ⛔ THE WEEK IS CHOSEN ONCE, HERE, AND ONLY HERE. Every read below takes the
+       week it is given — see pickWeek() for why "the newest" is the wrong rule. */
+    WEEKS=await listWeeks();
+    if(!WEEKS.length)
+      throw new Error("no order has been published yet — run scripts/publish_order.py --publish");
+    ALLSAVED=await loadAllSaved();
+    const p=pickWeek();
+    await switchWeek(p.key,{reason:p.reason, cached:true, boot:true});
   }catch(e){
     document.getElementById("main").innerHTML=
       `<div class="center">⛔ ${esc(e.message)}<br><br>
