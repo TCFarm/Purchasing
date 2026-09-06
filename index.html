@@ -3,38 +3,479 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Purchase review — TC Farm</title>
 <style>
-  :root{color-scheme:light dark}
-  body{margin:0;min-height:100vh;display:grid;place-items:center;
-       background:#fcfcfb;color:#0b0b0b;
-       font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  @media(prefers-color-scheme:dark){body{background:#1a1a19;color:#fff}}
-  .card{max-width:56ch;padding:28px 30px;border:1px solid #dedcd5;border-radius:12px;
-        background:#fff}
-  @media(prefers-color-scheme:dark){.card{background:#232322;border-color:#3a3a37}}
-  h1{font-size:20px;margin:0 0 4px;letter-spacing:-.01em}
-  p{margin:0 0 12px;color:#52514e}
-  @media(prefers-color-scheme:dark){p{color:#c3c2b7}}
-  code{font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
-       background:#f3f3f0;padding:2px 6px;border-radius:5px;word-break:break-all}
-  @media(prefers-color-scheme:dark){code{background:#2f2f2d}}
-  .ok{color:#008300;font-weight:600}
-  ul{margin:0;padding-left:20px;color:#52514e}
-  @media(prefers-color-scheme:dark){ul{color:#c3c2b7}}
-  li{margin:5px 0}
+:root{color-scheme:light;
+  --bg:#fcfcfb; --card:#fff; --line:#dedcd5; --ink:#0b0b0b; --ink2:#52514e; --ink3:#7d7b74;
+  --accent:#2a78d6; --good:#008300; --warn:#eda100; --bad:#e34948; --chip:#f3f3f0;}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#1a1a19; --card:#232322; --line:#3a3a37; --ink:#fff; --ink2:#c3c2b7; --ink3:#8e8d84;
+  --accent:#3987e5; --good:#3fa63f; --warn:#c98500; --bad:#e66767; --chip:#2f2f2d;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:20;background:var(--bg);
+  border-bottom:1px solid var(--line);padding:12px 18px 10px}
+h1{font-size:18px;margin:0;letter-spacing:-.01em}
+.sub{color:var(--ink2);font-size:12.5px;margin-top:2px}
+.totals{display:flex;flex-wrap:wrap;gap:14px;margin-top:9px;align-items:center}
+.tot{display:flex;flex-direction:column;line-height:1.25}
+.tot b{font-size:17px;font-variant-numeric:tabular-nums}
+.tot span{font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.03em}
+.bar{flex:1;min-width:170px;height:7px;border-radius:4px;background:var(--chip);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+.chip{border:1px solid var(--line);border-radius:20px;padding:4px 11px;font-size:12.5px;
+  cursor:pointer;background:var(--card);color:var(--ink2);user-select:none}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);font-weight:600;border-color:var(--ink)}
+.chip .n{opacity:.65;margin-left:5px;font-variant-numeric:tabular-nums}
+input[type=search],select{background:var(--card);color:var(--ink);border:1px solid var(--line);
+  border-radius:7px;padding:5px 9px;font:inherit;font-size:12.5px}
+main{padding:14px 18px 90px;max-width:1500px}
+.line{display:grid;grid-template-columns:1fr auto;gap:10px;border:1px solid var(--line);
+  border-radius:10px;background:var(--card);padding:11px 13px;margin-bottom:8px}
+.line.changed{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.line.removed{opacity:.5}
+.line.removed .nm{text-decoration:line-through}
+.nm{font-weight:600}
+.meta{color:var(--ink2);font-size:12.5px;margin-top:2px}
+.tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.tag{border:1px solid var(--line);border-radius:20px;padding:1px 8px;font-size:11px;color:var(--ink2)}
+.tag.src{border-color:var(--accent);color:var(--accent)}
+.tag.bad{border-color:var(--bad);color:var(--bad);font-weight:600}
+.tag.warn{border-color:var(--warn);color:var(--warn)}
+.acts{display:flex;gap:6px;align-items:flex-start}
+.acts input{width:74px;height:34px;text-align:center;font-variant-numeric:tabular-nums;
+  border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink);font:inherit}
+.mini{height:34px;min-width:34px;border:1px solid var(--line);border-radius:7px;background:var(--card);
+  color:var(--ink2);cursor:pointer;font:inherit;font-size:13px;padding:0 9px}
+.mini.on{background:var(--ink);color:var(--bg);border-color:var(--ink);font-weight:600}
+.mini.rm.on{background:var(--bad);border-color:var(--bad);color:#fff}
+details.why{margin-top:6px}
+details.why summary{cursor:pointer;color:var(--ink3);font-size:12px}
+details.why div{color:var(--ink2);font-size:12.5px;margin-top:5px;
+  white-space:pre-wrap;word-break:break-word}
+.foot{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);
+  padding:9px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;z-index:30}
+.primary{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 17px;
+  font:inherit;font-weight:600;cursor:pointer}
+.primary[disabled]{opacity:.45;cursor:default}
+.ghost{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:8px;
+  padding:9px 15px;font:inherit;cursor:pointer}
+.mut{color:var(--ink2)} .small{font-size:12px}
+.center{text-align:center;padding:40px 12px;color:var(--ink2)}
+.banner{background:var(--chip);border:1px solid var(--line);border-radius:9px;
+  padding:9px 12px;margin-bottom:10px;font-size:12.5px;color:var(--ink2)}
+.banner.bad{border-color:var(--bad);color:var(--bad)}
+table.out{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
+table.out td,table.out th{padding:4px 10px 4px 0;text-align:left;white-space:nowrap}
+table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--line)}
 </style>
-<div class="card">
+<header>
   <h1>Purchase review</h1>
-  <p class="ok">✅ GitHub Pages is serving this repo.</p>
-  <p>Placeholder while the app is built. Nothing here signs in or reads data yet.</p>
-  <p><b>To finish setup, register this exact URL as a redirect URI</b> on the
-     Entra app <code>4a5939ef-bb89-4629-8a95-007509bb11a5</code>
-     (“TC Farm Receiving”), as a <b>Single-page application</b> platform:</p>
-  <p><code id="u">…</code></p>
-  <ul>
-    <li>Same Entra app and same SharePoint site as the new-item review, so no new
-        credential is needed.</li>
-    <li>The repo holds page code only — every figure will arrive from SharePoint
-        after sign-in, which is why this URL is safe to be public.</li>
-  </ul>
-  <script>document.getElementById("u").textContent=location.origin+location.pathname;</script>
+  <div class="sub" id="sub">signing in…</div>
+  <div class="totals" id="totals"></div>
+  <div class="filters" id="filters"></div>
+</header>
+<main id="main"><div class="center">Loading…</div></main>
+<div class="foot">
+  <span id="tally" class="mut small">—</span>
+  <span class="mut small">⛔ nothing is saved until you press Save</span>
+  <button class="ghost" id="reset">Reset changes</button>
+  <button class="primary" id="save" disabled>Save decisions</button>
+  <button class="ghost" id="final" disabled>Finalize order…</button>
+  <span id="status" class="mut small"></span>
 </div>
+
+<script>
+const CFG = {
+  clientId: "4a5939ef-bb89-4629-8a95-007509bb11a5",   /* "TC Farm Receiving" */
+  tenantId: "c0f23c54-f515-4e2e-8aef-d3afb1ae34d0",
+  siteId: "tcfarm0.sharepoint.com,d5fe3f11-af72-4c8b-b877-80e69226ca49,753c3608-e66a-4ec6-9fdf-5fb646ffa4fa",
+  /* ⭐ same Entra app + same site as the new-item review — one credential,
+     one sign-in. This app reads PurchaseReview/ instead. */
+  scopes:["https://graph.microsoft.com/Sites.ReadWrite.All","offline_access","openid","profile"]
+};
+const AUTH=`https://login.microsoftonline.com/${CFG.tenantId}/oauth2/v2.0`;
+const GRAPH="https://graph.microsoft.com/v1.0";
+const store=sessionStorage;
+let token=null,tokenExp=0,refreshTok=null,account="";
+/* ⭐ which order week we are deciding, and every week available to switch to */
+
+/* ── auth: authorization code + PKCE (same shape as the receiving page) ── */
+const rand=n=>{const a=new Uint8Array(n);crypto.getRandomValues(a);
+  return Array.from(a,b=>("0"+b.toString(16)).slice(-2)).join("")};
+const b64url=b=>btoa(String.fromCharCode(...new Uint8Array(b)))
+  .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+const sha256=async s=>crypto.subtle.digest("SHA-256",new TextEncoder().encode(s));
+async function beginLogin(){
+  const v=rand(64),c=b64url(await sha256(v)),st=rand(16);
+  store.setItem("pkce_v",v);store.setItem("pkce_s",st);
+  location.assign(`${AUTH}/authorize?`+new URLSearchParams({
+    client_id:CFG.clientId,response_type:"code",
+    redirect_uri:location.origin+location.pathname,response_mode:"query",
+    scope:CFG.scopes.join(" "),code_challenge:c,code_challenge_method:"S256",state:st}));
+}
+async function completeLogin(){
+  const q=new URLSearchParams(location.search),code=q.get("code");
+  if(q.get("error")) throw new Error(`${q.get("error")}: ${q.get("error_description")||""}`);
+  if(!code) return false;
+  if(q.get("state")!==store.getItem("pkce_s")) throw new Error("state mismatch — restart sign-in");
+  const r=await fetch(`${AUTH}/token`,{method:"POST",
+    headers:{"Content-Type":"application/x-www-form-urlencoded"},
+    body:new URLSearchParams({client_id:CFG.clientId,grant_type:"authorization_code",code,
+      redirect_uri:location.origin+location.pathname,code_verifier:store.getItem("pkce_v")})});
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error_description||j.error||"token exchange failed");
+  setToken(j); history.replaceState({},"",location.pathname); return true;
+}
+function setToken(j){
+  token=j.access_token; tokenExp=Date.now()+(j.expires_in||3600)*1000-60000;
+  if(j.refresh_token) refreshTok=j.refresh_token;
+  try{account=JSON.parse(atob(j.id_token.split(".")[1])).preferred_username||"";}catch(_){}
+  store.setItem("tok",JSON.stringify({t:token,e:tokenExp,r:refreshTok,a:account}));
+}
+function loadToken(){try{const s=JSON.parse(store.getItem("tok")||"null");if(!s)return false;
+  token=s.t;tokenExp=s.e;refreshTok=s.r;account=s.a||"";return Date.now()<tokenExp;}catch(_){return false}}
+async function getToken(){
+  if(token&&Date.now()<tokenExp) return token;
+  if(refreshTok){
+    const r=await fetch(`${AUTH}/token`,{method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body:new URLSearchParams({client_id:CFG.clientId,grant_type:"refresh_token",
+        refresh_token:refreshTok,scope:CFG.scopes.join(" ")})});
+    const j=await r.json(); if(r.ok){setToken(j);return token;}
+  }
+  throw new Error("session expired — reload and sign in again");
+}
+async function graph(path,opts={}){
+  const t=await getToken();
+  const r=await fetch(GRAPH+path,{...opts,headers:{...(opts.headers||{}),
+    Authorization:"Bearer "+t,"Content-Type":"application/json"}});
+  const txt=await r.text(); let j=null; try{j=txt?JSON.parse(txt):null}catch(_){}
+  if(!r.ok) throw new Error((j&&(j.error?.message||j.error_description))||`${r.status} on ${path}`);
+  return j;
+}
+
+/* ── data ─────────────────────────────────────────────────────────────── */
+const fmt=(v,d=2)=>v===null||v===undefined||v===""?"—":Number(v).toFixed(d);
+/* ⭐ Flatten anything the payload holds into a Text-column-safe string.
+   ⛔ Never assume a payload field is a string — several are lists or objects, and
+   the failure mode is a 400 that loses the whole batch of decisions. */
+function flat(v,max){
+  max=max||255;
+  if(v==null) return "";
+  let out;
+  if(Array.isArray(v)) out=v.map(x=>typeof x==="string"?x:JSON.stringify(x)).join(" · ");
+  else if(typeof v==="object") out=JSON.stringify(v);
+  else out=String(v);
+  return out.slice(0,max);
+}
+
+
+/* ══ PURCHASE REVIEW ══ the Sunday order, as a reviewable surface.
+   ⛔ The engine decides; this page lets a human CHANGE that decision and records
+   what they changed and why. It never re-derives a quantity of its own — an
+   operator changes the ORDER, never the programming (hard boundary 7). */
+const LIST="PurchaseReview", DIR="PurchaseReview";
+let ORDER=null, LINES=[], EDIT={}, LISTID=null, FILTER="all", Q="", RISK=false;
+
+const money=n=>n==null?"—":"$"+Number(n).toLocaleString(undefined,
+  {minimumFractionDigits:2,maximumFractionDigits:2});
+const money0=n=>n==null?"—":"$"+Math.round(Number(n)).toLocaleString();
+
+async function loadOrder(){
+  const ls=await graph(`/sites/${CFG.siteId}/drive/root:/${DIR}:/children?$select=name,id`);
+  const f=(ls.value||[]).filter(x=>/^order_.*\.json$/.test(x.name))
+                        .sort((a,b)=>a.name<b.name?1:-1)[0];
+  if(!f) throw new Error("no order has been published yet — run scripts/publish_order.py --publish");
+  const t=await getToken();
+  const r=await fetch(`${GRAPH}/sites/${CFG.siteId}/drive/items/${f.id}/content`,
+                      {headers:{Authorization:"Bearer "+t}});
+  if(!r.ok) throw new Error("order download failed "+r.status);
+  return await r.json();
+}
+async function listId(){
+  if(LISTID) return LISTID;
+  const j=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  const l=(j.value||[]).find(x=>x.displayName===LIST);
+  if(!l) throw new Error(`list ${LIST} not found`);
+  return (LISTID=l.id);
+}
+async function loadSaved(sunday){
+  const id=await listId(); let url=`/sites/${CFG.siteId}/lists/${id}/items?expand=fields&$top=500`, out={};
+  while(url){
+    const j=await graph(url);
+    for(const it of j.value||[]){
+      const f=it.fields||{};
+      if(f.order_sunday===sunday) out[f.sku]={...f,_id:it.id};
+    }
+    const n=j["@odata.nextLink"]; url=n?n.replace(GRAPH,""):null;
+  }
+  return out;
+}
+
+/* ── the numbers a buyer is actually deciding on ─────────────────────────── */
+/* ⛔⛔ THE CHAIN IS promo_cost -> supplier_price -> reg_whlsl, in that order, and it
+   must match order_engine's `order_value` and write_kehe_xlsx. `reg_whlsl` is the
+   KeHE CASE price on a bulk line: reading it second valued popcorn at $31.97 a
+   unit instead of $1.07 and put the order total 29% above the engine's own
+   figure. ⭐ The publisher now resolves it server-side into `unit_cost`; this
+   falls back to the same chain so the page cannot drift from it. */
+const unitCost=r=>Number(r.unit_cost ?? (r.promo_cost||r.supplier_price||r.reg_whlsl||0));
+function qtyOf(r){ const e=EDIT[r.sku];
+  return e&&e.qty!=null ? e.qty : (r.order_qty||0); }
+function stateOf(r){ const e=EDIT[r.sku];
+  if(e&&e.decision) return e.decision;
+  return "keep"; }
+function totals(){
+  const live=LINES.filter(r=>stateOf(r)!=="remove");
+  const units=live.reduce((n,r)=>n+qtyOf(r),0);
+  const cost=live.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0);
+  const changed=LINES.filter(r=>{const e=EDIT[r.sku];
+    return e&&((e.qty!=null&&e.qty!==(r.order_qty||0))||e.decision==="remove");}).length;
+  return {lines:live.length, units, cost, changed, removed:LINES.length-live.length};
+}
+
+/* ⭐ THE TIER TARGET. Jack's standing correction: there is NO per-order floor —
+   the goal is raising the AVERAGE order toward ~$9,000 for a better discount
+   rung. ⛔ So this is shown as CONTEXT, never as a bar to clear. */
+const TIER_TARGET=9000;
+function paintTotals(){
+  const t=totals();
+  const pct=Math.min(100, t.cost/TIER_TARGET*100);
+  document.getElementById("totals").innerHTML=
+    `<div class="tot"><b>${t.lines}</b><span>lines</span></div>
+     <div class="tot"><b>${t.units.toLocaleString()}</b><span>units</span></div>
+     <div class="tot"><b>${money0(t.cost)}</b><span>at cost</span></div>
+     ${t.changed?`<div class="tot"><b>${t.changed}</b><span>changed</span></div>`:""}
+     ${t.removed?`<div class="tot"><b>${t.removed}</b><span>removed</span></div>`:""}
+     <div class="bar" title="context only — there is no per-order minimum"><i style="width:${pct}%"></i></div>
+     <span class="mut small">${money0(t.cost)} of the ~${money0(TIER_TARGET)} average
+       we are working toward &mdash; context, not a floor</span>`;
+  document.getElementById("tally").textContent=
+    `${t.lines} lines · ${t.units.toLocaleString()} units · ${money0(t.cost)}`;
+  const dirty=Object.keys(EDIT).length>0;
+  document.getElementById("save").disabled=!dirty;
+  document.getElementById("final").disabled=false;
+}
+
+/* ── filters ─────────────────────────────────────────────────────────────── */
+function sources(){ const c={};
+  for(const r of LINES) c[r.source]=(c[r.source]||0)+1; return c; }
+function paintFilters(){
+  const c=sources();
+  const risky=LINES.filter(r=>r.dating_risk&&r.dating_risk!=="ok").length;
+  document.getElementById("filters").innerHTML=
+    `<span class="chip" data-f="all" aria-pressed="${FILTER==="all"}">All<span class="n">${LINES.length}</span></span>`
+    + Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+      `<span class="chip" data-f="${escAttr(k)}" aria-pressed="${FILTER===k}">${esc(k)}<span class="n">${v}</span></span>`).join("")
+    + (risky?`<span class="chip" id="riskchip" aria-pressed="${RISK}" style="border-color:var(--bad);color:var(--bad)">⛔ dating risk<span class="n">${risky}</span></span>`:"")
+    + `<input type="search" id="q" placeholder="Find an item, brand or SKU…" value="${escAttr(Q)}" style="min-width:200px">`;
+  document.querySelectorAll("#filters .chip[data-f]").forEach(x=>x.onclick=()=>{
+    FILTER=x.dataset.f; render();});
+  const rc=document.getElementById("riskchip");
+  if(rc) rc.onclick=()=>{RISK=!RISK; render();};
+  let t; const q=document.getElementById("q");
+  if(q) q.oninput=e=>{clearTimeout(t); t=setTimeout(()=>{Q=e.target.value.trim(); render();},170);};
+}
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const escAttr=esc;
+
+function visible(){
+  const q=Q.toLowerCase();
+  return LINES.filter(r=>{
+    if(FILTER!=="all" && r.source!==FILTER) return false;
+    if(RISK && (!r.dating_risk||r.dating_risk==="ok")) return false;
+    if(q && !((r.description||"").toLowerCase().includes(q)
+           || (r.brand||"").toLowerCase().includes(q)
+           || (r.sku||"").toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+
+/* ── one line ────────────────────────────────────────────────────────────── */
+function lineHtml(r){
+  const st=stateOf(r), q=qtyOf(r), c=unitCost(r);
+  const e=EDIT[r.sku];
+  const changed=e&&((e.qty!=null&&e.qty!==(r.order_qty||0))||st==="remove");
+  const risk=r.dating_risk&&r.dating_risk!=="ok";
+  const inc=r.unit_of_sale||1;
+  return `<div class="line ${changed?"changed":""} ${st==="remove"?"removed":""}" data-sku="${escAttr(r.sku)}">
+    <div>
+      <div class="nm">${esc(r.description||r.sku)}</div>
+      <div class="meta">${esc(r.brand||"")} · ${esc(r.sku)}
+        · ${money(c)}/unit → <b>${money(q*c)}</b>
+        ${r.cover_weeks!=null?` · ${r.cover_weeks}w cover`:""}
+        ${r.shelf_days?` · ${r.shelf_days}d life`:""}</div>
+      <div class="tags">
+        <span class="tag src">${esc(r.source)}</span>
+        ${risk?`<span class="tag bad">${esc(r.dating_risk)}</span>`:""}
+        ${inc>1?`<span class="tag">orders in ${inc}s</span>`:""}
+        ${(r.flags||[]).slice(0,3).map(f=>`<span class="tag">${esc(f)}</span>`).join("")}
+        ${changed?`<span class="tag warn">changed from ${r.order_qty}</span>`:""}
+      </div>
+      ${r.why?`<details class="why"><summary>why the engine chose ${r.order_qty}</summary>
+        <div>${esc(r.why)}</div></details>`:""}
+    </div>
+    <div class="acts">
+      <input type="number" min="0" step="${inc}" value="${q}" data-q="${escAttr(r.sku)}"
+             aria-label="quantity" ${st==="remove"?"disabled":""}>
+      <button class="mini rm ${st==="remove"?"on":""}" data-rm="${escAttr(r.sku)}"
+              title="remove this line">✕</button>
+    </div>
+  </div>`;
+}
+
+function render(){
+  paintFilters();
+  const v=visible(), m=document.getElementById("main");
+  let head="";
+  const risky=LINES.filter(r=>r.dating_risk==="⛔ over its life").length;
+  if(risky) head+=`<div class="banner bad">⛔ <b>${risky} line(s) order more than their
+    shelf life can clear.</b> That is the pattern that dated out milk — check the cover
+    against the days of life before saving.</div>`;
+  const nr=ORDER.meta.not_ordered_by_reason||{};
+  head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} lines the engine
+    wants to buy, from ${ORDER.meta.lines_considered.toLocaleString()} considered.
+    <span class="mut">Not ordered: ${Object.entries(nr).slice(0,4)
+      .map(([k,n])=>`${esc(k)} ${n}`).join(" · ")}.</span></div>`;
+  m.innerHTML=head+(v.length?v.map(lineHtml).join(""):`<div class="center">nothing matches</div>`);
+  paintTotals();
+}
+
+/* ── edits ───────────────────────────────────────────────────────────────── */
+document.addEventListener("input",e=>{
+  const i=e.target.closest("input[data-q]"); if(!i) return;
+  const sku=i.dataset.q, r=LINES.find(x=>x.sku===sku); if(!r) return;
+  const inc=r.unit_of_sale||1;
+  let v=Number(i.value); if(!Number.isFinite(v)||v<0) v=0;
+  // ⛔ snap to the vendor's increment — an order KeHE cannot ship is not an order
+  v=Math.round(v/inc)*inc;
+  EDIT[sku]={...(EDIT[sku]||{}), qty:v};
+  if(v===(r.order_qty||0) && !(EDIT[sku].decision)) delete EDIT[sku];
+  paintTotals();
+  const el=i.closest(".line");
+  if(el) el.classList.toggle("changed", !!EDIT[sku]);
+},true);
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button[data-rm]"); if(!b) return;
+  const sku=b.dataset.rm;
+  const cur=EDIT[sku]||{};
+  EDIT[sku]={...cur, decision: cur.decision==="remove"?null:"remove"};
+  if(!EDIT[sku].decision && EDIT[sku].qty==null) delete EDIT[sku];
+  render();
+},true);
+document.getElementById("reset").onclick=()=>{EDIT={}; render();};
+
+/* ── save ────────────────────────────────────────────────────────────────── */
+document.getElementById("save").onclick=async()=>{
+  const btn=document.getElementById("save"), s=document.getElementById("status");
+  btn.disabled=true; s.textContent="saving…";
+  const id=await listId(); let ok=0, fail=0;
+  const stamp=`${ORDER.meta.order_sunday} · built ${ORDER.meta.built_at||""}`;
+  for(const [sku,e] of Object.entries(EDIT)){
+    const r=LINES.find(x=>x.sku===sku); if(!r) continue;
+    const q=e.decision==="remove"?0:(e.qty!=null?e.qty:(r.order_qty||0));
+    /* ⭐ RECORD THE ENGINE'S NUMBER AND THE HUMAN'S SIDE BY SIDE. Storing only the
+       final quantity loses the fact that a human overrode the model — which is
+       the single most useful signal for improving it (order_feedback exists for
+       exactly this reason). ⛔ Feedback is EVIDENCE, never an instruction. */
+    const f={Title:`${ORDER.meta.order_sunday}:${sku}`,
+      order_sunday:ORDER.meta.order_sunday, sku, upc:r.upc||"",
+      item:(r.description||"").slice(0,255), brand:r.brand||"", source:r.source||"",
+      engine_qty:r.order_qty??null, approved_qty:q,
+      decision:e.decision==="remove"?"remove":(q!==(r.order_qty||0)?"changed":"keep"),
+      unit_cost:unitCost(r)||null, line_cost:Number((q*unitCost(r)).toFixed(2)),
+      cover_weeks:r.cover_weeks??null, shelf_days:r.shelf_days??null,
+      dating_risk:r.dating_risk||"", why:flat(r.why), flags:flat(r.flags),
+      reviewer:account, decided_at:new Date().toISOString().slice(0,19),
+      reviewer_note:(e.note||"").slice(0,255), build_stamp:stamp.slice(0,255)};
+    try{
+      const ex=(SAVED[sku]||{})._id;
+      if(ex) await graph(`/sites/${CFG.siteId}/lists/${id}/items/${ex}/fields`,
+                         {method:"PATCH",body:JSON.stringify(f)});
+      else{ const j=await graph(`/sites/${CFG.siteId}/lists/${id}/items`,
+              {method:"POST",body:JSON.stringify({fields:{...f,finalized:"false"}})});
+            SAVED[sku]={...f,_id:j.id}; }
+      ok++;
+    }catch(err){ fail++; console.error(sku,err); }
+  }
+  s.textContent = fail?`⛔ ${ok} saved, ${fail} FAILED — see the console`
+                      :`✓ ${ok} change(s) saved`;
+  btn.disabled=false;
+  if(!fail) EDIT={};
+  render();
+};
+
+/* ── finalize ────────────────────────────────────────────────────────────── */
+/* ⛔⛔ THIS PAGE DOES NOT SEND AN ORDER. It writes the approved quantities where
+   `kehe_order.py finalize` reads them, and a human runs that step. Ordering is
+   real money leaving the building; the Sunday output is a review artifact a
+   person approves, never an auto-submitted order (hard boundary 4). */
+document.getElementById("final").onclick=async()=>{
+  const t=totals();
+  const live=LINES.filter(r=>stateOf(r)!=="remove")
+    .map(r=>({sku:r.sku, upc:r.upc, item:r.description, qty:qtyOf(r),
+              cost:Number((qtyOf(r)*unitCost(r)).toFixed(2)),
+              engine:r.order_qty, source:r.source}));
+  const changed=live.filter(x=>x.qty!==x.engine);
+  const removed=LINES.filter(r=>stateOf(r)==="remove").map(r=>r.sku);
+  const csv=["sku,upc,description,approved_qty,engine_qty,unit_cost,line_cost,source"]
+    .concat(live.map(x=>[x.sku,x.upc,`"${String(x.item||"").replace(/"/g,'""')}"`,
+      x.qty,x.engine,(x.cost/(x.qty||1)).toFixed(2),x.cost.toFixed(2),
+      `"${x.source}"`].join(","))).join("\n");
+  const m=document.getElementById("main");
+  m.innerHTML=`<div class="banner"><b>Ready to execute.</b> Nothing has been sent —
+      this is the review artifact a human approves.</div>
+    <table class="out">
+      <tr><th>lines</th><td>${t.lines}</td></tr>
+      <tr><th>units</th><td>${t.units.toLocaleString()}</td></tr>
+      <tr><th>cost</th><td>${money(t.cost)}</td></tr>
+      <tr><th>changed from the engine</th><td>${changed.length}</td></tr>
+      <tr><th>removed</th><td>${removed.length}</td></tr>
+    </table>
+    <p class="mut small" style="margin-top:14px">Save first, then run this to produce the
+      KeHE upload — it honours the approved quantities and a human's edit always wins:</p>
+    <div class="banner"><code>python3 kehe_order.py finalize --sunday ${esc(ORDER.meta.order_sunday)}</code></div>
+    <p class="mut small">Or take the approved lines as CSV:</p>
+    <textarea readonly style="width:100%;height:190px;font:12px ui-monospace,Menlo,monospace;
+      border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
+      padding:9px">${esc(csv)}</textarea>
+    <p style="margin-top:12px"><button class="ghost" onclick="render()">← back to the lines</button></p>`;
+};
+
+/* ── boot ────────────────────────────────────────────────────────────────── */
+let SAVED={};
+async function boot(){
+  const sub=document.getElementById("sub");
+  try{
+    if(!loadToken()){ if(!await completeLogin()){ await beginLogin(); return; } }
+    sub.textContent="loading the order…";
+    ORDER=await loadOrder();
+    LINES=ORDER.rows||[];
+    SAVED=await loadSaved(ORDER.meta.order_sunday);
+    /* ⭐ a saved change is the state of the world — reapply it so a reload does
+       not silently discard work someone already did. */
+    for(const [sku,f] of Object.entries(SAVED)){
+      const r=LINES.find(x=>x.sku===sku); if(!r) continue;
+      if(f.decision==="remove") EDIT[sku]={decision:"remove"};
+      else if(f.approved_qty!=null && Number(f.approved_qty)!==(r.order_qty||0))
+        EDIT[sku]={qty:Number(f.approved_qty)};
+    }
+    const m=ORDER.meta;
+    sub.textContent=`order ${m.order_sunday} · ${m.lines_buying} lines to buy of `
+      +`${m.lines_considered.toLocaleString()} considered · built ${(m.built_at||"").slice(0,16)}`
+      +` · signed in as ${account}`;
+    render();
+    if(Object.keys(EDIT).length)
+      document.getElementById("status").textContent=
+        `restored ${Object.keys(EDIT).length} saved change(s)`;
+  }catch(e){
+    document.getElementById("main").innerHTML=
+      `<div class="center">⛔ ${esc(e.message)}<br><br>
+       <button class="ghost" onclick="sessionStorage.clear();location.href=location.pathname">sign in again</button></div>`;
+    sub.textContent="not signed in";
+  }
+}
+boot();
+
+</script>
