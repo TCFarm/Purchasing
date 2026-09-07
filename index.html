@@ -387,6 +387,8 @@ let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
      ALLSAVED  {sunday: {sku: fields}} — every decision on the list, by week, so
                the picker can say which weeks have work in them */
 let WEEKS=[], WEEK=null, ALLSAVED={}, SWITCHING=false, WEEK_REASON="";
+/* the SKU whose quantity box currently has focus — see visible() */
+let EDITING=null;
 const WEEK_MEM="purchasing.week";
 /* ⭐⭐ ADD AN ITEM THE ENGINE DID NOT PROPOSE (Jack, 2026-09-06: *"there doesn't
    appear to be a way to add items to the order in the purchasing app — like what
@@ -1292,9 +1294,21 @@ function paintFilters(){
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const escAttr=esc;
 
+/* ⛔⛔ A ROW BEING EDITED IS NEVER REMOVED FROM VIEW. Two reasons, and the second
+   one crashes Safari outright:
+   ⭐ It is disorienting on any browser — you nudge a quantity and the line you are
+      working on vanishes from under the cursor, because lowering it took the row
+      out of the dating-risk filter.
+   ⛔ And in Safari it is fatal: removing the number input while its stepper is
+      still live kills the WebContent process — *"This webpage was reloaded because
+      a problem occurred"*. Deferring the re-render by a tick was not enough,
+      because the pointer can still be down on the arrow when the DOM is rebuilt.
+   ⭐ So the row STAYS until focus leaves it. `EDITING` is cleared on blur, and the
+      next render drops the row normally. */
 function visible(){
   const q=Q.toLowerCase();
   return LINES.filter(r=>{
+    if(EDITING && r.sku===EDITING) return true;   // ⛔ never yank the row you are on
     if(FILTER!=="all" && r.source!==FILTER) return false;
     if(RISK){ const x=riskOf(r); if(x!=="⛔ over its life"&&x!=="⚠️ tight") return false; }
     if(UNK && riskOf(r)!=="unknown") return false;
@@ -2128,6 +2142,14 @@ function applyQty(i, commit){
      focus has already left the input, so nothing live is destroyed. */
   if(commit) setTimeout(render, 0);
 }
+document.addEventListener("focusin",e=>{
+  const i=e.target.closest && e.target.closest("input[data-q]");
+  if(i) EDITING=i.dataset.q;},true);
+document.addEventListener("focusout",e=>{
+  const i=e.target.closest && e.target.closest("input[data-q]");
+  /* ⛔ clear AFTER the event settles, then re-render once so the row drops out of
+     a filter it no longer matches — the tidy-up the crash was preventing. */
+  if(i) setTimeout(()=>{ if(EDITING===i.dataset.q){ EDITING=null; render(); } },0);},true);
 document.addEventListener("input",e=>{
   const i=e.target.closest("input[data-q]"); if(i) applyQty(i,false);},true);
 document.addEventListener("change",e=>{
