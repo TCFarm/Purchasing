@@ -76,6 +76,11 @@ main{padding:14px 18px 90px;max-width:1500px}
   color:var(--ink3);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* ⭐ A ZERO IS INFORMATION AND MUST NOT LOOK LIKE THE HEADLINE FIGURE — greyed,
    never hidden. "0 on hand" is exactly the fact that justifies the buy. */
+/* ⭐ THE PACK, SAID WHERE THE NUMBER IS. "1" alone cannot be told from one
+   popcorn bag; on a bulk line it is one case of fifty. ⛔ Not italic — this is a
+   unit, not an aside. */
+.pos b em{font-style:normal;font-size:11px;font-weight:600;color:var(--bad);
+  margin-left:5px;letter-spacing:.01em}
 .pos .z b{color:var(--ink3);font-weight:400}
 .pos .add b{color:var(--accent);font-weight:700}
 .pos .hot b{color:var(--bad);font-weight:700}
@@ -1064,7 +1069,7 @@ const reviewed=r=>reviewState(r)!=="new";
 function coverOf(r){
   const rate=r.q75_wk||r.mean_wk||0;
   if(!rate) return null;
-  return Math.round(qtyOf(r)/rate*10)/10;
+  return Math.round(arrivingOf(r)/rate*10)/10;   // ⛔ units that ARRIVE, not order units
 }
 /* ⭐⭐ HOW LONG THE POSITION LASTS — stock + inbound + what we are ordering,
    against this SKU's own weekly rate. ⛔ THIS, NOT `coverOf`, IS THE DATING TEST
@@ -1079,7 +1084,7 @@ function coverOf(r){
 function positionCoverOf(r){
   const rate=r.q75_wk||r.mean_wk||0;
   if(!rate) return null;
-  const pos=(+r.on_hand||0)+(+r.inbound||0)+qtyOf(r);
+  const pos=(+r.on_hand||0)+(+r.inbound||0)+arrivingOf(r);  // ⛔ see arrivingOf
   return Math.round(pos/rate*10)/10;
 }
 /* ⛔⛔ COVER-VS-LIFE IS THE WRONG TEST FOR SOME LINE TYPES, and applying it
@@ -1114,6 +1119,20 @@ function packOf(r){
   const cases=Math.ceil(need/per)||0;
   return {cases, units:cases*per, per};
 }
+/* ⭐⭐ HOW MANY UNITS ACTUALLY ARRIVE — the number the SHELF sees, not the number
+   the buyer typed. (Jack, 2026-09-06: *"ordering 1 case adds 50 units and it needs
+   to render differently"*.)
+   ⛔⛔ THE QUANTITY BOX IS IN OUR SELLING UNITS; A BULK LINE SHIPS BY THE CASE, so
+   asking for 9 chia seeds delivers a case of 50. Every PHYSICAL question — how
+   long the position lasts, when it sells out, whether it dates out — must be
+   asked of the 50, and every one of them was being asked of the 9. It read as a
+   page arguing with itself: the strip said 1.2 weeks of cover while the engine's
+   own sentence two lines below said eleven.
+   ⛔ It is NOT the same as `qtyOf`, which stays in our units because that is what
+   `approved_qty` means to the engine and to `kehe_order.finalize`. Only 2 lines
+   on the 2026-09-06 order have a case pack, and both were wrong on every
+   physical figure. */
+function arrivingOf(r){ return packOf(r).units; }
 /* ⭐ The one line a buyer reads to know what arrives. ⛔ Never just a number. */
 /* ⭐ WHAT AM I ACTUALLY COMMITTING TO? (Jack, 2026-09-06.) The add panel offered
    a bare "12" with nothing saying whether that is a case, a minimum or a default,
@@ -1381,7 +1400,7 @@ function sorter(){
    scanned, and inventing a deadline for it is worse than saying so. */
 function sellThrough(r){
   const rate=+r.q75_wk||+r.mean_wk||0;
-  const q=qtyOf(r);
+  const q=arrivingOf(r);        // ⛔ a case of 50 sells out on 50, not on 9
   if(!rate||q<=0) return null;
   const eff=r.on_hand_effective;
   if(eff==null||eff==="") return null;          // ⛔ unknown, not zero
@@ -1441,7 +1460,8 @@ function sellLine(r){
 function posStrip(r){
   const rate = +r.q75_wk || +r.mean_wk || 0;
   const oh   = +r.on_hand || 0, inb = +r.inbound || 0, bk = +r.pre_window || 0;
-  const addQ = qtyOf(r), have = oh + inb;
+  const pk = packOf(r);
+  const addQ = pk.units, have = oh + inb;   // ⛔ units that ARRIVE — see arrivingOf
   const lifeW = r.shelf_days ? (+r.shelf_days)/7 : null;
   const haveW = rate ? have/rate : null;
   const addW  = rate ? addQ/rate : null;
@@ -1490,7 +1510,12 @@ function posStrip(r){
     ${cell(nn(r.inbound,inb),  "inbound", inb?zz(r.inbound):"z")}
     ${cell(nn(r.pre_window,bk),"booked",  bk?zz(r.pre_window):"z")}
     ${cell(rate?n(rate):"—", "sells/wk", rate?"":"z")}
-    ${cell(`<span data-posqty>${n(addQ)}</span>`, "ordering", addQ?"add":"z")}
+    ${cell(pk.per>1
+        /* ⭐ SAY THE PACK WHERE THE NUMBER IS. A bare "1" in this column cannot be
+           told from one popcorn bag, and the row's own header already reads
+           "1 case (20 units)" — the strip must not disagree with it. */
+        ? `<span data-posqty>${n(pk.cases)}</span> <em>case${pk.cases===1?"":"s"} (${n(pk.units)} units)</em>`
+        : `<span data-posqty>${n(addQ)}</span>`, "ordering", addQ?"add":"z")}
     ${cell(totW==null?"—":n(totW)+"w", "total cover", totW==null?"z":(lifeW&&totW>lifeW?"hot":""))}
     ${cell(r.shelf_days?r.shelf_days+"d":"—", "shelf life", r.shelf_days?"":"z")}
   </div>${bar}${sellLine(r)}`;
