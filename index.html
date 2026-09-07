@@ -2107,7 +2107,26 @@ function applyQty(i, commit){
      to filter or save to make it show up, and by then the reason was gone.
      ⛔ Safe here and nowhere else: `commit` is blur/Enter, so focus has already
      left the box (Enter's handler blurs it immediately after). */
-  if(commit) render();
+  /* ⛔⛔ NEVER RE-RENDER INSIDE THE INPUT'S OWN EVENT — IT CRASHES SAFARI.
+     Reported 2026-09-06 (Jack): filter to dating risk, click the stepper arrow,
+     and the tab dies with *"This webpage was reloaded because a problem
+     occurred"* — WebKit's WebContent process crash, NOT a JS exception.
+     ⭐ THE MECHANISM: `render()` replaces the whole list, so it DESTROYS the
+     number input the stepper is still interacting with, from inside that input's
+     own `change` handler. With the dating-risk filter on it happens every time,
+     because lowering the quantity takes the row OUT of the filter — so the
+     element really is removed rather than replaced in place.
+     ⛔ It is not a performance problem: a filtered render measures 2.5 ms and an
+     unfiltered one 9.8 ms over 226 rows. Re-rendering less would not have fixed it.
+     ⭐ THE FIX IS TO LET THE EVENT FINISH FIRST. A zero-delay timeout runs after
+     WebKit has finished dispatching the stepper interaction, so the input is no
+     longer live when the DOM is rebuilt. Imperceptible to the reviewer, and it
+     keeps the reason `render()` is here at all: the "why did you change it?" note
+     box is emitted by `lineHtml`, so without a re-render it never appears on the
+     line you just edited.
+     ⚠️ Typing a quantity never crashed, because `change` then fires on BLUR —
+     focus has already left the input, so nothing live is destroyed. */
+  if(commit) setTimeout(render, 0);
 }
 document.addEventListener("input",e=>{
   const i=e.target.closest("input[data-q]"); if(i) applyQty(i,false);},true);
