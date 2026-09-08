@@ -112,6 +112,16 @@ main{padding:14px 18px 90px;max-width:1500px}
 .alrt.ctx>summary,.alrt.info>summary{color:var(--ink2)}
 .alrt>div{font-size:11.5px;color:var(--ink2);padding:3px 0 6px 18px;line-height:1.45}
 .alrt>summary i{color:var(--bad);font-style:normal}
+/* ⭐ the SPINS verdict line inside an evidence card — its own row so the eye
+   finds it in the same place on every item */
+.wadd{grid-column:1/-1;font-size:11.5px;line-height:1.4;padding:5px 8px;
+  border-radius:6px;border:1px solid var(--line)}
+.wadd b{font-weight:700}
+.wadd span{color:var(--ink2)}
+.wadd.no{border-color:var(--bad);background:#fff3f3;color:var(--bad)}
+.wadd.no span{color:#8a2b2b}
+.wadd.yes{border-color:var(--good);background:#f3fbf4;color:var(--good)}
+.wadd.unk{color:var(--ink2)}
 /* ══ REORDER EVIDENCE ══ one shape per flagged row, same order every time:
    the net-GP number, the sold-vs-binned fate bar, then the 26-week sparkline.
    ⛔ The whole point is that the eye lands in the same three places on every
@@ -441,7 +451,7 @@ let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
     /* ⛔ DECLARED HERE OR THE PAGE DIES. `paintFilters` READS these in a
        template literal before anything assigns them, so an implicit global
        does not save you — it is a ReferenceError on first render. */
-    LOSS=false, REVW=false,
+    LOSS=false, REVW=false, NOADD=false,
     SORT="engine", NEWONLY=false;
 /* ⭐⭐ WHICH ORDER WEEK ARE WE DECIDING — and every week available to switch to.
    ⛔⛔ Until 2026-09-06 this page could only ever show ONE week: loadOrder() listed
@@ -1372,7 +1382,7 @@ function paintFilters(){
     // risk filter on, so the chip read 118 while 7 lines rendered.
     FILTER=x.dataset.f;
     if(FILTER==="all"){ RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
-                        LOSS=false; REVW=false; }
+                        LOSS=false; REVW=false; NOADD=false; }
     render();});
   const rc=document.getElementById("riskchip");
   if(rc) rc.onclick=()=>{RISK=!RISK; render();};
@@ -1423,6 +1433,7 @@ function visible(){
     if(UNK && riskOf(r)!=="unknown") return false;
     if(LOSS && !losesMoney(r)) return false;
     if(REVW && !needsReorderReview(r)) return false;
+    if(NOADD && !(r.evidence&&r.evidence.would_add===false)) return false;
     if(ONLYCH && !touched(r)) return false;
     if(NEWONLY && reviewed(r)) return false;
     if(q && !((r.description||"").toLowerCase().includes(q)
@@ -1654,19 +1665,26 @@ function rowTiles(){
   const t=[];
   const loss=LINES.filter(losesMoney).length;
   if(loss) t.push({n:loss,label:"lose money after binning",cls:"bad",
-                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=REVW=false;LOSS=true;},
+                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=REVW=NOADD=false;LOSS=true;},
                    why:"gross profit on what sold, minus the cost of what was thrown away"});
+  /* ⭐ A TILE FOR THE VERDICT ITSELF — Jack asked for these specifically and
+     they were not reachable from anywhere. ⛔ `=== false` only: an unknown
+     verdict must never be counted as a rejection. */
+  const nowould=LINES.filter(r=>r.evidence&&r.evidence.would_add===false).length;
+  if(nowould) t.push({n:nowould,label:"SPINS would not add today",cls:"bad",on:NOADD,
+                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;NOADD=true;},
+                   why:"judged against SPINS' own min_units_wk bar, the same test a new candidate faces"});
   const rev=LINES.filter(needsReorderReview).length;
   if(rev) t.push({n:rev,label:"review before reorder",cls:"warn",
-                  act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=LOSS=false;REVW=true;},
+                  act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=LOSS=false;REVW=true;NOADD=false;},
                   why:"the smallest buy is more than the dating maths allows"});
   const risky=LINES.filter(r=>riskOf(r)==="⛔ over its life").length;
   if(risky) t.push({n:risky,label:"order past their shelf life",cls:"bad",
-                    act:()=>{FILTER="all";UNK=ONLYCH=NEWONLY=LOSS=REVW=false;RISK=true;},
+                    act:()=>{FILTER="all";UNK=ONLYCH=NEWONLY=LOSS=REVW=NOADD=false;RISK=true;},
                     why:"the pattern that dated out milk — cut the quantity and this drops"});
   const unk=LINES.filter(r=>riskOf(r)==="unknown").length;
   if(unk) t.push({n:unk,label:"no dating information",cls:"warn",
-                  act:()=>{FILTER="all";RISK=ONLYCH=NEWONLY=LOSS=REVW=false;UNK=true;},
+                  act:()=>{FILTER="all";RISK=ONLYCH=NEWONLY=LOSS=REVW=NOADD=false;UNK=true;},
                   why:"⛔ unknown is not the same as safe"});
   const added=LINES.filter(r=>r.added&&stateOf(r)!=="remove"&&qtyOf(r)>0);
   /* ⛔⛔ `FILTER` MATCHES `r.source`, AND THE SOURCE VALUES ARE PROSE. I wrote
@@ -1678,7 +1696,7 @@ function rowTiles(){
      apart — the same fix pattern as `positionCoverOf` being one definition. */
   if(added.length) t.push({n:added.length,label:"added by hand",cls:"info",
                     on:FILTER===ADDED_SOURCE,
-                    act:()=>{FILTER=ADDED_SOURCE;RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;},
+                    act:()=>{FILTER=ADDED_SOURCE;RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=NOADD=false;},
                     why:money0(added.reduce((n,r)=>n+lineCost(r),0))+" at cost the engine did not propose"});
   const nc=added.filter(r=>r.notCarried);
   if(nc.length) t.push({n:nc.length,label:"items we do NOT carry",cls:"bad",
@@ -1686,7 +1704,7 @@ function rowTiles(){
                     why:"no history, no on-hand, no dating — nothing here checked the quantity"});
   const nrev=LINES.filter(r=>!reviewed(r)).length;
   if(nrev) t.push({n:nrev,label:"not yet looked at",cls:"info",
-                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=LOSS=REVW=false;NEWONLY=true;},
+                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=LOSS=REVW=NOADD=false;NEWONLY=true;},
                    why:"a tick is a read marker, not an approval — untouched lines still ship"});
   return t;
 }
@@ -1768,6 +1786,16 @@ function evidenceCard(r){
         ${e.net_margin!=null?` · ${(e.net_margin*100).toFixed(0)}% net margin`:""}</span>
     </div>
     ${fate}
+    ${/* ⭐ THE VERDICT THE REORDER PATH NEVER ASKS FOR. ⛔ `would_add === null`
+          means SPINS has no row, which is UNKNOWN — never rendered as a pass. */
+      e.would_add===false
+        ? `<div class="wadd no">⛔ <b>SPINS would not add this today</b>
+             <span>${esc(String(e.would_add_why||"").replace("⛔ would NOT be added today: ",""))}
+             ${e.spins_acv_pct!=null?` · ${e.spins_acv_pct}% of stores`:""}</span></div>`
+        : e.would_add===true
+          ? `<div class="wadd yes">⭐ SPINS would still add it
+               <span>${esc(String(e.would_add_why||""))}</span></div>`
+          : `<div class="wadd unk">⚠️ no SPINS verdict — <span>unknown, not a pass</span></div>`}
     <div class="spark" title="units sold per week, last 26 weeks">${spark}
       <s>${e.weeks_with_a_sale||0} of ${ser.length} weeks had a sale</s></div>
   </div>`;
@@ -2363,7 +2391,7 @@ document.addEventListener("click",e=>{
   const t=_TILES[+tl.dataset.tile];
   if(t&&t.act){
     if(tl.getAttribute("aria-pressed")==="true"){
-      FILTER="all"; RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;
+      FILTER="all"; RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=NOADD=false;
     } else t.act();
     render();
   }
