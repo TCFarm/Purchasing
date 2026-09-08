@@ -1595,14 +1595,22 @@ const needsReorderReview=r=>!!r.evidence;
    label, so the list order is never a mystery. Losing money outranks everything:
    it is the only category settled by history rather than by a guess. */
 function attentionRank(r){
+  /* ⛔ THIS ORDER IS THE TILE ORDER (Jack, 2026-09-08: *"can you sort in that
+     order too?"*). A dashboard that ranks problems one way and a sort that ranks
+     them another makes the reader re-derive the priority twice. ⭐ Both read this
+     function, so they cannot drift.
+     ⭐ The ranking is by HOW SETTLED the problem is, not how bad it sounds:
+     a measured loss outranks a model verdict, which outranks a dating verdict
+     built on a guessed shelf life. */
   if(losesMoney(r)) return 0;                       // proven loss on its own record
-  if(needsReorderReview(r)) return 1;               // the dating cap was overridden
+  if(r.evidence&&r.evidence.would_add===false) return 1;  // SPINS' own bar says no
+  if(needsReorderReview(r)) return 2;               // the dating cap was overridden
   const x=riskOf(r);
-  if(x==="⛔ over its life") return 2;
-  if(x==="unknown") return 3;                       // ⛔ unknown is not safe
-  if(x==="⚠️ tight") return 4;
-  if(touched(r)) return 6;
-  return 5;
+  if(x==="⛔ over its life") return 3;
+  if(x==="unknown") return 4;                       // ⛔ unknown is not safe
+  if(x==="⚠️ tight") return 5;
+  if(touched(r)) return 7;
+  return 6;
 }
 /* ══ THE ALERT DASHBOARD ══════════════════════════════════════════════════
    ⛔⛔ RULING (Jack, 2026-09-08): *"these warnings are WAY too much text, we need
