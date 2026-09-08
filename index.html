@@ -84,6 +84,34 @@ main{padding:14px 18px 90px;max-width:1500px}
 .pos .z b{color:var(--ink3);font-weight:400}
 .pos .add b{color:var(--accent);font-weight:700}
 .pos .hot b{color:var(--bad);font-weight:700}
+/* ══ REORDER EVIDENCE ══ one shape per flagged row, same order every time:
+   the net-GP number, the sold-vs-binned fate bar, then the 26-week sparkline.
+   ⛔ The whole point is that the eye lands in the same three places on every
+   card, so nothing here may reflow or reorder per item. */
+.evid{display:grid;grid-template-columns:minmax(150px,190px) 1fr;gap:10px 14px;
+  margin-top:8px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg2)}
+.evid.bad{border-color:var(--bad);background:#fff5f5}
+.evidnum b{display:block;font-size:19px;line-height:1.1;font-variant-numeric:tabular-nums}
+.evidnum b.neg{color:var(--bad)} .evidnum b.pos{color:var(--good)}
+.evidnum s{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--ink3);text-decoration:none;margin-top:1px}
+.evidnum .sub{display:block;font-size:10.5px;color:var(--ink2);margin-top:3px}
+/* the fate bar — sold vs binned, normalised to the ratio, counts printed beside */
+.fate{align-self:center}
+.fatebar{display:flex;height:11px;border-radius:6px;overflow:hidden;
+  background:var(--line)}
+.fatebar i.sold{background:var(--good)} .fatebar i.binned{background:var(--bad)}
+.fatelab{display:block;font-size:11px;color:var(--ink2);margin-top:4px}
+.fatelab b{color:var(--ink)} .fatelab b.bn{color:var(--bad)}
+.fate.none{font-size:11px;color:var(--ink3);line-height:1.35}
+/* the sparkline — 26 weekly bars, scaled to the row's own peak */
+.spark{grid-column:1/-1;display:flex;align-items:flex-end;gap:2px;height:34px;
+  position:relative;padding-bottom:12px}
+.spark i{flex:1 1 0;min-width:2px;background:var(--accent);opacity:.65;border-radius:1px}
+.spark s{position:absolute;left:0;bottom:0;font-size:9.5px;color:var(--ink3);
+  text-decoration:none}
+@media (max-width:720px){ .evid{grid-template-columns:1fr} }
 /* The cover bar: the track is WHICHEVER IS LONGER of what we would hold and what
    the dating allows, so the ceiling is always on screen and an overrun is visible
    as overrun rather than as a full bar. */
@@ -1133,6 +1161,16 @@ function packOf(r){
    on the 2026-09-06 order have a case pack, and both were wrong on every
    physical figure. */
 function arrivingOf(r){ return packOf(r).units; }
+/* ⭐⭐ WHAT THE LINE COSTS — the units that ARRIVE at the price of the unit they
+   arrive in. ⛔ `qtyOf(r) * unitCost(r)` is wrong on a bulk line in BOTH factors
+   at once, and the two errors do not cancel: it read 1 x $4.548 = $4.55 for a
+   case the invoice charges $76.00 for. ⭐ `unit_cost` is the KeHE case price
+   divided by Finale's own proven pack ratio (`publish_order._unit_cost`, ruling:
+   Jack 2026-09-06 — *"it should be priced by the case based on the KEHE price
+   file… if Finale doesn't show correct price"*), so arriving x unit_cost
+   reproduces the case price exactly: 50 x $1.4578 = $72.89 and 20 x $3.80 =
+   $76.00, both matching what `kehe_order.finalize` puts on the order. */
+function lineCost(r){ return arrivingOf(r)*unitCost(r); }
 /* ⭐ The one line a buyer reads to know what arrives. ⛔ Never just a number. */
 /* ⭐ WHAT AM I ACTUALLY COMMITTING TO? (Jack, 2026-09-06.) The add panel offered
    a bare "12" with nothing saying whether that is a case, a minimum or a default,
@@ -1205,8 +1243,8 @@ function totals(){
   // ⛔ BUG 8 — a zero quantity IS a removal. Exporting a 0-qty line put a $0.00
   // unit cost into the CSV, which `kehe_order.py finalize` is documented to refuse.
   const live=LINES.filter(r=>stateOf(r)!=="remove" && qtyOf(r)>0);
-  const units=live.reduce((n,r)=>n+qtyOf(r),0);
-  const cost=live.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0);
+  const units=live.reduce((n,r)=>n+arrivingOf(r),0);
+  const cost=live.reduce((n,r)=>n+lineCost(r),0);
   const changed=LINES.filter(touched).length;
   /* ⛔⛔ "UNSAVED" IS NOT `Object.keys(EDIT).length` (corrected 2026-09-06). boot()
      and switchWeek() SEED EDIT from what is already stored, so a buyer who saved
@@ -1247,8 +1285,8 @@ function paintTotals(){
   if(st){
     const v=visible().filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0);
     st.textContent = (FILTER==="all"&&!RISK&&!UNK&&!ONLYCH&&!NEWONLY&&!Q) ? "" :
-      `this view: ${v.length} lines · ${v.reduce((n,r)=>n+qtyOf(r),0).toLocaleString()} units · `
-      + money0(v.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0));
+      `this view: ${v.length} lines · ${v.reduce((n,r)=>n+arrivingOf(r),0).toLocaleString()} units · `
+      + money0(v.reduce((n,r)=>n+lineCost(r),0));
   }
   /* ⭐ WHERE DID I GET TO — the question a 282-line order actually raises. */
   const pg=document.getElementById("progress");
@@ -1351,16 +1389,16 @@ function visible(){
 function sorter(){
   const RANK={"⛔ over its life":0,"⚠️ tight":1,"unknown":2,"basis":3,"ok":4};
   switch(SORT){
-    case "cost":   return (a,b)=>qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
+    case "cost":   return (a,b)=>lineCost(b)-lineCost(a);
     case "risk":   return (a,b)=>(RANK[riskOf(a)]??9)-(RANK[riskOf(b)]??9)
-                                 || qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
+                                 || lineCost(b)-lineCost(a);
     /* ⛔ sort the number the row SHOWS. The strip displays position cover, so
        sorting on order-only cover ranked the list by an invisible figure. */
     case "cover":  return (a,b)=>(positionCoverOf(b)??-1)-(positionCoverOf(a)??-1);
     case "name":   return (a,b)=>String(a.description||a.sku)
                                    .localeCompare(String(b.description||b.sku));
     case "source": return (a,b)=>String(a.source||"").localeCompare(String(b.source||""))
-                                 || qtyOf(b)*unitCost(b)-qtyOf(a)*unitCost(a);
+                                 || lineCost(b)-lineCost(a);
     default:       return ()=>0;              // ⭐ Array.prototype.sort is stable
   }
 }
@@ -1456,6 +1494,61 @@ function sellLine(r){
        must receive)</div>`
     : `<div class="sell ok">sells out ~<b>${esc(out)}</b>${startBit}
        — within the ${esc(by)} it must be sold by</div>`;
+}
+/* ⭐⭐ THE REORDER-EVIDENCE CARD (ruling: Jack, 2026-09-08: *"the flag should have
+   visuals of all of this avail data … make the visual very clear and consistent
+   on each item so someone can glance and get a good idea of where each item
+   stands without having to read a block of text"*).
+   ⭐ FOUR VISUALS, SAME PLACE, SAME SCALE, EVERY ROW:
+     1. NET GP — one number, red when negative. 13 of 58 flagged lines on the
+        2026-09-06 order are NEGATIVE: Crème Fraîche sold 9 units for $9.70 of
+        gross profit and expired 39 units costing $134 → -$124.46.
+     2. THE FATE BAR — of everything that left the shelf, what SOLD (green) and
+        what was BINNED (red). ⛔ Normalised to the ratio ON PURPOSE, because the
+        ratio is the question; the absolute counts are printed beside it so a
+        9-unit item cannot masquerade as a 90-unit one.
+     3. THE SALES SPARKLINE — 26 weekly bars, so a dying item is visible as a
+        shape rather than a sentence.
+     4. Cover vs shelf life — already in `posStrip` above, unchanged.
+   ⛔ `judgeable:false` MUST NOT RENDER AS A CLEAN RECORD. A SKU the expiry
+   archive has never seen has no history, which is a different statement from
+   "never dated out", and the card says so instead of drawing an all-green bar. */
+function evidenceCard(r){
+  const e=r.evidence; if(!e) return "";
+  const sold=+e.sold_units||0, exp=+e.expired_units||0, tot=sold+exp;
+  const net=+e.net_gp||0, bad=net<0;
+  const pct=v=>tot?(v/tot*100).toFixed(1):0;
+  const money=v=>(v<0?"-$":"$")+Math.abs(v).toFixed(2);
+  /* the sparkline: 26 weeks, one bar each, scaled to the row's own peak */
+  const ser=Array.isArray(e.weekly_series)?e.weekly_series:[];
+  const peak=Math.max(1,...ser.map(x=>+x||0));
+  const spark=ser.map(v=>{
+    const h=Math.max(1,Math.round((+v||0)/peak*100));
+    return `<i style="height:${h}%" title="${(+v||0)} unit(s)"></i>`;}).join("");
+  const fate = !e.judgeable
+    ? `<div class="fate none">⛔ never seen in the expiry archive — no dating-out
+         history exists for it, which is NOT the same as never dating out</div>`
+    : tot===0
+      ? `<div class="fate none">nothing sold and nothing binned in 26 weeks</div>`
+      : `<div class="fate"><div class="fatebar">
+           <i class="sold" style="width:${pct(sold)}%"></i>
+           <i class="binned" style="width:${pct(exp)}%"></i>
+         </div><span class="fatelab">
+           <b>${sold.toFixed(0)}</b> sold · <b class="bn">${exp.toFixed(0)}</b> binned
+           ${exp>0?`· <b class="bn">${(e.waste_share*100).toFixed(0)}% wasted</b>`:""}
+           ${e.expired_events?`· ${e.expired_events} expiry event(s)`:""}
+         </span></div>`;
+  return `<div class="evid ${bad?"bad":""}">
+    <div class="evidnum">
+      <b class="${bad?"neg":"pos"}">${money(net)}</b>
+      <s>net gross profit, 26wk</s>
+      <span class="sub">${money(e.gp_on_sold||0)} earned − ${money(e.shrink_cost||0)} binned
+        ${e.net_margin!=null?` · ${(e.net_margin*100).toFixed(0)}% net margin`:""}</span>
+    </div>
+    ${fate}
+    <div class="spark" title="units sold per week, last 26 weeks">${spark}
+      <s>${e.weeks_with_a_sale||0} of ${ser.length} weeks had a sale</s></div>
+  </div>`;
 }
 function posStrip(r){
   const rate = +r.q75_wk || +r.mean_wk || 0;
@@ -1558,6 +1651,7 @@ function lineHtml(r){
         · ordering <b data-unitlabel>${unitLabel(r)}</b>
         · buys in <b>${buyInLabel(r)}</b></div>
       <div data-pos>${posStrip(r)}</div>
+      ${evidenceCard(r)}
       <div class="tags">
         <span class="tag src">${esc(r.source)}</span>
         <span class="tag ${rk==="⛔ over its life"?"bad":rk==="⚠️ tight"?"warn":""}"
@@ -1667,7 +1761,7 @@ function render(){
     const au=added.filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0);
     head+=`<div class="banner">⭐ <b>${au.length} line(s) on this order were added by
       hand</b> — the engine did not propose them
-      (${money0(au.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0))} at cost). They are
+      (${money0(au.reduce((n,r)=>n+lineCost(r),0))} at cost). They are
       marked <b>ADDED BY HAND</b> and carry a green rail. ⛔ They reach the order the
       same way every other change does: Save, then
       <code>purchase_drain.py</code>.</div>`;
@@ -1677,7 +1771,7 @@ function render(){
     const nc=au.filter(r=>r.notCarried);
     if(nc.length)
       head+=`<div class="banner bad">⚠️ <b>${nc.length} of those are items we do NOT
-        carry</b> (${money0(nc.reduce((n,r)=>n+qtyOf(r)*unitCost(r),0))} at cost):
+        carry</b> (${money0(nc.reduce((n,r)=>n+lineCost(r),0))} at cost):
         ${nc.map(r=>esc(r.description||r.sku)).join(" · ")}.
         ⛔ They have no sales history, no on-hand and no dating, so <b>nothing here
         checked the quantity</b>. They WILL go on the KeHE order; the PO cannot be
@@ -2110,7 +2204,10 @@ function applyQty(i, commit){
              pip.textContent=nw?"○":"●";
              pip.style.color=nw?"var(--ink3)":"var(--good)"; }
     const c=el.querySelector("[data-linecost]");
-    if(c) c.textContent=money(v*unitCost(r));   // ⛔ BUG 4 — live extended cost
+    /* ⛔ BUG 4 — live extended cost. ⛔ `v` is the box, in OUR units; on a bulk
+       line the money follows the CASE, so this reads the same lineCost the
+       totals and the order file do. */
+    if(c) c.textContent=money(lineCost(r));
     // ⛔ the ordering-unit label moves with the quantity: 2 units of chia and 60
     // units of chia are both "1 case" and "2 cases" respectively.
     const ul=el.querySelector("[data-unitlabel]");
@@ -2128,9 +2225,9 @@ function applyQty(i, commit){
            t.style.display=rk==="ok"||rk==="basis"?"none":""; }
     // ⛔ BUG 9 — say something when a quantity is absurd. Nothing objected to a
     // two-million-dollar order before this.
-    const big=v*unitCost(r)>2000;
+    const _lc=lineCost(r), big=_lc>2000;
     i.style.borderColor=big?"var(--bad)":"";
-    i.title=big?`⛔ ${money(v*unitCost(r))} on one line — check this is intended`:"";
+    i.title=big?`⛔ ${money(_lc)} on one line — check this is intended`:"";
   }
   paintTotals();
   /* ⛔⛔ THE CHIP COUNTS ARE STATE, AND THIS PATH NEVER REFRESHED THEM.
@@ -2303,7 +2400,7 @@ document.getElementById("save").onclick=async()=>{
          simply never written, and the scorecard would have to guess. */
       engine_qty:r.added?0:(r.order_qty??null), approved_qty:q,
       decision:decisionFor(r,e),
-      unit_cost:unitCost(r)||null, line_cost:Number((q*unitCost(r)).toFixed(2)),
+      unit_cost:unitCost(r)||null, line_cost:Number(lineCost(r).toFixed(2)),
       /* ⛔ the cover and risk RECORDED must describe the quantity actually
          approved. Storing the engine's cover_weeks against a halved quantity made
          the audit trail say the opposite of what the reviewer did. */
@@ -2404,7 +2501,7 @@ document.getElementById("final").onclick=async()=>{
   const live=LINES.filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0)
     .map(r=>({sku:r.sku, upc:r.upc, item:r.description, qty:qtyOf(r),
               unit:unitCost(r),          // ⛔ the real unit cost, not cost/qty
-              cost:Number((qtyOf(r)*unitCost(r)).toFixed(2)),
+              cost:Number(lineCost(r).toFixed(2)),
               engine:r.engine_qty??r.order_qty, source:r.source, added:!!r.added,
               notCarried:!!r.notCarried}));
   /* ⭐ AN ADDITION IS NOT AN OVERRIDE. Counting them together would report "42
