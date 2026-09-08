@@ -1669,8 +1669,16 @@ function rowTiles(){
                   act:()=>{FILTER="all";RISK=ONLYCH=NEWONLY=LOSS=REVW=false;UNK=true;},
                   why:"⛔ unknown is not the same as safe"});
   const added=LINES.filter(r=>r.added&&stateOf(r)!=="remove"&&qtyOf(r)>0);
+  /* ⛔⛔ `FILTER` MATCHES `r.source`, AND THE SOURCE VALUES ARE PROSE. I wrote
+     `FILTER="added_by_hand"` here; the real values are `reorder (velocity)`,
+     `on promo`, `added by hand` … so the tile matched NOTHING and the page said
+     "nothing matches" under a tile reading 48. Jack hit it on the first click.
+     ⭐ `ADDED_SOURCE` is declared at the top of this file and is what the add
+     path assigns, so using it makes the tile and the rows impossible to drift
+     apart — the same fix pattern as `positionCoverOf` being one definition. */
   if(added.length) t.push({n:added.length,label:"added by hand",cls:"info",
-                    act:()=>{FILTER="added_by_hand";RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;},
+                    on:FILTER===ADDED_SOURCE,
+                    act:()=>{FILTER=ADDED_SOURCE;RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;},
                     why:money0(added.reduce((n,r)=>n+lineCost(r),0))+" at cost the engine did not propose"});
   const nc=added.filter(r=>r.notCarried);
   if(nc.length) t.push({n:nc.length,label:"items we do NOT carry",cls:"bad",
@@ -1691,9 +1699,29 @@ function rowTiles(){
    thrown ReferenceError on the first tile click. ⭐ `jsc` parsing a file proves
    nothing about a name that is only referenced inside a handler. */
 let _TILES=[];
+/* ⛔⛔ EVERY TILE MUST SELECT ITS OWN ROWS. The `added by hand` tile shipped
+   pointing `FILTER` at a string no row carries, so it read 48 and showed 0 —
+   Jack hit it on the first click. A count and its filter can only be trusted if
+   something checks they agree, so this DOES check, on every render, and says so
+   in the console rather than letting a tile lie silently.
+   ⭐ Cheap: it runs each tile's action against a copy of the flag state and puts
+   it straight back. ⛔ Never let it change what the user is looking at. */
+function _auditTiles(rt){
+  const snap=[FILTER,RISK,UNK,ONLYCH,NEWONLY,LOSS,REVW];
+  const bad=[];
+  rt.forEach(t=>{
+    if(!t.act) return;
+    try{ t.act(); if(visible().length===0 && t.n>0) bad.push(`${t.label} (${t.n})`); }
+    catch(e){ bad.push(`${t.label} threw ${e&&e.name}`); }
+  });
+  [FILTER,RISK,UNK,ONLYCH,NEWONLY,LOSS,REVW]=snap;
+  if(bad.length) console.warn("⛔ tile(s) whose filter matches NO rows: "+bad.join(", "));
+  return bad;
+}
 function dashboard(){
   const rt=rowTiles(), at=alertTiles();
   _TILES=rt;
+  _auditTiles(rt);
   const tile=(t,i)=>`<button class="tile ${t.cls}" data-tile="${i}"
       ${t.act?'':'disabled'} title="${escAttr(t.why||"")}">
       <b>${t.n}</b><s>${esc(t.label)}</s></button>`;
