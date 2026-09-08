@@ -84,6 +84,34 @@ main{padding:14px 18px 90px;max-width:1500px}
 .pos .z b{color:var(--ink3);font-weight:400}
 .pos .add b{color:var(--accent);font-weight:700}
 .pos .hot b{color:var(--bad);font-weight:700}
+/* ══ ALERT DASHBOARD ══ tiles replace ~1,400 words of prose above the first row.
+   ⛔ Every tile with an action is a real <button>, so it is keyboard-reachable
+   and announces its pressed state; the ones with nothing to click are disabled
+   rather than fake-clickable. */
+.dash{margin:10px 0 4px}
+.tiles{display:flex;flex-wrap:wrap;gap:8px}
+.tile{display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+  min-width:118px;padding:7px 11px;border:1px solid var(--line);border-radius:9px;
+  background:var(--card);cursor:pointer;font:inherit;text-align:left}
+.tile:disabled{cursor:default;opacity:.72}
+.tile b{font-size:20px;line-height:1.05;font-variant-numeric:tabular-nums}
+.tile s{font-size:10px;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--ink3);text-decoration:none;line-height:1.25}
+.tile.bad b{color:var(--bad)} .tile.warn b{color:#a86400} .tile.info b{color:var(--ink)}
+.tile.bad{border-color:var(--bad);background:#fff6f6}
+.tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tile.on{background:var(--ink);border-color:var(--ink)}
+.tile.on b,.tile.on s{color:#fff}
+/* the engine's own notes: collapsed, one line each, count first */
+.alrtwrap{margin-top:9px;font-size:12px}
+.alrtwrap>summary{cursor:pointer;color:var(--ink3)}
+.alrts{margin-top:6px;display:grid;gap:4px}
+.alrt>summary{cursor:pointer;padding:3px 0;font-size:12px}
+.alrt>summary b{font-variant-numeric:tabular-nums;margin-right:5px}
+.alrt.bad>summary{color:var(--bad)} .alrt.warn>summary{color:#a86400}
+.alrt.ctx>summary,.alrt.info>summary{color:var(--ink2)}
+.alrt>div{font-size:11.5px;color:var(--ink2);padding:3px 0 6px 18px;line-height:1.45}
+.alrt>summary i{color:var(--bad);font-style:normal}
 /* ══ REORDER EVIDENCE ══ one shape per flagged row, same order every time:
    the net-GP number, the sold-vs-binned fate bar, then the 26-week sparkline.
    ⛔ The whole point is that the eye lands in the same three places on every
@@ -1565,6 +1593,120 @@ function attentionRank(r){
   if(touched(r)) return 6;
   return 5;
 }
+/* ══ THE ALERT DASHBOARD ══════════════════════════════════════════════════
+   ⛔⛔ RULING (Jack, 2026-09-08): *"these warnings are WAY too much text, we need
+   a dashboard … otherwise none of it adds any value because it is just a giant
+   wall of text anyone would skip over. If a dashboard, then they need to be
+   interactive so they can click into or filter or DO something, not just warning
+   flags."*
+   ⛔ HE IS RIGHT AND THE PROOF IS IN THE PAYLOAD: of the ten alerts on the
+   2026-09-06 order, TWO SAY THE SAME THING (the new-item pipeline count appears
+   as its own alert and again as the list of UPCs) and TWO MORE ARE STALE (the
+   on_order pin was lifted on 2026-09-08 but the payload predates it). A wall of
+   prose hides duplication and staleness; a tile with a count cannot.
+   ⭐ SEVERITY IS NOT GUESSED — the engine already encodes it in the leading
+   glyph of every alert it writes (⛔ / ⚠️ / ⭐), which is a convention this
+   project applies everywhere. Reading it is honest; inventing a keyword list
+   would be the `packsize` title-parsing mistake again. */
+const _SEV=[["⛔",0,"bad"],["⚠️",1,"warn"],["⏸",1,"warn"],
+            ["🆕",2,"info"],["📝",2,"info"],["⭐",3,"ctx"]];
+function alertSeverity(t){
+  for(const [g,rank,cls] of _SEV) if(String(t).indexOf(g)>=0) return {rank,cls};
+  return {rank:2,cls:"info"};
+}
+/* ⭐ A LABEL SHORT ENOUGH TO SCAN. First clause only, glyphs and counts stripped
+   — the number goes in its own slot so the eye reads quantity before prose. */
+function alertLabel(t){
+  let x=String(t||"");
+  for(const [g] of _SEV) x=x.split(g).join("");
+  x=x.replace(/^\s*[\d,]+\s*/,"").split(/[—–:(]/)[0]
+     .replace(/\s+/g," ").trim();
+  return x.length>46?x.slice(0,44)+"…":x;
+}
+function alertCount(t){
+  const m=String(t||"").match(/(\d[\d,]*)/);
+  return m?m[1]:"";
+}
+/* ⛔ DEDUPE ON MEANING, NOT ON THE STRING. The two new-item alerts share no
+   prefix but both are "N approved but not created" — so the signature is the
+   label plus the count, which collapses them and would collapse any future
+   restatement of the same fact. */
+function alertTiles(){
+  const raw=(ORDER&&ORDER.meta&&ORDER.meta.alerts)||[];
+  const seen=new Map();
+  raw.forEach(t=>{
+    const lab=alertLabel(t), n=alertCount(t), sev=alertSeverity(t);
+    const key=lab.toLowerCase().slice(0,26)+"|"+n;
+    const cur=seen.get(key);
+    /* keep the LONGER text of a duplicate pair — it is the one carrying the
+       detail (the UPC list rather than the bare count) */
+    if(!cur || String(t).length>String(cur.text).length)
+      seen.set(key,{label:lab,count:n,text:String(t),sev,dupes:(cur?cur.dupes+1:0)});
+    else cur.dupes++;
+  });
+  return [...seen.values()].sort((a,b)=>a.sev.rank-b.sev.rank);
+}
+/* ⭐ THE ROW-BACKED TILES — these are the interactive half. Each one KNOWS the
+   filter it turns on, so clicking it changes the list rather than telling you to
+   go and find something. ⛔ Counts come from the same predicates the chips use,
+   so a tile can never disagree with the chip it activates. */
+function rowTiles(){
+  const t=[];
+  const loss=LINES.filter(losesMoney).length;
+  if(loss) t.push({n:loss,label:"lose money after binning",cls:"bad",
+                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=REVW=false;LOSS=true;},
+                   why:"gross profit on what sold, minus the cost of what was thrown away"});
+  const rev=LINES.filter(needsReorderReview).length;
+  if(rev) t.push({n:rev,label:"review before reorder",cls:"warn",
+                  act:()=>{FILTER="all";RISK=UNK=ONLYCH=NEWONLY=LOSS=false;REVW=true;},
+                  why:"the smallest buy is more than the dating maths allows"});
+  const risky=LINES.filter(r=>riskOf(r)==="⛔ over its life").length;
+  if(risky) t.push({n:risky,label:"order past their shelf life",cls:"bad",
+                    act:()=>{FILTER="all";UNK=ONLYCH=NEWONLY=LOSS=REVW=false;RISK=true;},
+                    why:"the pattern that dated out milk — cut the quantity and this drops"});
+  const unk=LINES.filter(r=>riskOf(r)==="unknown").length;
+  if(unk) t.push({n:unk,label:"no dating information",cls:"warn",
+                  act:()=>{FILTER="all";RISK=ONLYCH=NEWONLY=LOSS=REVW=false;UNK=true;},
+                  why:"⛔ unknown is not the same as safe"});
+  const added=LINES.filter(r=>r.added&&stateOf(r)!=="remove"&&qtyOf(r)>0);
+  if(added.length) t.push({n:added.length,label:"added by hand",cls:"info",
+                    act:()=>{FILTER="added_by_hand";RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;},
+                    why:money0(added.reduce((n,r)=>n+lineCost(r),0))+" at cost the engine did not propose"});
+  const nc=added.filter(r=>r.notCarried);
+  if(nc.length) t.push({n:nc.length,label:"items we do NOT carry",cls:"bad",
+                    act:null,
+                    why:"no history, no on-hand, no dating — nothing here checked the quantity"});
+  const nrev=LINES.filter(r=>!reviewed(r)).length;
+  if(nrev) t.push({n:nrev,label:"not yet looked at",cls:"info",
+                   act:()=>{FILTER="all";RISK=UNK=ONLYCH=LOSS=REVW=false;NEWONLY=true;},
+                   why:"a tick is a read marker, not an approval — untouched lines still ship"});
+  return t;
+}
+/* ⛔⛔ THE TILE LIST MUST OUTLIVE THE RENDER. The markup can only carry an index,
+   so the `act` closures are kept here for the click handler to reach.
+   ⛔ THIS DECLARATION WAS LOST ONCE ALREADY: the edit that added it ran in the
+   same script as a later edit that failed its own assertion, so the whole file
+   write was abandoned while the click handler — added separately — went in and
+   READ it. The result compiled, passed the build's syntax check, and would have
+   thrown ReferenceError on the first tile click. ⭐ `jsc` parsing a file proves
+   nothing about a name that is only referenced inside a handler. */
+let _TILES=[];
+function dashboard(){
+  const rt=rowTiles(), at=alertTiles();
+  _TILES=rt;
+  const tile=(t,i)=>`<button class="tile ${t.cls}" data-tile="${i}"
+      ${t.act?'':'disabled'} title="${escAttr(t.why||"")}">
+      <b>${t.n}</b><s>${esc(t.label)}</s></button>`;
+  const al=at.map((a,i)=>`<details class="alrt ${a.sev.cls}">
+      <summary><b>${a.count||"•"}</b> ${esc(a.label)}${a.dupes?` <i>(said ${a.dupes+1}x)</i>`:""}</summary>
+      <div>${esc(flat(a.text,600))}</div></details>`).join("");
+  return `<div class="dash">
+    <div class="tiles">${rt.map(tile).join("")}</div>
+    ${at.length?`<details class="alrtwrap"><summary>${at.length} note(s) from the
+      engine — nothing to click, open if you want the detail</summary>
+      <div class="alrts">${al}</div></details>`:""}
+  </div>`;
+}
 function evidenceCard(r){
   const e=r.evidence; if(!e) return "";
   const sold=+e.sold_units||0, exp=+e.expired_units||0, tot=sold+exp;
@@ -1786,60 +1928,31 @@ function render(){
      stock — buy it or cut the item", and "1,328 units are on a prior order Finale
      cannot see — if it was never placed, these under-order". The second changes
      how you read every quantity on the page. */
-  const al=(ORDER.meta.alerts||[]);
-  if(al.length) head+=`<details class="banner" open><summary style="cursor:pointer">
-    <b>${al.length} alert(s) from the order engine</b> — read these before deciding</summary>
-    <ul style="margin:7px 0 0;padding-left:19px">${
-      al.map(x=>`<li style="margin:4px 0">${esc(flat(x,400))}</li>`).join("")}</ul></details>`;
-  const risky=LINES.filter(r=>riskOf(r)==="⛔ over its life").length;
-  const unk=LINES.filter(r=>riskOf(r)==="unknown").length;
-  if(risky) head+=`<div class="banner bad">⛔ <b>${risky} line(s) order more than their
-    shelf life can clear.</b> That is the pattern that dated out milk — cut the quantity
-    and this count drops as you go.</div>`;
-  if(unk) head+=`<div class="banner">⚠️ <b>${unk} line(s) have no dating information at
-    all</b> — no shelf life or no sales rate. ⛔ Unknown is not the same as safe.</div>`;
-  const basis=LINES.filter(r=>riskOf(r)==="basis").length;
-  if(basis) head+=`<div class="banner">${basis} line(s) were sized on something other than
-    the shelf sales rate — a promo probe, a minimum-presence line, a seasonal buy or a
-    recipe-kit top-off. ⛔ Cover-vs-life does not apply to those, so they carry no dating
-    verdict here.</div>`;
-  /* ⛔ A LINE A HUMAN ADDED THAT COULD NOT BE FULLY REINSTATED IS NOT A DETAIL.
-     Its quantity is intact and will be ordered, but the figures beside it are
-     absent — so it must say that rather than render as an ordinary row whose
-     numbers happen to be blank. */
+  /* ⛔⛔ THE PROSE BANNERS ARE GONE — see `dashboard()`. Ten alerts plus five
+     banners rendered ~1,400 words above the first row, and Jack skipped all of
+     it, correctly: *"just a giant wall of text anyone would skip over"*. Every
+     count that had a matching filter is now a BUTTON that applies it. */
+  head += dashboard();
+  /* ⛔ THE `basis`, ADDED-BY-HAND AND NOT-CARRIED BANNERS ARE TILES NOW. Each
+     was a paragraph restating a number the dashboard shows in one glance, and
+     two of them told the reader to go and find rows the tile now filters to
+     directly. ⭐ `ADD_NOTE` stays as prose: it is not a count, it is a specific
+     failure on specific lines and there is nothing to click. */
   if(ADD_NOTE) head+=`<div class="banner bad">${ADD_NOTE}</div>`;
   const added=LINES.filter(r=>r.added);
-  if(added.length){
-    const au=added.filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0);
-    head+=`<div class="banner">⭐ <b>${au.length} line(s) on this order were added by
-      hand</b> — the engine did not propose them
-      (${money0(au.reduce((n,r)=>n+lineCost(r),0))} at cost). They are
-      marked <b>ADDED BY HAND</b> and carry a green rail. ⛔ They reach the order the
-      same way every other change does: Save, then
-      <code>purchase_drain.py</code>.</div>`;
-    /* ⛔⛔ A LINE FOR SOMETHING WE DO NOT CARRY IS A DIFFERENT COMMITMENT and must
-       be counted separately: nothing on this page checked its quantity, and the
-       PO it lands on cannot be imported into Finale until the product exists. */
-    const nc=au.filter(r=>r.notCarried);
-    if(nc.length)
-      head+=`<div class="banner bad">⚠️ <b>${nc.length} of those are items we do NOT
-        carry</b> (${money0(nc.reduce((n,r)=>n+lineCost(r),0))} at cost):
-        ${nc.map(r=>esc(r.description||r.sku)).join(" · ")}.
-        ⛔ They have no sales history, no on-hand and no dating, so <b>nothing here
-        checked the quantity</b>. They WILL go on the KeHE order; the PO cannot be
-        imported into Finale until ProductPipeline creates each product. ⭐ If we mean
-        to CARRY any of them, put it through <code>newitem_week.py</code>.</div>`;
-  }
-  const nr=ORDER.meta.not_ordered_by_reason||{};
-  /* ⛔ "lines the engine wants to buy" stopped being true the moment a reviewer
-     could add one, and a count that quietly changes meaning is worse than a
-     longer sentence. The engine's own figure is stated separately. */
   head+=`<div class="banner">Showing <b>${v.length}</b> of ${LINES.length} line(s) on this
     order for the <b>week of ${esc(ORDER.meta.order_sunday)}</b> —
     ${ORDER.meta.lines_buying} proposed by the engine
     from ${ORDER.meta.lines_considered.toLocaleString()} considered${
       added.length?`, plus ${added.length} added by hand`:""}.
-    <span class="mut">Not ordered: ${Object.entries(nr).slice(0,4)
+    <span class="mut">Not ordered: ${Object.entries(
+      /* ⛔ `nr` WAS DECLARED IN THE PROSE BLOCK THIS DASHBOARD REPLACED. Deleting
+         that block left this reference dangling — a ReferenceError inside
+         `render()`, so the page would have gone BLANK on load. `jsc` parsed the
+         file happily and the build's syntax gate passed it; only running
+         `render()` over real rows found it. ⭐ Read it from `meta` where it
+         belongs, so it cannot depend on a banner existing. */
+      (ORDER.meta.not_ordered_by_reason)||{}).slice(0,4)
       .map(([k,n])=>`${esc(k)} ${n}`).join(" · ")}.</span></div>`;
   m.innerHTML=head+(v.length?v.map(lineHtml).join(""):`<div class="center">nothing matches</div>`);
   paintTotals();
@@ -2209,6 +2322,25 @@ function addSku(sku, want){
     t=setTimeout(()=>{ADDQ=e.target.value;paintAdd();},170);};
 })();
 /* ⛔ Capture phase, like every other delegated handler here (PM-512). */
+/* ⭐ TILE CLICKS — CAPTURE PHASE, for the same reason the decision buttons are:
+   the dashboard sits inside containers that call stopPropagation, and a
+   bubble-phase document listener would never fire at all (that bug cost this
+   page its whole decision row for a day in September).
+   ⛔ A SECOND CLICK CLEARS THE FILTER. A control that can only turn something ON
+   is a trap — the reader has to go hunting for the chip to escape it. */
+document.addEventListener("click",e=>{
+  const tl=e.target.closest("button[data-tile]");
+  if(!tl || tl.disabled) return;
+  e.stopPropagation();
+  const t=_TILES[+tl.dataset.tile];
+  if(t&&t.act){
+    if(tl.getAttribute("aria-pressed")==="true"){
+      FILTER="all"; RISK=UNK=ONLYCH=NEWONLY=LOSS=REVW=false;
+    } else t.act();
+    render();
+  }
+}, true);
+
 document.addEventListener("click",e=>{
   const b=e.target.closest("button[data-add]"); if(!b) return;
   e.stopPropagation();
