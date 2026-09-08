@@ -267,6 +267,10 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
     <label class="mut small" for="sort">Sort</label>
     <select id="sort" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;
             background:var(--card);color:var(--ink);font:inherit;font-size:12.5px">
+      <!-- ⭐ FIRST, and named for what it does: every line a human must look at,
+           worst first. Jack, 2026-09-08: *"can we sort the page to show these at
+           the top and other ones that prob need special attention at the top?"* -->
+      <option value="attention">⛔ needs attention first</option>
       <option value="engine">the engine's order</option>
       <option value="cost">biggest spend first</option>
       <option value="risk">dating risk first</option>
@@ -406,6 +410,10 @@ function flat(v,max){
 const LIST="PurchaseReview", DIR="PurchaseReview";
 let ORDER=null, LINES=[], EDIT={}, SAVED={}, LISTID=null,
     FILTER="all", Q="", RISK=false, UNK=false, ONLYCH=false,
+    /* ⛔ DECLARED HERE OR THE PAGE DIES. `paintFilters` READS these in a
+       template literal before anything assigns them, so an implicit global
+       does not save you — it is a ReferenceError on first render. */
+    LOSS=false, REVW=false,
     SORT="engine", NEWONLY=false;
 /* ⭐⭐ WHICH ORDER WEEK ARE WE DECIDING — and every week available to switch to.
    ⛔⛔ Until 2026-09-06 this page could only ever show ONE week: loadOrder() listed
@@ -962,6 +970,7 @@ async function switchWeek(key, opts){
     ORDER=doc; LINES=rows.concat(extra); SAVED=saved; EDIT={}; WEEK=key;
     WEEK_REASON=opts.reason||WEEK_REASON;
     FILTER="all"; RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
+    LOSS=false; REVW=false;
     /* ⛔ THE ADD PANEL BELONGS TO ONE WEEK. Left loaded across a switch, the next
        search would offer week A's costs and stock levels for a line added to
        week B — and every figure would look perfectly ordinary. */
@@ -1318,16 +1327,31 @@ function paintFilters(){
       `<span class="chip" data-f="${escAttr(k)}" aria-pressed="${FILTER===k}">${esc(k)}<span class="n">${v}</span></span>`).join("")
     + (risky?`<span class="chip" id="riskchip" aria-pressed="${RISK}" style="border-color:var(--bad);color:var(--bad)">⛔ dating risk<span class="n">${risky}</span></span>`:"")
     + (unknown?`<span class="chip" id="unkchip" aria-pressed="${UNK}">⚠️ no dating info<span class="n">${unknown}</span></span>`:"")
+    + (LINES.filter(losesMoney).length
+       ? `<span class="chip" id="losschip" aria-pressed="${LOSS}"
+            style="border-color:var(--bad);background:${LOSS?"var(--bad)":"#fff5f5"};
+            color:${LOSS?"#fff":"var(--bad)"}"
+            title="gross profit on what sold, minus the cost of what was binned">
+            ⛔ loses money<span class="n">${LINES.filter(losesMoney).length}</span></span>` : "")
+    + (LINES.filter(needsReorderReview).length
+       ? `<span class="chip" id="revchip" aria-pressed="${REVW}"
+            title="the smallest buy is more than the dating maths allows — these carry the evidence card">
+            review before reorder<span class="n">${LINES.filter(needsReorderReview).length}</span></span>` : "")
     + `<span class="chip" id="chgchip" aria-pressed="${ONLYCH}">only what I changed<span class="n">${LINES.filter(touched).length}</span></span>`
     + `<span class="chip" id="newchip" aria-pressed="${NEWONLY}">not yet reviewed<span class="n">${LINES.filter(r=>!reviewed(r)).length}</span></span>`;
   document.querySelectorAll("#filters .chip[data-f]").forEach(x=>x.onclick=()=>{
     // ⛔ BUG 7 — "All" must clear the OTHER filters too. It used to leave the
     // risk filter on, so the chip read 118 while 7 lines rendered.
     FILTER=x.dataset.f;
-    if(FILTER==="all"){ RISK=false; UNK=false; ONLYCH=false; NEWONLY=false; }
+    if(FILTER==="all"){ RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
+                        LOSS=false; REVW=false; }
     render();});
   const rc=document.getElementById("riskchip");
   if(rc) rc.onclick=()=>{RISK=!RISK; render();};
+  const lc=document.getElementById("losschip");
+  if(lc) lc.onclick=()=>{LOSS=!LOSS; render();};
+  const vc=document.getElementById("revchip");
+  if(vc) vc.onclick=()=>{REVW=!REVW; render();};
   const uc=document.getElementById("unkchip");
   if(uc) uc.onclick=()=>{UNK=!UNK; render();};
   const cc=document.getElementById("chgchip");
@@ -1369,6 +1393,8 @@ function visible(){
     if(FILTER!=="all" && r.source!==FILTER) return false;
     if(RISK){ const x=riskOf(r); if(x!=="⛔ over its life"&&x!=="⚠️ tight") return false; }
     if(UNK && riskOf(r)!=="unknown") return false;
+    if(LOSS && !losesMoney(r)) return false;
+    if(REVW && !needsReorderReview(r)) return false;
     if(ONLYCH && !touched(r)) return false;
     if(NEWONLY && reviewed(r)) return false;
     if(q && !((r.description||"").toLowerCase().includes(q)
@@ -1389,6 +1415,12 @@ function visible(){
 function sorter(){
   const RANK={"⛔ over its life":0,"⚠️ tight":1,"unknown":2,"basis":3,"ok":4};
   switch(SORT){
+    /* ⭐ THE DEFAULT-WORTHY ONE: everything that needs a human, top of the page,
+       worst first — and within a tier, by money at stake. */
+    case "attention": return (a,b)=>attentionRank(a)-attentionRank(b)
+                                    || (a.evidence&&b.evidence
+                                        ? (+a.evidence.net_gp||0)-(+b.evidence.net_gp||0) : 0)
+                                    || lineCost(b)-lineCost(a);
     case "cost":   return (a,b)=>lineCost(b)-lineCost(a);
     case "risk":   return (a,b)=>(RANK[riskOf(a)]??9)-(RANK[riskOf(b)]??9)
                                  || lineCost(b)-lineCost(a);
@@ -1513,6 +1545,26 @@ function sellLine(r){
    ⛔ `judgeable:false` MUST NOT RENDER AS A CLEAN RECORD. A SKU the expiry
    archive has never seen has no history, which is a different statement from
    "never dated out", and the card says so instead of drawing an all-green bar. */
+/* ⭐⭐ THE TWO STATES WORTH JUMPING TO. Jack, 2026-09-08: *"where would i see
+   this on the purchasing app? can we sort the page to show these at the top and
+   other ones that prob need special attention at the top?"* — he could not find
+   the card because it only renders on flagged rows, and nothing led him to one.
+   ⛔ A view you have to scroll for is a view nobody uses. */
+const losesMoney=r=>!!(r.evidence && (+r.evidence.net_gp||0)<0);
+const needsReorderReview=r=>!!r.evidence;
+/* ⭐ ONE ORDER FOR "NEEDS ATTENTION", used by the sort AND stated in the option
+   label, so the list order is never a mystery. Losing money outranks everything:
+   it is the only category settled by history rather than by a guess. */
+function attentionRank(r){
+  if(losesMoney(r)) return 0;                       // proven loss on its own record
+  if(needsReorderReview(r)) return 1;               // the dating cap was overridden
+  const x=riskOf(r);
+  if(x==="⛔ over its life") return 2;
+  if(x==="unknown") return 3;                       // ⛔ unknown is not safe
+  if(x==="⚠️ tight") return 4;
+  if(touched(r)) return 6;
+  return 5;
+}
 function evidenceCard(r){
   const e=r.evidence; if(!e) return "";
   const sold=+e.sold_units||0, exp=+e.expired_units||0, tot=sold+exp;
