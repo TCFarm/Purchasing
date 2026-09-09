@@ -25,6 +25,28 @@ h1{font-size:18px;margin:0;letter-spacing:-.01em}
   border:1.5px solid var(--accent);color:var(--accent);border-radius:20px;
   font-variant-numeric:tabular-nums;white-space:nowrap}
 .weekbadge.stale{border-color:var(--warn);color:var(--warn)}
+/* the Order / Sale switch — two decisions, two stores, one app */
+.modebtn{font-weight:650;padding:4px 16px;font-size:13px}
+.modebtn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+#modebar{gap:6px;margin-bottom:2px}
+/* a markdown line: depth chips, the forecast, and what it is worth doing nothing */
+.depths{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.dchip{border:1px solid var(--line);border-radius:14px;padding:2px 9px;font-size:12px;
+  cursor:pointer;background:var(--card);color:var(--ink);font-variant-numeric:tabular-nums}
+.dchip.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+.dchip.model{border-color:var(--accent);color:var(--accent)}
+.dchip.probe{border-style:dashed}
+.sline{border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:7px 0;
+  background:var(--card);display:grid;grid-template-columns:1fr auto;gap:6px 14px}
+.sline.chronic{border-left:3px solid var(--warn)}
+.sline.decided{opacity:.72}
+.snums{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;
+  font-variant-numeric:tabular-nums;color:var(--mut)}
+.snums b{color:var(--ink)}
+.swhy{font-size:12px;color:var(--mut);grid-column:1/-1}
+.sacts{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
+.owned{font-size:11.5px;border:1px solid var(--accent);color:var(--accent);
+  border-radius:12px;padding:1px 8px;white-space:nowrap}
 #week{max-width:420px}
 .footweek{font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--accent);
   border:1px solid var(--accent);border-radius:20px;padding:1px 10px;white-space:nowrap}
@@ -281,7 +303,23 @@ table.out td,table.out th{padding:4px 10px 4px 0;text-align:left;white-space:now
 table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--line)}
 </style>
 <header>
-  <h1>Purchase review</h1>
+  <h1 id="apptitle">Purchase review</h1>
+  <!-- ⭐⭐ TWO DECISIONS, ONE APP (Jack, 2026-09-09). Buying and marking down are
+       the same weekly loop seen from two ends, and a reviewer holding one should
+       be able to see the other — an item we are about to reorder while its
+       current stock is being marked down is the single most useful contradiction
+       this page can surface.
+       ⛔ They are SEPARATE POPULATIONS with separate stores, separate approval and
+       separate cadences: the order writes PurchaseReview, the sale writes
+       SaleReview, and nothing crosses. ⛔ New products are NOT here — they have
+       their own app at tcfarm.github.io/newitems/ and a new item is not a sale
+       candidate: no history, no best-by, nothing to mark down.
+       ⛔ OUTSIDE #filters, which paintFilters() rebuilds on every render. -->
+  <div class="weekbar" id="modebar">
+    <button class="ghost modebtn on" id="mode-order" data-mode="order">Order</button>
+    <button class="ghost modebtn" id="mode-sale" data-mode="sale">Sale</button>
+    <span class="mut small" id="modenote"></span>
+  </div>
   <!-- ⭐⭐ WHICH WEEK AM I EDITING? Until 2026-09-06 the page loaded whichever
        order_*.json sorted newest and said so only in small grey text, so
        publishing next week's recommendations SILENTLY replaced the week a buyer
@@ -1992,6 +2030,13 @@ function lineHtml(r){
 }
 
 function render(){
+  /* ⛔ ONE ENTRY POINT, TWO VIEWS. Every filter, sort and edit handler in this
+     file ends in render(), and several of them are document-level listeners that
+     still fire while the sale view is on screen. Branching here rather than at
+     each call site is what stops an order-view repaint blanking the sale.
+     ⚠️ `MODE` is declared with `let` further down; that is safe because nothing
+     CALLS render() until boot(), which is the last statement in the file. */
+  if(MODE==="sale") return renderSale();
   paintFilters();
   const v=visible(), m=document.getElementById("main");
   let head="";
@@ -2857,12 +2902,458 @@ async function boot(){
     const p=pickWeek();
     await switchWeek(p.key,{reason:p.reason, cached:true, boot:true});
   }catch(e){
+    /* ⛔⛔ AN ORDER FAILURE MUST NOT TAKE THE SALE DOWN WITH IT. These are two
+       independent decisions on two independent stores, and the commonest reason
+       to be here on a Monday is the sale. Until 2026-09-09 any order-side failure
+       — no order published yet, a bad payload, a listing error — replaced the
+       whole page with an error and the Sale tab could not be reached at all, even
+       though its own data was fine. The error is still shown, and it is still an
+       error; it just no longer disables the other half of the app. */
     document.getElementById("main").innerHTML=
       `<div class="center">⛔ ${esc(e.message)}<br><br>
+       <span class="mut">The <b>Sale</b> tab above is independent of this and may
+       still work — the two read different files and different lists.</span><br><br>
        <button class="ghost" onclick="sessionStorage.clear();location.href=location.pathname">sign in again</button></div>`;
-    sub.textContent="not signed in";
+    sub.textContent=/sign|token|auth|401/i.test(e.message||"")
+      ? "not signed in" : "signed in — the order could not be loaded";
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SALE REVIEW — the weekly markdown, as a reviewable surface.
+   ⛔ APPROVING HERE CHANGES NO PRICE. It records a decision. The live apply is
+   weekly_sale_apply.sh -> weekly_sale_run.apply_approved, at noon CST, and its
+   only authorisation is the approved block a human puts in the plan file.
+
+   ⛔⛔ THE THREE TRAPS THIS VIEW EXISTS TO SHOW
+   1. Markdowns and the fortnightly supplier promo BOTH write `sale_price` and
+      BOTH write the same `BADGE_TEMPLATE`, deliberately — the customer text is
+      identical. So NEITHER process can recognise its own work from the badge.
+      `commitments.json` is the only correct attribution, and it is what the
+      `owned_by` chip reports. Never infer ownership from what is on screen.
+   2. A live commitment may be DEEPENED or EXTENDED, never cleared, shortened or
+      made shallower. A sale is a promise (Jack, 2026-08-13).
+   3. A chronic expirer is an ORDER-SIZING problem, not a pricing one. 83 SKUs
+      with 5+ expiry events are ~36% of all expired retail, 62 of them dairy.
+      A markdown cannot fix an item that dates out sixteen times, so those lines
+      are marked and routed rather than discounted deeper.
+   ══════════════════════════════════════════════════════════════════════════ */
+const SALE_LIST="SaleReview";
+let MODE="order", SALE=null, SALE_ID=null, SALE_SAVED={}, SALE_EDIT={},
+    SALE_TAB="markdowns", SALE_Q="", SALE_ONLY="", SALE_ERR="";
+/* the ladder a reviewer may choose from. ⛔ It is the SCORECARD's own band set,
+   so a hand-picked depth always lands in a band the measured curve reports —
+   two ladders is how a curve and the decisions that fed it stop lining up. */
+const SALE_DEPTHS=[0,0.10,0.15,0.20,0.25,0.30,0.40];
+
+const pct=v=>v==null||v===""?"—":(Number(v)*100).toFixed(0)+"%";
+const u1=v=>v==null||v===""?"—":Number(v).toFixed(1);
+
+async function saleListId(){
+  if(SALE_ID) return SALE_ID;
+  const j=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  const l=(j.value||[]).find(x=>x.displayName===SALE_LIST);
+  if(!l) throw new Error(`the ${SALE_LIST} list does not exist — run `+
+    `scripts/create_sale_review_list.py --create`);
+  return (SALE_ID=l.id);
+}
+/* ⛔ NEWEST BY NAME, and the name carries the Monday. Unlike the order view this
+   deliberately does NOT offer a week switcher: a markdown is a decision about
+   stock that is dating out NOW, and reviewing last week's is never useful — the
+   stock has either sold or been pulled. Showing an old one would invite someone
+   to approve a plan whose apply would refuse it as WRONG_DAY anyway. */
+async function loadSale(){
+  const ls=await graph(`/sites/${CFG.siteId}/drive/root:/${DIR}:/children`+
+                       `?$select=name,id&$top=200`);
+  const f=(ls.value||[]).filter(x=>/^sale_\d{4}-\d{2}-\d{2}\.json$/.test(x.name))
+                        .sort((a,b)=>a.name<b.name?1:-1);
+  if(!f.length) throw new Error("no sale has been published yet — run "+
+    "python3 sale_week.py on the Mac that runs the routines");
+  const t=await getToken();
+  const r=await fetch(`${GRAPH}/sites/${CFG.siteId}/drive/items/${f[0].id}/content`,
+                      {headers:{Authorization:"Bearer "+t}});
+  if(!r.ok) throw new Error(`sale download failed ${r.status} for ${f[0].name}`);
+  const doc=await r.json();
+  /* ⛔⛔ THE FILE AND ITS CONTENTS MUST AGREE. Same guard as the order view: the
+     filename is what a human reads, `meta.monday` is what every decision is saved
+     against. A decision filed against the wrong Monday is invisible once saved,
+     because the apply only ever looks at its own date. */
+  const inName=/^sale_(\d{4}-\d{2}-\d{2})\.json$/.exec(f[0].name)[1];
+  if(String(doc.meta&&doc.meta.monday||"")!==inName)
+    throw new Error(`⛔ ${f[0].name} declares monday `+
+      `"${doc.meta&&doc.meta.monday}" inside it. Refusing to load — decisions `+
+      `would be saved against a week nobody can see.`);
+  return doc;
+}
+async function loadSaleSaved(monday){
+  const id=await saleListId();
+  let url=`/sites/${CFG.siteId}/lists/${id}/items?expand=fields&$top=500`, out={};
+  while(url){
+    const j=await graph(url);
+    for(const it of j.value||[]){
+      const fl=it.fields||{};
+      if(String(fl.sale_monday||"")!==String(monday)||!fl.sku) continue;
+      out[fl.sku]={...fl,_id:it.id};
+    }
+    const n=j["@odata.nextLink"]; url=n?n.replace(GRAPH,""):null;
+  }
+  return out;
+}
+
+function saleDepthOf(r){
+  const e=SALE_EDIT[r.sku];
+  if(e&&e.depth!=null) return e.depth;
+  const s=SALE_SAVED[r.sku];
+  if(s&&s.approved_depth!=null&&s.approved_depth!=="") return Number(s.approved_depth);
+  return Number(r.depth||0);
+}
+function saleDecisionOf(r){
+  const e=SALE_EDIT[r.sku];
+  if(e&&e.decision) return e.decision;
+  const s=SALE_SAVED[r.sku];
+  return s?String(s.decision||""):"";
+}
+function salePending(){ return Object.keys(SALE_EDIT).length; }
+
+/* ⛔ COMMITMENT GUARD, ON THE PAGE. A live promise may be deepened or extended,
+   never made shallower — so a chip that would raise the customer's price is
+   refused HERE, before it can be saved, rather than being silently dropped by
+   the apply. `owned_price` comes from commitments.json, never from the badge. */
+/* ⛔ THE PROMISE IS A PRICE, NOT A DEPTH — so the test is in dollars, with a
+   tolerance. Comparing depths directly blocked the 30% chip on an item committed
+   at exactly 30%, because 8.39/11.99 gives a floor of 0.30025 and 0.30 < that by
+   a rounding hair. The ledger price is charm-rounded to cents, so a depth derived
+   from it can never land back on the ladder exactly. ⭐ Same discipline and the
+   same half-cent as `weekly_sale_run.PRICE_EPSILON`, which exists because an
+   exact float compare there read "someone else owns this" at random. */
+const SALE_PRICE_EPSILON=0.005;
+function saleFloor(r){
+  if(!r.owned_by||!r.owned_price) return null;
+  const op=Number(r.owned_price), reg=Number(r.price||0);
+  if(!(op>0)||!(reg>0)) return null;
+  return 1-(op/reg);
+}
+/* would this depth RAISE the customer's price above what we promised? */
+function saleBlocked(r,d){
+  if(!r.owned_by||!r.owned_price) return false;
+  const op=Number(r.owned_price), reg=Number(r.price||0);
+  if(!(op>0)||!(reg>0)) return false;
+  return (reg*(1-d)) > op + SALE_PRICE_EPSILON;
+}
+function saleLineHtml(r){
+  const d=saleDepthOf(r), dec=saleDecisionOf(r), floor=saleFloor(r);
+  const price=Number(r.price||0), sale=price*(1-d);
+  const chips=SALE_DEPTHS.map(x=>{
+    const cls=["dchip"];
+    if(Math.abs(x-d)<1e-9) cls.push("on");
+    if(Math.abs(x-Number(r.model_depth||0))<1e-9) cls.push("model");
+    if(r.probe&&Math.abs(x-Number(r.depth||0))<1e-9) cls.push("probe");
+    const blocked=saleBlocked(r,x);
+    return `<button class="${cls.join(" ")}" data-sdepth="${x}" data-ssku="${escAttr(r.sku)}"
+      ${blocked?`disabled title="a live promise cannot be made shallower — it is committed at ${pct(floor)} until ${escAttr(r.owned_ends)}"`:""}
+      >${x===0?"off":pct(x)}</button>`;
+  }).join("");
+  const tags=[];
+  if(r.probe) tags.push(`<span class="tag" title="${escAttr(r.probe_why)}">experiment</span>`);
+  if(r.chronic_expirer) tags.push(`<span class="tag" title="${r.expiry_events} recorded expiry events, ${u1(r.expiry_units)} units — a markdown cannot fix this">⛔ chronic · order less</span>`);
+  if(r.owned_by) tags.push(`<span class="owned">on sale until ${escAttr(r.owned_ends)}</span>`);
+  if(r.also_flag) tags.push(`<span class="tag">${escAttr(r.also_flag)}</span>`);
+  return `<div class="sline ${r.chronic_expirer?"chronic":""} ${dec?"decided":""}">
+    <div>
+      <div class="nm"><b>${esc(r.description||r.sku)}</b>
+        <span class="mut">${esc(r.sku)} · ${esc(r.storage||"")}</span> ${tags.join(" ")}</div>
+      <div class="snums">
+        <span>on hand <b>${u1(r.units)}</b></span>
+        <span>surplus <b>${u1(r.surplus)}</b></span>
+        <span>expects to sell <b>${u1(r.expected_units)}</b></span>
+        <span>best-by <b>${esc(r.deadline||"—")}</b> <span class="mut">(${esc(r.deadline_basis||"")})</span></span>
+        <span>pull <b>${esc(r.pull_date||"—")}</b></span>
+      </div>
+      <div class="snums">
+        <span>${money(price)} &rarr; <b>${money(sale)}</b> at ${pct(d)}</span>
+        <span>GP here <b>${money(r.gp_at_depth)}</b></span>
+        <span>GP doing nothing <b>${money(r.gp_do_nothing)}</b></span>
+        <span>each leftover is worth <b>${money(r.leftover_value_per_unit)}</b></span>
+      </div>
+      <div class="swhy">${esc(r.why||"")}</div>
+    </div>
+    <div class="sacts">
+      <div class="depths">${chips}</div>
+      <button class="ghost" data-sdec="approve" data-ssku="${escAttr(r.sku)}">Approve</button>
+      <button class="ghost" data-sdec="decline" data-ssku="${escAttr(r.sku)}">Not this week</button>
+      ${dec?`<span class="tag">${esc(dec)}${
+        SALE_SAVED[r.sku]&&SALE_SAVED[r.sku].reviewer?` · ${esc(SALE_SAVED[r.sku].reviewer)}`:""}</span>`:""}
+    </div>
+  </div>`;
+}
+
+function saleVisible(){
+  const rows=(SALE.markdowns||[]).slice();
+  const q=SALE_Q.toLowerCase();
+  return rows.filter(r=>{
+    if(SALE_ONLY==="probe"&&!r.probe) return false;
+    if(SALE_ONLY==="chronic"&&!r.chronic_expirer) return false;
+    if(SALE_ONLY==="undecided"&&saleDecisionOf(r)) return false;
+    if(SALE_ONLY==="owned"&&!r.owned_by) return false;
+    if(!q) return true;
+    return (r.sku+" "+(r.description||"")).toLowerCase().includes(q);
+  }).sort((a,b)=>(b.surplus*b.price)-(a.surplus*a.price));
+}
+
+function saleTabs(){
+  const md=SALE.markdowns||[], pr=SALE.promo;
+  const n=k=>md.filter(k).length;
+  const tabs=[["markdowns",`Markdowns (${md.length})`],
+              ["promo",`Supplier promo (${pr?pr.on:0})`]];
+  return `<div class="filters">
+    ${tabs.map(([k,l])=>`<button class="ghost ${SALE_TAB===k?"primary":""}"
+       data-stab="${k}">${esc(l)}</button>`).join("")}
+    <input type="search" id="sq" placeholder="Find a SKU or item…"
+           value="${escAttr(SALE_Q)}" style="min-width:200px">
+    ${[["","all"],["undecided",`undecided ${n(r=>!saleDecisionOf(r))}`],
+       ["probe",`experiments ${n(r=>r.probe)}`],
+       ["chronic",`⛔ chronic ${n(r=>r.chronic_expirer)}`],
+       ["owned",`already on sale ${n(r=>r.owned_by)}`]]
+      .map(([k,l])=>`<button class="ghost ${SALE_ONLY===k?"primary":""}"
+         data-sonly="${k}">${esc(l)}</button>`).join("")}
+  </div>`;
+}
+
+function salePromoHtml(){
+  const p=SALE.promo;
+  if(!p) return `<div class="banner bad">⛔ no fortnightly supplier-promo plan
+    could be read. That is not "no promo this period" — it means the flip's own
+    plan file is missing or unreadable.</div>`;
+  const stale=p.stale_days!=null&&p.stale_days>14;
+  return `<div class="banner ${stale?"bad":""}">
+    Supplier promo period <b>${esc(p.period_monday)}</b> —
+    ${p.on} item(s) on, ${p.off} off, badge through ${esc(p.badge_by||"—")}.
+    ${stale?`⛔ that is <b>${p.stale_days} days</b> before this Monday, so the
+      fortnightly flip is OVERDUE — these prices are not this period's.`:""}
+    <div class="mut">⛔ Read-only here. The flip is a different decision on a
+    different cadence (the supplier's calendar, not our dating) and it is
+    repriced by <code>promo_pricing.apply_plan</code>, never by this page.
+    ⛔ Margin on these is measured AFTER the rebate — an INFRA MCB is a
+    charge-back, not an invoice reduction.</div></div>
+    ${(p.rows||[]).slice(0,300).map(r=>`<div class="sline">
+      <div><div class="nm"><b>${esc(r.name||r.sku)}</b>
+        <span class="mut">${esc(r.sku)} · ${esc(r.owner||"")}</span></div>
+        <div class="snums"><span>regular <b>${money(r.regular_price)}</b></span>
+        <span>live sale <b>${money(r.live_sale_price)}</b></span></div></div>
+      <div class="sacts"><span class="mut small">supplier promo</span></div>
+    </div>`).join("")}`;
+}
+
+function renderSale(){
+  const m=document.getElementById("main");
+  if(SALE_ERR){ m.innerHTML=`<div class="center">⛔ ${esc(SALE_ERR)}</div>`; return; }
+  if(!SALE){ m.innerHTML=`<div class="center">Loading the sale…</div>`; return; }
+  const meta=SALE.meta||{}, md=SALE.markdowns||[];
+  let h="";
+  /* ⛔ SAY IT ONCE. `sale_week.build()` already puts the stale-commitment count
+     into meta.alerts, so rendering the dedicated banner as well printed the same
+     sentence twice in different words — which reads like two different problems
+     and trains the reviewer to skim past both. The banner below is the richer of
+     the two, so the alert form is filtered out rather than the banner dropped. */
+  const stale=SALE.stale_commitments||[];
+  for(const a of (meta.alerts||[])){
+    if(stale.length&&/sale commitment\(s\) are PAST/.test(a)) continue;
+    h+=`<div class="banner bad">${esc(a)}</div>`;
+  }
+  if(stale.length)
+    h+=`<div class="banner bad">⛔ <b>${stale.length} sale(s) are past
+      their published end date and were never retired</b> — the badge has expired
+      while the price is still live. Oldest ends
+      ${esc(stale.map(s=>s.ends).sort()[0])}. Approving this week's
+      plan does not fix them; they need a run that takes them down.</div>`;
+  const on=md.filter(r=>Number(r.depth||0)>0);
+  const surplus=md.reduce((a,r)=>a+Number(r.surplus||0)*Number(r.price||0),0);
+  const exp=md.reduce((a,r)=>a+Number(r.expected_units||0),0);
+  h+=`<div class="banner">Sale for the week of <b>${esc(meta.monday)}</b> —
+    <b>${on.length}</b> markdown(s) of ${md.length} at-risk SKU(s),
+    ${money0(surplus)} of surplus retail at risk, expecting to sell
+    <b>${exp.toFixed(0)}</b> units.
+    <span class="mut">⛔ Nothing here is live. The apply runs at noon CST and only
+    publishes what a human approved.</span></div>`;
+  /* ⭐ The forecast is the thing being validated, so say what it rests on. */
+  h+=`<div class="banner"><b>How the expected units are built.</b> Each line's
+    forecast is its own sales rate over the delivery window, plus an elasticity
+    term, plus a flat visibility allowance for being in the On Sale browse
+    surface. <span class="mut">⚠️ That last term is an unmeasured constant and on
+    the current list it is the majority of all predicted units — which is why some
+    lines carry an <b>experiment</b> tag. Scored once each window closes:
+    <code>python3 sale_scorecard.py</code>.</span></div>`;
+  h+=saleTabs();
+  if(SALE_TAB==="promo"){ m.innerHTML=h+salePromoHtml(); paintSaleFoot(); return; }
+  const v=saleVisible();
+  h+=`<div class="banner">Showing <b>${v.length}</b> of ${md.length}.
+    ⭐ The chip outlined in colour is what the model chose; click another to
+    override it. A human's edit always wins and is recorded as evidence.</div>`;
+  m.innerHTML=h+(v.length?v.map(saleLineHtml).join("")
+                        :`<div class="center">nothing matches</div>`);
+  paintSaleFoot();
+}
+function paintSaleFoot(){
+  const n=salePending();
+  const t=document.getElementById("tally"), s=document.getElementById("save");
+  const f=document.getElementById("footweek");
+  if(f) f.textContent=SALE&&SALE.meta?`sale ${SALE.meta.monday}`:"—";
+  if(t) t.textContent=n?`${n} unsaved decision(s)`:"no unsaved decisions";
+  if(s) s.disabled=!n;
+  const fin=document.getElementById("final"); if(fin) fin.disabled=true;
+}
+
+/* ── the sale's own save ─────────────────────────────────────────────────── */
+/* ⛔ ONLY COLUMNS `SaleReview` ACTUALLY DEFINES. Graph rejects an unknown field
+   with a bare 400 and loses the WHOLE row — that is how a day of saved decisions
+   was destroyed on 2026-09-06. The schema is declared in
+   scripts/create_sale_review_list.py; adding a field means running that first. */
+async function saveSale(){
+  const btn=document.getElementById("save"), s=document.getElementById("status");
+  btn.disabled=true; s.textContent="saving…";
+  const id=await saleListId(), monday=SALE.meta.monday;
+  const stamp=`${monday} · built ${SALE.meta.built_at||""}`;
+  let ok=0, fail=0;
+  for(const [sku,e] of Object.entries(SALE_EDIT)){
+    const r=(SALE.markdowns||[]).find(x=>x.sku===sku); if(!r) continue;
+    const d=saleDepthOf(r);
+    const dec=e.decision||(Math.abs(d-Number(r.depth||0))>1e-9?"change":"approve");
+    const f={Title:`${monday}:${sku}`, sale_monday:monday, sku,
+      item:String(r.description||"").slice(0,255), storage:r.storage||"",
+      decision:dec,
+      model_depth:Number(r.model_depth||0), approved_depth:Number(d),
+      approved_price:Number((Number(r.price||0)*(1-d)).toFixed(2)),
+      /* ⭐ the model's forecast, stored beside the human's depth. ⛔ It is the
+         forecast AT THE MODEL'S depth — we have no forecast at a depth the model
+         never evaluated, and inventing one by interpolation would put a fabricated
+         number into the calibration set. */
+      expected_units:Number(r.expected_units||0),
+      probe:r.probe?"1":"",
+      reviewer:account,
+      /* ⛔ THE Z IS LOAD-BEARING — the same trap as the order save. Slicing to 19
+         chars drops the UTC marker and SharePoint reads the instant as local. */
+      decided_at:new Date().toISOString().slice(0,19)+"Z",
+      reviewer_note:String(e.note||"").slice(0,255),
+      build_stamp:stamp.slice(0,255),
+      flags:[r.chronic_expirer?"chronic_expirer":"", r.also_flag||""]
+            .filter(Boolean).join(";").slice(0,255)};
+    try{
+      const ex=(SALE_SAVED[sku]||{})._id;
+      if(ex){ await graph(`/sites/${CFG.siteId}/lists/${id}/items/${ex}/fields`,
+                          {method:"PATCH",body:JSON.stringify(f)});
+              SALE_SAVED[sku]={...SALE_SAVED[sku],...f}; }
+      else{ const j=await graph(`/sites/${CFG.siteId}/lists/${id}/items`,
+              {method:"POST",body:JSON.stringify({fields:f})});
+            SALE_SAVED[sku]={...f,_id:j.id}; }
+      ok++;
+    }catch(err){ fail++; console.error(sku,err); }
+  }
+  if(!fail) SALE_EDIT={};
+  s.textContent = fail
+    ? `⛔ ${ok} saved, ${fail} FAILED on the ${monday} sale — see the console`
+    : `✓ ${ok} decision(s) saved to the ${monday} sale`;
+  renderSale();
+}
+
+/* ── mode switching ──────────────────────────────────────────────────────── */
+async function setMode(m){
+  if(m===MODE) return;
+  /* ⛔ ASK BEFORE DISCARDING. The order view holds unsaved quantities and the sale
+     view holds unsaved depths; switching throws away whichever is on screen. */
+  const pend=MODE==="order"?Object.keys(EDIT).length:salePending();
+  if(pend&&!confirm(`You have ${pend} unsaved change(s) in the ${MODE} view.\n\n`+
+                    `Switching will keep them in memory but they are NOT saved. `+
+                    `Switch anyway?`)) return;
+  MODE=m;
+  for(const b of document.querySelectorAll(".modebtn"))
+    b.classList.toggle("on", b.dataset.mode===m);
+  const t=document.getElementById("apptitle");
+  if(t) t.textContent = m==="sale" ? "Sale review" : "Purchase review";
+  /* ⛔⛔ HIDE EVERY ORDER-ONLY CONTROL, not just the week picker. The header's
+     search box, the sort <select>, "+ Add an item" and the footer's "Finalize
+     order…" all live OUTSIDE #main, so renderSale() never touches them — they sat
+     there fully live over the sale view. "+ Add an item" would have opened the
+     ORDER's add panel from the sale screen and let someone put a line on a
+     purchase order they were not looking at. ⛔ Hidden, not merely disabled: a
+     greyed-out Finalize button still says "this view finalizes orders". */
+  const wbar=document.querySelector(".weekbar:not(#modebar)");
+  if(wbar) wbar.hidden = m==="sale";
+  for(const sel of ["#q","#sort","#addopen","#final","#subtot","#progress",
+                    'label[for="sort"]',"#filters"]){
+    const el=document.querySelector(sel);
+    if(el) el.hidden = m==="sale";
+  }
+  closeAdd();
+  document.getElementById("modenote").textContent =
+    m==="sale" ? "markdowns + supplier promo — writes no prices"
+               : "the Sunday order";
+  if(m==="sale"){
+    if(!SALE&&!SALE_ERR){
+      document.getElementById("main").innerHTML=`<div class="center">Loading the sale…</div>`;
+      try{
+        SALE=await loadSale();
+        SALE_SAVED=await loadSaleSaved(SALE.meta.monday);
+      }catch(e){ SALE_ERR=e.message; }
+    }
+    renderSale();
+  } else if(!ORDER){
+    /* ⛔ render() dereferences ORDER.meta unconditionally, so switching back
+       after a failed order load would throw a TypeError and blank the page —
+       leaving the reviewer with no way back to the sale either. */
+    document.getElementById("main").innerHTML=
+      `<div class="center">⛔ the order for this week could not be loaded.<br><br>
+       <span class="mut">Switch back to <b>Sale</b>, or reload once
+       <code>scripts/publish_order.py --publish</code> has run.</span></div>`;
+  } else { render(); }
+}
+
+document.addEventListener("click",e=>{
+  const b=e.target.closest(".modebtn"); if(!b) return;
+  setMode(b.dataset.mode);
+});
+document.addEventListener("click",e=>{
+  if(MODE!=="sale") return;
+  const tab=e.target.closest("[data-stab]");
+  if(tab){ SALE_TAB=tab.dataset.stab; renderSale(); return; }
+  const only=e.target.closest("[data-sonly]");
+  if(only){ SALE_ONLY=only.dataset.sonly; renderSale(); return; }
+  const chip=e.target.closest("[data-sdepth]");
+  if(chip&&!chip.disabled){
+    const sku=chip.dataset.ssku;
+    SALE_EDIT[sku]={...(SALE_EDIT[sku]||{}), depth:Number(chip.dataset.sdepth),
+                    decision:"change"};
+    renderSale(); return;
+  }
+  const dec=e.target.closest("[data-sdec]");
+  if(dec){
+    const sku=dec.dataset.ssku;
+    SALE_EDIT[sku]={...(SALE_EDIT[sku]||{}), decision:dec.dataset.sdec};
+    renderSale(); return;
+  }
+});
+document.addEventListener("input",e=>{
+  if(MODE==="sale"&&e.target.id==="sq"){ SALE_Q=e.target.value; renderSale(); }
+});
+
+/* ⛔ THE FOOTER BUTTONS ARE SHARED, SO THEY MUST DISPATCH ON MODE. They were
+   bound directly to the order handlers above; leaving that would have made
+   "Save" in the sale view silently write ORDER decisions for whatever was in
+   EDIT — a wrong write that reports success. Capture the originals and route. */
+const _origSave=document.getElementById("save").onclick;
+const _origReset=document.getElementById("reset").onclick;
+document.getElementById("save").onclick=function(...a){
+  return MODE==="sale" ? saveSale() : _origSave.apply(this,a);
+};
+document.getElementById("reset").onclick=function(...a){
+  if(MODE!=="sale") return _origReset.apply(this,a);
+  const n=salePending();
+  if(!n){ document.getElementById("status").textContent="nothing to discard"; return; }
+  if(!confirm(`Discard ${n} unsaved sale decision(s)?\n\n`+
+              `⛔ Decisions already SAVED stay in force.`)) return;
+  SALE_EDIT={}; renderSale();
+  document.getElementById("status").textContent="unsaved sale decisions discarded";
+};
+
 boot();
 
 </script>
