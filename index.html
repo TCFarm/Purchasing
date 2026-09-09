@@ -1754,8 +1754,27 @@ function dashboard(){
   const al=at.map((a,i)=>`<details class="alrt ${a.sev.cls}">
       <summary><b>${a.count||"•"}</b> ${esc(a.label)}${a.dupes?` <i>(said ${a.dupes+1}x)</i>`:""}</summary>
       <div>${esc(flat(a.text,600))}</div></details>`).join("");
+  /* ⭐⭐ WHAT DO I DO NEXT? (ruling: Jack, 2026-09-08.) The person finalising is on
+     whichever Mac they logged into, may be new, and may not remember the steps —
+     so the app has to hand them the exact prompt rather than assume. ⛔ It does NOT
+     try to run anything: the app sends nothing and orders nothing (hard boundary 4).
+     ⛔ NO BACKTICKS ANYWHERE IN HERE — this sits inside a template literal and one
+     stray backtick closes it and kills the whole script. */
+  const nextStep = `<details class="alrtwrap nextstep">
+    <summary>Not sure what to do next? Open this.</summary>
+    <div style="padding:10px 12px;line-height:1.55">
+      <p style="margin:0 0 8px">Open <b>Claude Code</b> in the
+      <b>Procurement &amp; Merchandising</b> folder and paste:</p>
+      <pre style="white-space:pre-wrap;background:rgba(127,127,127,.12);
+        padding:9px 11px;border-radius:6px;margin:0 0 8px">Run scripts/where_am_i.py and do the next step it names.
+Show me what it says first, and stop before anything that is not read-only.</pre>
+      <p class="mut small" style="margin:0">It reads this week's files, says which
+      stages are done, and names the one next action. It changes nothing, so it is
+      safe to run any time, on any machine.</p>
+    </div></details>`;
   return `<div class="dash">
     <div class="tiles">${rt.map(tile).join("")}</div>
+    ${nextStep}
     ${at.length?`<details class="alrtwrap"><summary>${at.length} note(s) from the
       engine — nothing to click, open if you want the detail</summary>
       <div class="alrts">${al}</div></details>`:""}
