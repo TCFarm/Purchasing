@@ -2037,13 +2037,50 @@ if(IS_BROWSER){
   var _sel=document.querySelector('#batchSel');
   if(_sel) _sel.onchange=function(){ if(_tok) bootLive(); };
   (async function(){
+    /* ⭐⭐ AUTO-REDIRECT TO SIGN-IN, matching the sibling apps (Jack,
+       2026-09-10: *"i do not get OAUTH if I go to … in a private browser"*).
+       ⚠️ It did not, by an earlier choice of mine to render the wireframe
+       first — but `Purchasing/index.html` does `if(!await completeLogin())
+       { await beginLogin() }`, so a visitor's expectation is set by that and
+       being the one page that behaves differently is just a papercut.
+       ⛔ THREE THINGS THIS MUST NOT DO:
+       1 · loop. A failed or cancelled sign-in shows the error and a button;
+           it never re-redirects, or a bad redirect URI becomes an infinite
+           bounce with nothing on screen to explain it.
+       2 · fire under the test harness. `IS_BROWSER` guards the whole block —
+           `jsc` has no `location`, and a redirect at module scope would
+           abort the 224-assertion suite.
+       3 · leave no way to see the page without signing in. `?wireframe=1`
+           opts out, which is what design review and a screenshot need. */
     try{
-      var came=await completeLogin();
-      if(came || _loadTok()) { await bootLive(); }
-      else _setWho('not signed in — showing the wireframe', false);
+      if(await completeLogin()){ await bootLive(); return; }
+      if(_loadTok()){ await bootLive(); return; }
+      var skip=false;
+      try{ skip=new URLSearchParams(location.search).get('wireframe')==='1'; }
+      catch(_){}
+      if(skip){
+        _setWho('wireframe mode — not signed in, showing fixtures', false);
+        var _t=document.querySelector('#mockTag');
+        if(_t) _t.textContent='Wireframe (?wireframe=1)';
+        return;
+      }
+      _setWho('redirecting to sign in…', true);
+      await beginLogin();
     }catch(e){
+      /* ⛔ Show it, do not retry. `AADSTS50011` here means the redirect URI is
+         not registered for THIS path, and the page is the only place that
+         will ever say so. */
       _setWho('sign-in failed', false);
-      toast('Sign-in failed — '+(e&&e.message?e.message:e));
+      var _t2=document.querySelector('#mockTag');
+      if(_t2) _t2.textContent='Sign-in failed';
+      openSheet(`<h2>Sign-in failed</h2>
+        <div class="sub">${esc((e&&e.message)?e.message:String(e))}</div>
+        <div class="rwitem"><p>If this says <b>AADSTS50011</b>, this page's
+        redirect URI is not registered on the <b>TC Farm Receiving</b> Entra
+        app. It needs <b>${esc(location.origin+location.pathname)}</b> under
+        the <b>SPA</b> platform — Web rejects a PKCE exchange.</p></div>
+        <button class="btn primary" onclick="beginLogin()">Try again</button>
+        <button class="btn" onclick="closeSheet()">Show the wireframe</button>`);
     }
   })();
 }
