@@ -313,6 +313,10 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
 .slots span{white-space:nowrap}
 .snums .good{color:#1e7a3c;font-weight:600}
 .snums .bad{color:#c0392b;font-weight:600}
+.tag.good{background:#e7f5ec;border-color:#1e7a3c;color:#1e7a3c}
+.tag.mut{opacity:.7}
+.banner ul{margin:6px 0 0 18px;padding:0}
+.banner li{margin:2px 0}
 </style>
 <header>
   <h1 id="apptitle">Purchase review</h1>
@@ -3150,6 +3154,17 @@ function saleLineHtml(r){
   if(r.chronic_expirer) tags.push(`<span class="tag" title="${r.expiry_events} recorded expiry events, ${u1(r.expiry_units)} units — a markdown cannot fix this">⛔ chronic · order less</span>`);
   if(r.owned_by) tags.push(`<span class="owned">on sale until ${escAttr(r.owned_ends)}</span>`);
   if(r.also_flag) tags.push(`<span class="tag">${escAttr(r.also_flag)}</span>`);
+  /* ⭐⭐ IS THIS DEPTH MEASURED, OR A GUESS? ⛔ A depth resting on 40 observed
+     closed windows and one resting on the unmeasured LIFT_SLOPE=1.76 prior look
+     IDENTICAL without this, and telling them apart is the entire point of the
+     depth probe. `BUSINESS-GOALS.md`: every figure carries its basis.
+     ⚠️ Today every row reads `prior` — no depth band has reached n=8 yet — and
+     that is the honest state, not a bug. The chip is how it stops being
+     invisible. */
+  if(r.lift_basis==="measured")
+    tags.push(`<span class="tag good" title="${escAttr(r.lift_why||"")}">📈 measured lift</span>`);
+  else if(r.lift_basis)
+    tags.push(`<span class="tag mut" title="${escAttr(r.lift_why||"")}">lift: prior (unmeasured)</span>`);
   return `<div class="sline ${r.chronic_expirer?"chronic":""} ${dec?"decided":""}">
     <div>
       <div class="nm"><b>${esc(r.description||r.sku)}</b>
@@ -3302,8 +3317,30 @@ function renderSale(){
      sentence twice in different words — which reads like two different problems
      and trains the reviewer to skim past both. The banner below is the richer of
      the two, so the alert form is filtered out rather than the banner dropped. */
+  /* ⭐⭐ WILL THE 11:00 APPLY ACTUALLY FIRE? Under the inverted default this is
+     the single most important thing a reviewer can know at 06:00: the sale goes
+     live unless someone stops it, so the failure that matters is no longer
+     "nobody approved it" — it is "an input was broken and the gate will refuse".
+     ⛔ It was buried in meta.alerts as prose; a reviewer skims prose.
+     ⭐ `meta.guardrails` is re-evaluated against the summary FILE the gate
+     reads, not the in-memory object — a pre-warning that reads a different
+     object from the gate cannot warn about the gate. */
+  const gr=meta.guardrails;
+  if(gr){
+    const bad=(gr.blocking||[]);
+    h+=`<div class="banner ${bad.length?"bad":""}">
+      ${bad.length
+        ? `⛔ <b>THE 11:00 AUTO-APPLY WILL REFUSE</b> — nothing will be written
+           until these are fixed:<ul>${bad.map(c=>
+             `<li><b>${esc(c.check)}</b> — ${esc(c.detail)}</li>`).join("")}</ul>`
+        : `✅ Guardrails pass — the sale goes live at <b>11:00</b> unless you pull
+           a line. The apply re-checks them against a live dry run at the time.`}
+      <div class="mut small">checked ${esc(gr.checked_at||"")}</div></div>`;
+  }
   const stale=SALE.stale_commitments||[];
   for(const a of (meta.alerts||[])){
+    /* ⛔ SAY IT ONCE. The banner above is the richer form of the same warning. */
+    if(gr&&(gr.blocking||[]).length&&/AUTO-APPLY WILL REFUSE/.test(a)) continue;
     if(stale.length&&/sale commitment\(s\) are PAST/.test(a)) continue;
     h+=`<div class="banner bad">${esc(a)}</div>`;
   }
