@@ -2026,7 +2026,18 @@ async function bootLive(){
        nobody mistakes one for the other. */
     if(tag) tag.textContent='Wireframe (live load failed)';
     toast('Live load failed — '+(e&&e.message?e.message:e));
-    if(typeof print==='function') print('bootLive: '+e);
+    /* ⛔⛔ NEVER CALL BARE `print()` IN A PAGE. This line said
+       `if(typeof print==='function') print('bootLive: '+e)` — written so the
+       `jsc` harness (whose global logger IS `print`) could show the error.
+       ⭐ In a BROWSER `print` is `window.print`, so it opened the Safari PRINT
+       DIALOG — and it fired on exactly the path a first-time user takes:
+       sign in → `bootLive` → no payload published for that batch yet → throw →
+       print dialog over the app. Jack hit it on his first successful sign-in
+       (2026-09-10). ⛔ Use `console`, which `jsc` does not have and a browser
+       does; guard it so neither environment throws. */
+    if(typeof console!=='undefined' && console && console.warn){
+      console.warn('bootLive failed:', e);
+    }
   }
 }
 if(IS_BROWSER){
