@@ -301,6 +301,18 @@ details.why div{color:var(--ink2);font-size:12.5px;margin-top:5px;
 table.out{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:8px}
 table.out td,table.out th{padding:4px 10px 4px 0;text-align:left;white-space:nowrap}
 table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--line)}
+
+/* ⭐ RULING 5 (Jack, 2026-09-09): "less a wall of text… positioned so each one
+   is readable and usable in the same way visually." The price box is the same
+   shape on every row so the eye lands in the same place. */
+.pricebox{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
+.pricebox input{width:6.5rem;font:600 15px/1.2 inherit;padding:4px 6px;
+  border:1px solid var(--bd,#cfd4dc);border-radius:6px;text-align:right}
+.pricebox input.bad{border-color:#c0392b;background:#fdf1f0}
+.slots{gap:6px;flex-wrap:wrap;font-size:11px;opacity:.85}
+.slots span{white-space:nowrap}
+.snums .good{color:#1e7a3c;font-weight:600}
+.snums .bad{color:#c0392b;font-weight:600}
 </style>
 <header>
   <h1 id="apptitle">Purchase review</h1>
@@ -3000,12 +3012,31 @@ async function loadSaleSaved(monday){
   return out;
 }
 
-function saleDepthOf(r){
+/* ⭐⭐ THE PRICE IS THE PRIMARY CONTROL, AND THE DEPTH IS DERIVED FROM IT
+   (Jack RULING 5, 2026-09-09: *"the primary price control is an editable
+   dollar-and-cent field with up/down arrows, pre-filled with the recommended
+   price. NOT a percentage — a percentage is the model's language, not a
+   merchant's."*)
+
+   ⛔ ONE DIRECTION ONLY. A price typed by a person is the truth and the depth is
+   a label computed from it; a chip is a shortcut that SETS a price. Letting both
+   be authoritative is how the two disagree by a cent and nobody can tell which
+   one will be published — and `sale_apply._decided_price` takes the same view on
+   the server (price wins when both are present). */
+function salePriceOf(r){
   const e=SALE_EDIT[r.sku];
-  if(e&&e.depth!=null) return e.depth;
+  if(e&&e.price!=null&&e.price!=="") return Number(e.price);
   const s=SALE_SAVED[r.sku];
-  if(s&&s.approved_depth!=null&&s.approved_depth!=="") return Number(s.approved_depth);
-  return Number(r.depth||0);
+  if(s&&s.approved_price!=null&&s.approved_price!=="") return Number(s.approved_price);
+  if(s&&s.approved_depth!=null&&s.approved_depth!=="")
+    return round2(Number(r.price||0)*(1-Number(s.approved_depth)));
+  return Number(r.sale_price||0)||round2(Number(r.price||0)*(1-Number(r.depth||0)));
+}
+function round2(x){ return Math.round(Number(x)*100)/100; }
+function saleDepthOf(r){
+  const reg=Number(r.price||0), p=salePriceOf(r);
+  if(!(reg>0)) return Number(r.depth||0);
+  return Math.max(0, 1-(p/reg));
 }
 function saleDecisionOf(r){
   const e=SALE_EDIT[r.sku];
@@ -3040,6 +3071,67 @@ function saleBlocked(r,d){
   if(!(op>0)||!(reg>0)) return false;
   return (reg*(1-d)) > op + SALE_PRICE_EPSILON;
 }
+
+/* ⛔⛔ `GP here` WAS MISLABELLED AND IT CONFUSED THE ONE PERSON IT IS FOR
+   (Jack, 2026-09-09: *"I dont know what GP here means"*).
+
+       gp_at_depth = sold x (price x (1-d) - cost) + leftover x leftover_value
+
+   It is the expected value of the WHOLE POSITION at that price — the margin on
+   what we expect to sell, PLUS what is left over. And `leftover_value` is
+   NEGATIVE when the bundles cannot absorb it (a leftover the bundle cannot take
+   is worth minus half its cost, Jack's ruling). That is why the beef stick read
+   -$102.71: 386 leftover units at -$0.29 each. Not a gross-profit figure at all.
+
+   ⭐ So: rename to `expected outcome`, show the two halves separately, and LEAD
+   WITH THE NUMBER THAT IS ACTUALLY THE DECISION — the difference against doing
+   nothing. -$102.71 vs -$109.76 means the sale is worth +$7.05, and that is what
+   a reviewer needs to see first. */
+function outcomeHtml(r,d){
+  const at=Number(r.gp_at_depth||0), no=Number(r.gp_do_nothing||0);
+  const gain=at-no;
+  const cls=gain>0.005?"good":(gain<-0.005?"bad":"mut");
+  const sells=Number(r.expected_units||0)*(Number(r.price||0)*(1-d)-Number(r.cost||0));
+  const dead=at-sells;
+  return `<span class="${cls}" title="expected value of the whole position at this price, minus the same figure if we do nothing">
+      worth <b>${gain>=0?"+":""}${money(gain)}</b> vs doing nothing</span>
+    <span class="mut" title="margin on the units we expect to sell at this price">
+      margin on what sells ${money(sells)}</span>
+    <span class="mut" title="what the leftovers are worth — NEGATIVE when the mystery bundles cannot absorb them, i.e. minus half their cost">
+      cost of what doesn't ${money(dead)}</span>`;
+}
+
+/* ⭐⭐ THE LOTS, AND THEIR BASIS (Jack RULING 6, 2026-09-09: *"if we see 400 on
+   hand, I don't know if those are all dated that date… do you know if any of
+   these have more than one date batch in stock right now?"*)
+
+   ⛔⛔ THE BASIS IS THE WHOLE ANSWER. `audit_single` means somebody scanned ONE
+   carton and every on-hand unit inherited that date under the anchor rule — so
+   "392 units dated 2026-10-06" is an ASSUMPTION, not a measurement, and that is
+   precisely the worry Jack expressed. The data model already knows the
+   difference; the page has to show it. ⛔ Never render an anchored date as if it
+   were observed. */
+function lotsHtml(r){
+  const lots=r.lots||[];
+  if(!lots.length) return "";
+  const dated=lots.filter(x=>x.best_by!=="UNKNOWN_DATE");
+  const lead=dated.length>1
+    ? `<b>${dated.length} separate dated lots</b>`
+    : (r.anchored ? `<b>one date, assumed</b>` : `one dated lot`);
+  return `<div class="snums slots">
+    <span class="mut">${lead} of ${u1(lots.reduce((a,x)=>a+Number(x.units||0),0))} units${
+      r.lots_total>lots.length?` (showing ${lots.length} of ${r.lots_total})`:""}</span>
+    ${lots.map(x=>{
+      const anchored=String(x.basis||"").indexOf("audit")===0;
+      return `<span title="${escAttr(anchored
+        ? "ONE carton was scanned and the whole pile inherited this date — verify before pulling or pricing"
+        : "from a receipt: this lot's own scanned date")}">${
+        x.best_by==="UNKNOWN_DATE"?"no date":esc(x.best_by)} &middot; ${u1(x.units)}u${
+        anchored?" ⚠️assumed":""}${x.lower_bound?" ≥":""}</span>`;
+    }).join("")}
+  </div>`;
+}
+
 function saleLineHtml(r){
   const d=saleDepthOf(r), dec=saleDecisionOf(r), floor=saleFloor(r);
   const price=Number(r.price||0), sale=price*(1-d);
@@ -3071,16 +3163,21 @@ function saleLineHtml(r){
       </div>
       <div class="snums">
         <span>${money(price)} &rarr; <b>${money(sale)}</b> at ${pct(d)}</span>
-        <span>GP here <b>${money(r.gp_at_depth)}</b></span>
-        <span>GP doing nothing <b>${money(r.gp_do_nothing)}</b></span>
-        <span>each leftover is worth <b>${money(r.leftover_value_per_unit)}</b></span>
+        ${outcomeHtml(r,d)}
       </div>
+      ${lotsHtml(r)}
       <div class="swhy">${esc(r.why||"")}</div>
     </div>
     <div class="sacts">
+      <label class="pricebox" title="the price that will be published. Type it, or use the arrows.">
+        <span class="mut small">sale price</span>
+        <input type="number" step="0.01" min="0" inputmode="decimal"
+               data-sprice="${escAttr(r.sku)}" value="${sale.toFixed(2)}"
+               ${floor!=null?`max="${(Number(r.owned_price)).toFixed(2)}"`:""}>
+      </label>
       <div class="depths">${chips}</div>
       <button class="ghost" data-sdec="approve" data-ssku="${escAttr(r.sku)}">Approve</button>
-      <button class="ghost" data-sdec="decline" data-ssku="${escAttr(r.sku)}">Not this week</button>
+      <button class="ghost" data-sdec="pull" data-ssku="${escAttr(r.sku)}">Pull it</button>
       ${dec?`<span class="tag">${esc(dec)}${
         SALE_SAVED[r.sku]&&SALE_SAVED[r.sku].reviewer?` · ${esc(SALE_SAVED[r.sku].reviewer)}`:""}</span>`:""}
     </div>
@@ -3103,8 +3200,16 @@ function saleVisible(){
 function saleTabs(){
   const md=SALE.markdowns||[], pr=SALE.promo;
   const n=k=>md.filter(k).length;
-  const tabs=[["markdowns",`Markdowns (${md.length})`],
-              ["promo",`Supplier promo (${pr?pr.on:0})`]];
+  /* ⭐ RULING 2 (Jack, 2026-09-09): two buckets, both tagged, and the at-risk
+     one FIRST — it is the reviewable one. The supplier promo is informational:
+     a different decision on the supplier's cadence, repriced by
+     `promo_pricing`, never by this page. ⭐ And the RETIRING bucket is new:
+     until 2026-09-10 nothing showed a reviewer what was coming OFF sale, which
+     is the half that keeps a published promise honest. */
+  const sp=(SALE.supplier_promo||[]), ret=(SALE.retiring||[]);
+  const tabs=[["markdowns",`Best Buy Protection Promo (${md.length})`],
+              ["promo",`Supplier promo (${sp.length||(pr?pr.on:0)})`],
+              ["retiring",`Coming OFF sale (${ret.length})`]];
   return `<div class="filters">
     ${tabs.map(([k,l])=>`<button class="ghost ${SALE_TAB===k?"primary":""}"
        data-stab="${k}">${esc(l)}</button>`).join("")}
@@ -3135,12 +3240,54 @@ function salePromoHtml(){
     repriced by <code>promo_pricing.apply_plan</code>, never by this page.
     ⛔ Margin on these is measured AFTER the rebate — an INFRA MCB is a
     charge-back, not an invoice reduction.</div></div>
-    ${(p.rows||[]).slice(0,300).map(r=>`<div class="sline">
+    ${(SALE.supplier_promo||p.rows||[]).slice(0,300).map(r=>`<div class="sline">
       <div><div class="nm"><b>${esc(r.name||r.sku)}</b>
-        <span class="mut">${esc(r.sku)} · ${esc(r.owner||"")}</span></div>
+        <span class="mut">${esc(r.sku)}</span>
+        <span class="tag">on promo — automatic</span>
+        ${r.also_flag?`<span class="tag">${esc(r.also_flag)}</span>`:""}
+        ${r.below_margin_floor?`<span class="tag">⚠ below the margin floor</span>`:""}</div>
         <div class="snums"><span>regular <b>${money(r.regular_price)}</b></span>
-        <span>live sale <b>${money(r.live_sale_price)}</b></span></div></div>
-      <div class="sacts"><span class="mut small">supplier promo</span></div>
+        <span>sale <b>${money(r.live_sale_price!=null?r.live_sale_price:r.sale_price)}</b>${
+          r.depth!=null?` at ${pct(r.depth)}`:""}</span>
+        ${r.promo_buy_end?`<span class="mut">deal ends ${esc(r.promo_buy_end)}</span>`:""}
+        ${r.promo_source?`<span class="mut">${esc(r.promo_source)}</span>`:""}</div>
+        ${r.also?`<div class="swhy">${esc(r.also.why||"")}</div>`:""}</div>
+      <div class="sacts"><span class="mut small">read-only</span></div>
+    </div>`).join("")}`;
+}
+
+
+/* ⭐⭐ WHAT IS COMING OFF SALE — the half that keeps a published promise honest.
+   ⛔ Until 2026-09-10 nothing showed this at all, and the consequence was
+   measurable: 626 claims were past their published end date when the ledger was
+   first seeded, and ~287 supplier-promo items were sitting behind a badge that
+   said "for delivery by 9/9".
+   ⛔ `badges_unknown` is NOT cosmetic: it counts the stores where we have no
+   record of the item's ORIGINAL badge. Those get our own expired badge DELETED
+   and anyone else's LEFT ALONE — never blanked, because that would destroy a
+   real Organic/Local badge. */
+function saleRetiringHtml(){
+  const ret=SALE.retiring||[];
+  if(!ret.length) return `<div class="banner">⭐ Nothing is coming off sale this
+    week. ⛔ That is not the same as "nothing expired" — it means every claim
+    past its end date was already retired, or is contended and deliberately
+    left alone.</div>`;
+  const unk=ret.filter(r=>Number(r.badges_unknown||0)>0).length;
+  return `<div class="banner">${ret.length} line(s) come OFF sale — their
+    published end date has passed. ⛔ Read-only here: this is the plan keeping a
+    promise, not a decision to make.
+    ${unk?`<div class="mut">⚠️ ${unk} of them have no recorded original badge on
+      at least one store. Ours gets deleted; anyone else's is left alone and
+      reported — never blanked.</div>`:""}</div>
+    ${ret.slice(0,300).map(r=>`<div class="sline">
+      <div><div class="nm"><b>${esc(r.sku)}</b>
+        <span class="tag">${esc(r.owner||"")}</span></div>
+        <div class="snums"><span>ended <b>${esc(r.ends||"—")}</b></span>
+        <span class="mut">${esc(r.reason||"")}</span>
+        ${r.restore_badge?`<span>badge back to <b>${esc(r.restore_badge)}</b></span>`
+          :`<span class="mut">no recorded badge</span>`}</div>
+        ${r.why?`<div class="swhy">${esc(r.why)}</div>`:""}</div>
+      <div class="sacts"><span class="mut small">retiring</span></div>
     </div>`).join("")}`;
 }
 
@@ -3185,6 +3332,7 @@ function renderSale(){
     <code>python3 sale_scorecard.py</code>.</span></div>`;
   h+=saleTabs();
   if(SALE_TAB==="promo"){ m.innerHTML=h+salePromoHtml(); paintSaleFoot(); return; }
+  if(SALE_TAB==="retiring"){ m.innerHTML=h+saleRetiringHtml(); paintSaleFoot(); return; }
   const v=saleVisible();
   h+=`<div class="banner">Showing <b>${v.length}</b> of ${md.length}.
     ⭐ The chip outlined in colour is what the model chose; click another to
@@ -3221,8 +3369,13 @@ async function saveSale(){
     const f={Title:`${monday}:${sku}`, sale_monday:monday, sku,
       item:String(r.description||"").slice(0,255), storage:r.storage||"",
       decision:dec,
+      /* ⛔ THE TYPED PRICE IS WHAT GETS SAVED. `approved_depth` is written
+         alongside it as a label, derived FROM the price — never the other way
+         round, or a charm-rounded price and a ladder depth disagree by a cent
+         and the applier has to guess. `sale_apply._decided_price` prefers the
+         price for the same reason. */
       model_depth:Number(r.model_depth||0), approved_depth:Number(d),
-      approved_price:Number((Number(r.price||0)*(1-d)).toFixed(2)),
+      approved_price:Number(salePriceOf(r).toFixed(2)),
       /* ⭐ the model's forecast, stored beside the human's depth. ⛔ It is the
          forecast AT THE MODEL'S depth — we have no forecast at a depth the model
          never evaluated, and inventing one by interpolation would put a fabricated
@@ -3319,8 +3472,14 @@ document.addEventListener("click",e=>{
   if(only){ SALE_ONLY=only.dataset.sonly; renderSale(); return; }
   const chip=e.target.closest("[data-sdepth]");
   if(chip&&!chip.disabled){
+    /* ⭐ A chip is a SHORTCUT THAT SETS A PRICE, not a second authoritative
+       control. See salePriceOf(): one direction only, or the two disagree by a
+       cent and nobody can tell which will be published. */
     const sku=chip.dataset.ssku;
-    SALE_EDIT[sku]={...(SALE_EDIT[sku]||{}), depth:Number(chip.dataset.sdepth),
+    const r=(SALE.markdowns||[]).find(x=>x.sku===sku);
+    const reg=Number((r||{}).price||0);
+    SALE_EDIT[sku]={...(SALE_EDIT[sku]||{}),
+                    price:round2(reg*(1-Number(chip.dataset.sdepth))),
                     decision:"change"};
     renderSale(); return;
   }
@@ -3333,6 +3492,46 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{
   if(MODE==="sale"&&e.target.id==="sq"){ SALE_Q=e.target.value; renderSale(); }
+  /* ⭐ EVERYTHING RECOMPUTES LIVE AS THE PRICE CHANGES (Jack RULING 5).
+     ⛔ BUT NOT VIA renderSale() — a full re-render on every keystroke destroys
+     and recreates the input, so the caret jumps to the end and typing "3.29"
+     comes out as "9". Only the numbers for THIS row are rewritten. */
+  const pi=MODE==="sale"&&e.target.closest?e.target.closest("[data-sprice]"):null;
+  if(pi){
+    const sku=pi.dataset.sprice;
+    const r=(SALE.markdowns||[]).find(x=>x.sku===sku); if(!r) return;
+    const v=pi.value===""?null:Number(pi.value);
+    if(v!=null&&!isFinite(v)) return;
+    /* ⛔ A price ABOVE a live promise is refused here, before it can be saved —
+       the same guard as the disabled chips, in dollars with the same half-cent
+       epsilon. A published price may be deepened, never raised. */
+    if(v!=null&&r.owned_by&&Number(r.owned_price)>0
+       &&v>Number(r.owned_price)+SALE_PRICE_EPSILON){
+      pi.classList.add("bad");
+      document.getElementById("status").textContent =
+        `⛔ ${sku} is committed at ${money(r.owned_price)} until ${r.owned_ends||"?"} — a published price cannot be raised.`;
+      return;
+    }
+    pi.classList.remove("bad");
+    if(v==null) delete SALE_EDIT[sku];
+    else SALE_EDIT[sku]={...(SALE_EDIT[sku]||{}), price:round2(v),
+                         decision:(SALE_EDIT[sku]||{}).decision||"change"};
+    const line=pi.closest(".sline");
+    if(line){
+      const d=saleDepthOf(r), nums=line.querySelectorAll(".snums");
+      if(nums[1]) nums[1].innerHTML =
+        `<span>${money(Number(r.price||0))} &rarr; <b>${money(salePriceOf(r))}</b> at ${pct(d)}</span>`
+        + outcomeHtml(r,d);
+      line.classList.add("decided");
+    }
+    /* ⛔ NOT `renderSaleFooter&&…` — that function does not exist, and a bare
+       undeclared identifier in a boolean throws ReferenceError rather than
+       being falsy. It would have killed the input handler on the FIRST
+       keystroke, so no price could ever be typed. Caught before deploy; the
+       pending count is a status line, so write it directly. */
+    const st=document.getElementById("status");
+    if(st) st.textContent=`${salePending()} unsaved sale decision(s)`;
+  }
 });
 
 /* ⛔ THE FOOTER BUTTONS ARE SHARED, SO THEY MUST DISPATCH ON MODE. They were
