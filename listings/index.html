@@ -293,7 +293,7 @@ body[data-notes="1"] .note{display:block}
     <option value="../flow/">How the whole flow works</option>
   </select>
   <span class="mocktag" id="mockTag">Wireframe</span>
-  <select class="batch" id="batchSel"><option>Queue · 2026-09-09</option><option>Queue · 2026-09-02</option></select>
+  <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
   <button class="tbtn" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
@@ -639,6 +639,48 @@ function mergeState(payload, rows){
   return payload;
 }
 window.mergeState=mergeState;
+
+/* ⭐⭐ THE BATCH SELECTOR IS BUILT FROM WHAT IS ACTUALLY PUBLISHED (2026-09-11).
+   ⛔ It used to be TWO HARDCODED <option>s — `Queue · 2026-09-09` and
+   `Queue · 2026-09-02` — and neither payload has ever existed. So no real
+   batch was reachable from the UI at all; the only way in was `?batch=`.
+   ⭐ NEWEST FIRST, BY PUBLISH TIME, and the newest is selected by default
+   (Jack, 2026-09-11) — the reviewer's batch is the one most recently
+   prepared, so it must never be something they have to go and find.
+   ⛔ Sorted on `lastModifiedDateTime`, NOT on the date inside the batch id:
+   a batch id carries a FUTURE order Sunday (`2026-09-13` prepared on the
+   11th), so sorting by name would rank a batch prepared weeks ago above
+   tonight's if its order Sunday happened to be later. */
+async function listBatches(){
+  const r=await graph(`/sites/${CFG.siteId}/drive/root:/${CFG.payloadDir}:`
+    +`/children?$select=name,lastModifiedDateTime&$top=200`);
+  return (r.value||[])
+    .map(f=>({name:String(f.name||''),mod:String(f.lastModifiedDateTime||'')}))
+    .filter(f=>/^payload_.+\.json$/.test(f.name))
+    .map(f=>({batch:f.name.replace(/^payload_/,'').replace(/\.json$/,''),mod:f.mod}))
+    .sort((a,b)=>a.mod<b.mod?1:a.mod>b.mod?-1:0);
+}
+
+async function populateBatchSel(){
+  const sel=document.querySelector('#batchSel');
+  if(!sel) return '';
+  let rows=[];
+  try{ rows=await listBatches(); }
+  catch(e){
+    /* ⛔ Do NOT leave the fictional options standing if this fails — an
+       option that names a batch with no payload is a guaranteed dead click. */
+    if(typeof console!=='undefined'&&console.warn) console.warn('listBatches failed:',e);
+    return _batchFromUI();
+  }
+  if(!rows.length) return _batchFromUI();
+  let want='';
+  try{ want=new URLSearchParams(location.search).get('batch')||''; }catch(_){}
+  sel.innerHTML=rows.map(r=>
+    `<option value="${esc(r.batch)}">Queue · ${esc(r.batch)}</option>`).join('');
+  /* ⭐ `?batch=` still wins when it names something real; otherwise NEWEST. */
+  sel.value=(want&&rows.some(r=>r.batch===want))?want:rows[0].batch;
+  return sel.value;
+}
 
 async function loadLive(batch){
   const path=encodeURIComponent(`/${CFG.payloadDir}/payload_${batch}.json`).replace(/%2F/g,'/');
@@ -2117,6 +2159,12 @@ function _setWho(text, signedIn){
   var b=document.querySelector('#btnSignIn'); if(b) b.hidden=!!signedIn;
 }
 
+async function _afterSignIn(){
+  _setWho('signed in <b>'+(ACCOUNT||'?')+'</b>', true);
+  await populateBatchSel();
+  await bootLive();
+}
+
 async function bootLive(){
   var batch=_batchFromUI();
   if(!batch){ toast('No batch selected'); return; }
@@ -2175,8 +2223,18 @@ if(IS_BROWSER){
        3 · leave no way to see the page without signing in. `?wireframe=1`
            opts out, which is what design review and a screenshot need. */
     try{
-      if(await completeLogin()){ await bootLive(); return; }
-      if(_loadTok()){ await bootLive(); return; }
+      /* ⭐⭐ SIGNED-IN IS SET THE MOMENT WE HOLD A TOKEN — never on the data
+         load succeeding (2026-09-11). `bootLive` used to be the ONLY caller of
+         `_setWho(..., true)`, so any load failure left the header reading
+         "not signed in" with the Sign in button showing, over a perfectly
+         valid session. ⛔ The user then re-authenticates against a problem
+         authentication cannot fix, lands back on the same screen, and it looks
+         exactly like a broken OAuth loop. Measured 2026-09-11: that is the
+         whole of "I click the OAuth and it goes to the same spot".
+         ⭐ AUTH STATE AND DATA STATE ARE DIFFERENT THINGS. The mock tag says
+         whether the DATA loaded; this says whether the SESSION is real. */
+      if(await completeLogin()){ await _afterSignIn(); return; }
+      if(_loadTok()){ await _afterSignIn(); return; }
       var skip=false;
       try{ skip=new URLSearchParams(location.search).get('wireframe')==='1'; }
       catch(_){}
