@@ -293,7 +293,7 @@ body[data-notes="1"] .note{display:block}
   <button class="tbtn" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
   <button class="tbtn" id="btnRw">Rework tray <span class="mono" id="rwN">0</span></button>
-  <button class="tbtn" id="btnRunNow">Run now</button>
+  <button class="tbtn" id="btnRunNow" title="Save your comments and queue this product for the next run">Run now</button>
   <button class="tbtn" id="btnBulk">Approve all unblocked</button>
   <span class="lbl">Ready</span><span class="mono" id="progText" style="font-size:12px">0 / 4</span>
   <div class="bar"><i id="progBar"></i></div>
@@ -697,6 +697,12 @@ function fromPayload(it){
     owner:it.owner||'', supplier:it.supplier||'', itemType:it.item_type||'',
     casepack:+(it.casepack||0), reorder:+(it.reorder||0),
     weightG:it.weight_g===''||it.weight_g==null?null:+it.weight_g,
+    /* ⛔ R-A: a field we were not confident enough to fill. The blank is
+       deliberate and the note says what would fix it. */
+    notes:(it.notes||[]).map(function(n){
+      return {field:n.field||'', note:n.note||'', hasGuess:!!n.has_guess,
+              kind:n.kind||'confidence', stops:!!n.stops_publish,
+              detail:n.detail||''}; }),
     prose:it.prose||'', warranty:it.warranty||'',
     cq:it.cq||[],
     /* ⛔ `kws`, NOT `keywords`. The page dereferences `p.kws.map(...)` in FOUR
@@ -1207,7 +1213,29 @@ function renderFields(){
         : `✓ At or under the ${CASE_CEILING}-unit ceiling, so the case shape is the right shape and
            the suggestion returns exactly what ships today — unchanged.`}</div>`;
 
-  $('#fields').innerHTML=`
+  /* ⛔⛔ R-A, and it goes FIRST because Jack said so in as many words: "the
+     very first section should be a note to the user that we have a low
+     confidence on this copy or this decision." ⭐ A blank field with no
+     explanation is WORSE than the guess it replaced — the guess at least
+     looks wrong to a reader, while a blank reads as "there is nothing to
+     say". This block is what makes the blank self-correcting: the reviewer
+     answers it in a comment and the next run uses the answer. */
+  const notesHtml = !(p.notes||[]).length ? '' : `
+  <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
+    <div class="hint" style="margin-bottom:8px">
+      These were left <b>blank on purpose</b>. We were not confident enough to fill them in,
+      and a confident wrong answer is harder to spot than an empty one.
+      ⭐ Reply in a comment on the section and the next run rewrites it with what you say.</div>
+    ${p.notes.map(n=>`<div class="cascade" style="margin-bottom:6px${
+         n.stops?';border-left:3px solid var(--bad,#9b2c2c)':''}">
+       <b>${esc(n.field.replace(/_/g,' '))}</b>${n.stops
+         ? ' <span class="bad">⛔ approving will NOT publish this</span>' : ''} — ${esc(n.note)}
+       ${n.detail?`<div style="opacity:.75;margin-top:3px">${esc(n.detail)}</div>`:''}
+       ${n.hasGuess?`<div style="opacity:.7;margin-top:3px">We do have a candidate for this one;
+          say the word in a comment and we will use it.</div>`:''}</div>`).join('')}
+  </div></div>`;
+
+  $('#fields').innerHTML=notesHtml+`
   <div class="fgroup"><h3>Identity</h3><div class="body">
     ${frow('Product name','the shelf identity',`<input class="ctl" id="fName" value="${esc(p.name)}">`,
       (function(){const q=nameProblems(p.name,p.brand);
@@ -1919,7 +1947,19 @@ $('#btnRw').onclick=()=>{const items=[];
    ${items.length?items.map(t=>`<div class="rwitem"><b>${esc(t[0])}</b> · <span class="lbl">${esc(t[1])}</span><p>${esc(t[2])}</p></div>`).join('')
    :'<div class="rwitem"><p>Nothing queued. Hover a section and hit <b>Comment</b>.</p></div>'}
    <button class="btn" onclick="closeSheet()">Close</button>`);};
-$('#btnRunNow').onclick=()=>toast('Requested an out-of-band run — the poller picks it up within ~15 min');
+/* ⭐ There is deliberately NO "run now" FLAG (ledger P-1039, settled
+   2026-09-10). A flag needs a writer, a reader, a place to live and a way to
+   expire; the poller has to read the decision list on every tick anyway, so a
+   flag saves nothing and adds three failure modes. The button's honest job is
+   to tell the reviewer their work is already queued — and, because a comment
+   only counts once it is SAVED, to say so when it is not. */
+$('#btnRunNow').onclick=async()=>{
+  const s=st[cur]||{}, pending=Object.keys(s.cm||{}).length;
+  if(pending && !s._saved){ await persist(cur,'Saved — queued for rework'); }
+  toast(pending
+    ? 'Queued. The next run picks it up within about 10 minutes.'
+    : 'Nothing to rework on this product — comment on a section first.');
+};
 $('#btnNotes').onclick=()=>{const on=document.body.dataset.notes==='1';
   document.body.dataset.notes=on?'0':'1';
   $('#btnNotes').textContent=on?'Show design notes':'Hide design notes';
