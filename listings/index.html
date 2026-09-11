@@ -1713,12 +1713,22 @@ function productBlocked(i){
   const noImgs=(st[i].picks||[]).length===0;
   /* ⛔ Rule 6 is a hard export gate, not a hint — enforce it here too. */
   const nameBad=!hasSizeSuffix(P[i].name);
-  return {rw,blk,noImgs,nameBad,ok:!rw&&!blk&&!noImgs&&!nameBad};
+  /* ⛔⛔ A PROVISIONAL SKU CANNOT BE APPROVED (ruling: Jack, 2026-09-10 —
+     "an item can't be approved in this state"). The '?' in `?????6320RtE`
+     marks a storage area or category that was never resolved; it is not a
+     placeholder the reviewer can see through, and it reaches BigCommerce,
+     Finale and the review-package FOLDER NAME as if it were real data.
+     ⭐ Read off the SKU itself, not off a flag — a flag depends on some step
+     having raised one, and this row failed precisely because a step did not
+     finish. */
+  const skuBad=String(P[i].sku||'').indexOf('?')>=0 || !String(P[i].sku||'').trim();
+  return {rw,blk,noImgs,nameBad,skuBad,
+          ok:!rw&&!blk&&!noImgs&&!nameBad&&!skuBad};
 }
 function renderDecide(){
   const s=st[cur].sec;
   const ed=SEC.filter(k=>s[k]==='edited').length;
-  const {rw,blk,noImgs,nameBad,ok}=productBlocked(cur);
+  const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
   $('#decStatus').innerHTML=(st[cur].approved?'<b style="color:var(--ok)">✓ Approved</b> — in tonight\'s publish queue'
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
@@ -1727,9 +1737,14 @@ function renderDecide(){
         +P[cur].flags.filter(f=>f.sev==='stop'&&!f._overridden).map(f=>esc(f.k)).join(', ')
         +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a></span>`:'')
     +(!blk&&noImgs?` · <span style="color:var(--warn)">no images chosen — <a href="#" onclick="selectTab('images');return false" style="color:var(--warn)">pick some</a></span>`:'')
-    +(!blk&&nameBad?` · <span style="color:var(--warn)">the Name breaks a rule</span>`:'');
+    +(!blk&&nameBad?` · <span style="color:var(--warn)">the Name breaks a rule</span>`:'')
+    +(skuBad?` · <span style="color:var(--stop)"><b>the SKU is not final</b>
+        (<span class="mono">${esc(P[cur].sku||'none')}</span>) — a “?” means the
+        storage area or category was never resolved. This cannot be approved
+        until it is fixed.</span>`:'');
   const b=$('#btnApprove');b.disabled=!ok||st[cur].approved;
-  b.textContent=st[cur].approved?'Approved':blk?'Blocked by a flag':rw?'Rework is queued'
+  b.textContent=st[cur].approved?'Approved':skuBad?'SKU is not final'
+    :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule':'Approve product';
   const readyN=P.filter((p,i)=>productApproved(i)).length;
   $('#progText').textContent=readyN+' / '+P.length;$('#progBar').style.width=(readyN/P.length*100)+'%';
@@ -1855,7 +1870,8 @@ function bulkCandidates(){
     if(st[i].approved) return;                 /* already done — not a candidate */
     const b=productBlocked(i);
     if(b.ok) yes.push(i);
-    else no.push({i, why:[b.blk?`${b.blk} blocking flag${b.blk>1?'s':''}`:null,
+    else no.push({i, why:[b.skuBad?'the SKU is not final':null,
+                          b.blk?`${b.blk} blocking flag${b.blk>1?'s':''}`:null,
                           b.rw?'a rework request is queued':null,
                           b.noImgs?'no images chosen':null,
                           b.nameBad?'the Name has no size suffix':null]
