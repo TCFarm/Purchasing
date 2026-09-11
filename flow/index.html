@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Buy, List, Sell, Reorder · TC Farm</title>
+<meta name="description" content="How a product moves from recommendation to listing to order to sale at TC Farm, and what each person does.">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#faf9f7; --card:#fff; --ink:#1c1b19; --ink-2:#5b5751; --ink-3:#8a857d;
+    --line:#e4e0d9; --line-2:#f0ede8; --rail:#efece6;
+    --live:#2d6a4f; --live-bg:#e8f3ed;
+    --pending:#8a6d1f; --pending-bg:#fdf6e3;
+    --blocked:#9b2c2c; --blocked-bg:#fdeceb;
+    --accent:#2d5470; --accent-bg:#eaf1f6;
+    --sans:"IBM Plex Sans",ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#16151a; --card:#1e1d23; --ink:#eceaf0; --ink-2:#a9a5b0; --ink-3:#78747f;
+      --line:#302e38; --line-2:#26242c; --rail:#26242c;
+      --live:#7cc4a0; --live-bg:#16302a;
+      --pending:#d9b967; --pending-bg:#2e2818;
+      --blocked:#e88f8a; --blocked-bg:#33201f;
+      --accent:#8cb8d6; --accent-bg:#1a2733;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16151a; --card:#1e1d23; --ink:#eceaf0; --ink-2:#a9a5b0; --ink-3:#78747f;
+    --line:#302e38; --line-2:#26242c; --rail:#26242c;
+    --live:#7cc4a0; --live-bg:#16302a;
+    --pending:#d9b967; --pending-bg:#2e2818;
+    --blocked:#e88f8a; --blocked-bg:#33201f;
+    --accent:#8cb8d6; --accent-bg:#1a2733;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg); color:var(--ink); font-family:var(--sans);
+    font-size:15px; line-height:1.55; margin:0; padding:40px 22px 90px;}
+  .wrap{max-width:880px; margin:0 auto}
+  h1{font-size:30px; line-height:1.1; margin:0 0 8px; letter-spacing:-.022em;
+     font-weight:700; text-wrap:balance}
+  .sub{color:var(--ink-2); margin:0 0 8px; font-size:15.5px; max-width:62ch}
+  .stamp{font-family:var(--mono); font-size:12px; color:var(--ink-3);
+    letter-spacing:.02em; margin:0 0 26px}
+  h2{font-size:12px; text-transform:uppercase; letter-spacing:.09em;
+     color:var(--ink-3); margin:36px 0 6px; font-weight:600;
+     font-family:var(--mono)}
+  .lede{color:var(--ink-2); margin:0 0 14px; font-size:14.4px; max-width:64ch}
+  .card{background:var(--card); border:1px solid var(--line);
+    border-radius:10px; padding:4px 20px; margin-bottom:12px}
+
+  .step{display:grid; grid-template-columns:120px 1fr; gap:18px;
+    padding:16px 0; border-bottom:1px solid var(--line-2)}
+  .step:last-child{border-bottom:0}
+  .when{font-family:var(--mono); font-weight:600; font-size:13px;
+    color:var(--accent); font-variant-numeric:tabular-nums; padding-top:1px}
+  .when small{display:block; font-weight:400; color:var(--ink-3);
+    font-size:11.5px; margin-top:3px; letter-spacing:0}
+  .what{font-weight:600; margin-bottom:3px; font-size:15.2px}
+  .who{font-size:13px; color:var(--ink-3); margin-bottom:6px}
+  .who a{color:var(--accent); font-family:var(--mono); font-size:12.4px}
+  .desc{color:var(--ink-2); font-size:14.2px; max-width:62ch}
+  .you{background:var(--accent-bg); margin:0 -20px; padding-left:20px;
+    padding-right:20px; border-bottom:1px solid var(--line-2)}
+
+  .tag{display:inline-block; font-family:var(--mono); font-size:10.5px;
+    font-weight:600; letter-spacing:.05em; text-transform:uppercase;
+    padding:2px 7px; border-radius:4px; vertical-align:2px; margin-left:7px;
+    white-space:nowrap}
+  .t-live{background:var(--live-bg); color:var(--live)}
+  .t-off{background:var(--pending-bg); color:var(--pending)}
+  .t-you{background:var(--accent-bg); color:var(--accent);
+    box-shadow:inset 0 0 0 1px currentColor}
+
+  details{margin-top:10px; border-top:1px dashed var(--line); padding-top:9px}
+  summary{cursor:pointer; font-family:var(--mono); font-size:12px;
+    color:var(--ink-3); letter-spacing:.03em; list-style:none;
+    display:inline-flex; align-items:center; gap:6px; padding:2px 0}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"+"; font-weight:600; color:var(--accent);
+    width:11px; display:inline-block}
+  details[open] summary::before{content:"–"}
+  summary:hover{color:var(--accent)}
+  summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px;
+    border-radius:3px}
+  details ul{margin:9px 0 2px; padding-left:19px}
+  details li{margin-bottom:7px; color:var(--ink-2); font-size:13.9px;
+    max-width:60ch}
+  code{font-family:var(--mono); font-size:12.4px; background:var(--rail);
+    padding:1.5px 5px; border-radius:4px; color:var(--ink)}
+
+  .week{display:flex; flex-wrap:wrap; gap:7px; margin:0 0 4px}
+  .slot{font-family:var(--mono); font-size:12px; font-weight:500;
+    border:1px solid var(--line); border-radius:6px; padding:6px 9px;
+    color:var(--ink-2); background:var(--card);
+    font-variant-numeric:tabular-nums}
+  .slot b{color:var(--ink); font-weight:600}
+  .slot.mine{border-color:var(--accent); color:var(--accent)}
+
+  .scroll{overflow-x:auto}
+  table{width:100%; border-collapse:collapse; font-size:14px}
+  th{text-align:left; font-family:var(--mono); font-size:11px;
+     text-transform:uppercase; letter-spacing:.06em; color:var(--ink-3);
+     font-weight:600; padding:14px 12px 8px 0; border-bottom:1px solid var(--line)}
+  td{padding:9px 12px 9px 0; border-bottom:1px solid var(--line-2);
+     vertical-align:top; color:var(--ink-2)}
+  td:first-child{color:var(--ink); font-weight:550}
+  tr:last-child td{border-bottom:0}
+
+  .note{border-left:3px solid var(--pending); background:var(--pending-bg);
+    padding:13px 16px; border-radius:0 8px 8px 0; margin:16px 0;
+    font-size:14.2px; color:var(--ink-2); max-width:64ch}
+  .note b{color:var(--ink); font-weight:600}
+  .stop{border-left-color:var(--blocked); background:var(--blocked-bg)}
+  .go{border-left-color:var(--live); background:var(--live-bg)}
+  a{color:var(--accent)}
+  .foot{margin-top:40px; padding-top:18px; border-top:1px solid var(--line);
+    color:var(--ink-3); font-size:12.8px; font-family:var(--mono);
+    line-height:1.7}
+  @media (max-width:620px){
+    .step{grid-template-columns:1fr; gap:6px}
+    .when{font-size:12.5px}
+    .you{margin:0 -20px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<h1>Buy, List, Sell, Reorder</h1>
+<p class="sub">One product's whole journey — from the Monday it gets recommended, through listing it, buying it, putting it on sale, and buying it again. Most of this runs itself. The parts that need you are marked.</p>
+<p class="stamp">TC Farm · verified 11 September 2026</p>
+
+<div class="note go">
+  <b>Two loops, one week.</b> The <b>product loop</b> brings something new in — it takes a couple of weeks end to end. The <b>week loop</b> runs every week whatever happens: order Sunday, sale Monday, pull list daily. A new item joins the week loop once it exists in both BigCommerce and Finale.
+</div>
+
+<h2>The week at a glance</h2>
+<p class="lede">Everything on a clock. The outlined ones are where you come in.</p>
+<div class="week">
+  <span class="slot"><b>Sun 08:00</b> order built</span>
+  <span class="slot mine"><b>Sun by 23:00</b> you approve the order</span>
+  <span class="slot"><b>Mon 06:00</b> sale built</span>
+  <span class="slot mine"><b>Mon 06:00–11:00</b> you can pull a line</span>
+  <span class="slot"><b>Mon 07:30</b> new items recommended</span>
+  <span class="slot"><b>Mon 11:00</b> sale goes live</span>
+  <span class="slot"><b>Mon 23:00</b> sale locks</span>
+  <span class="slot"><b>Thu 09:00</b> last order scored</span>
+  <span class="slot"><b>daily 07:30</b> pull list</span>
+  <span class="slot"><b>daily 19:00</b> approvals become work</span>
+  <span class="slot"><b>nightly 21:00 + 01–05</b> listings prepared</span>
+  <span class="slot"><b>every 10 min, 7am–10pm</b> your comments actioned</span>
+</div>
+
+<h2>Part one · bringing a product in</h2>
+<p class="lede">From "we could carry this" to a product that exists in the stores and in Finale.</p>
+<div class="card">
+
+  <div class="step">
+    <div class="when">Monday<small>07:30</small></div>
+    <div>
+      <div class="what">New items are recommended <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · posts a card to Teams · Purchasing</div>
+      <div class="desc">Everything we could bring in, ranked on households reached — what's on deal, what's moving in the market, what we already carry. It builds <b>two</b> weeks: the one you're deciding, and a look-ahead so nothing arrives as a surprise.</div>
+      <details>
+        <summary>why two weeks</summary>
+        <ul>
+          <li>Carrying a new item needs a BigCommerce product, a channel on three stores, a Finale row <em>and</em> a Finale store activation — and the Finale half is a file a person imports. That doesn't fit between "good idea" and "the order goes out Sunday".</li>
+          <li>So the look-ahead week lands a full two weeks before its order Sunday. Anything needing that lead time is <b>seen</b> a week before it has to be <b>decided</b>.</li>
+          <li>An item you already approved on an earlier week is <b>not offered again</b>. It's dropped from the build and hidden on the page, because approving twice queues a second pre-order line that only surfaces days later.</li>
+          <li>A decline isn't permanent — it suppresses the item for about four weeks, then lets it back. A decline can be right this week and wrong next month when the deal or the gap has moved.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">Monday<small>when you can</small></div>
+    <div>
+      <div class="what">You choose what we carry <span class="tag t-you">you</span></div>
+      <div class="who"><a href="https://tcfarm.github.io/newitems/">tcfarm.github.io/newitems/</a> · sign in with your work account</div>
+      <div class="desc">Approve, decline, or change the quantity. What you approve becomes a pre-order <b>and</b> starts the listing work. Nothing gets built that you didn't pick.</div>
+      <details>
+        <summary>what the page is doing behind you</summary>
+        <ul>
+          <li>The page opens <b>the next order Sunday</b>. Use the week switcher to look ahead; each week saves separately and it will ask before switching with unsaved work.</li>
+          <li><b>Approving orders nothing.</b> It records a decision. The order itself is built on Sunday and you approve that separately.</li>
+          <li>Rows you can't rank are filtered out of <b>Recommended</b> — mostly items the market data can't project. They're still reachable on the other tabs.</li>
+          <li>Three buttons and a quantity — <b>approve</b>, <b>decline</b>, <b>defer</b>. Nothing to type.</li>
+          <li><b>Defer</b> leaves the item alone so it comes back next week. <b>Decline</b> isn't permanent either — it rests the item for about four weeks, then it returns.</li>
+          <li>There's no message box on the page. To ask about a specific item, use Teams — it reaches a person, which a box on a page did not.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">Daily<small>19:00</small></div>
+    <div>
+      <div class="what">Your approvals become work <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · nothing to press</div>
+      <div class="desc">Each approval turns into two things: a <b>pre-order line</b> at your quantity, and a handoff to the listing pipeline carrying everything already known — pricing research, supplier data, product facts — so none of it is looked up twice.</div>
+      <details>
+        <summary>safe to run twice, and the one failure worth reading</summary>
+        <ul>
+          <li>Runs every night whether or not anything was approved. A quiet night is a clean exit, not a problem.</li>
+          <li>It can't double-queue: a drained decision is skipped for good, and the queue refuses a repeat of the same line.</li>
+          <li><b>The one alarm that needs a person</b> is approvals stranded on an order week that has already been sent. Nothing automatic can place those — they have to be decided again for a later week. It emails rather than failing quietly.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">Every night<small>21:00, then 01–05</small></div>
+    <div>
+      <div class="what">Each product is prepared <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · ten an hour, nobody involved</div>
+      <div class="desc">Finds the manufacturer's page, checks it really shows <em>that</em> product, sorts out category and storage, prices it against Target and Lakewinds, writes the copy, gathers the images. Ten at a time so the queue builds through the night.</div>
+      <details>
+        <summary>why ten at a time, and what "prepared" means</summary>
+        <ul>
+          <li>It runs at <b>21:00 and then hourly from 01:00 to 05:00</b>, every day. Ten products per run. A batch of forty is ready by morning; a batch of four is ready before midnight.</li>
+          <li><b>Ten is deliberate.</b> One long run would use up the night's capacity in one go and leave the whole batch unreviewable in the morning. Ten an hour means the queue <em>grows</em> while you sleep, and a partly-built queue is still a usable queue.</li>
+          <li>It works on <b>whatever isn't finished yet</b>, so nothing is done twice and nothing is skipped if a run is interrupted.</li>
+          <li>It checks the page it found genuinely shows <em>that</em> product — a brand's homepage is not a product page, and copy written from one describes whatever the brand happened to be promoting that day.</li>
+          <li>A product it can't confirm still reaches you. It arrives with a note asking for a link rather than a confident guess.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">Morning<small>whenever suits</small></div>
+    <div>
+      <div class="what">You review each product <span class="tag t-you">you</span></div>
+      <div class="who"><a href="https://tcfarm.github.io/Purchasing/listings/">tcfarm.github.io/Purchasing/listings/</a></div>
+      <div class="desc">You see the product page as a shopper would. Fix anything directly, or comment and let the next run redo it — comments come back done in about ten minutes. Tap images in the order you want them. Approving <em>is</em> the go-ahead; there's no second confirmation.</div>
+      <details>
+        <summary>edit or comment — which to use</summary>
+        <ul>
+          <li><b>Edit</b> when you know the answer. It saves straight away, no waiting. It's checked against our naming rules, and if we have to change what you typed we tell you why — so if you type a badge we have no evidence for, you'll see it swapped rather than silently kept.</li>
+          <li><b>Comment</b> when it's wrong and you'd rather not write it yourself. The next run rewrites <em>just that section</em> with your words in front of it. <b>Anything you typed by hand survives the rewrite</b> — your edit is re-applied afterwards.</li>
+          <li><b>Comment a link</b> if we clearly used the wrong page. We trust a link you typed — we don't second-guess it — and we <em>re-read that page</em> before rewriting, rather than rewording the same bad source.</li>
+          <li>Comments are picked up <b>every ten minutes between 7am and 10pm</b>, every day. There's no button. Review thirty products and the first ones are done before you reach the last.</li>
+          <li><b>Images:</b> tap in the order you want them — the first tap is the main photo. Tap again to remove. Use the magnifier before choosing between two near-identical packs; that's the only way to tell a 12oz from a 16oz on the shelf shot.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>the three things approving can't fix</summary>
+        <ul>
+          <li>A <b>possible duplicate</b> — we may already sell this. Approving won't clear it, because a duplicate product can't be undone by editing later; subscriptions and reporting are tied to the original. The fix is usually to un-hide the item we already have, or update its barcode — not to create a second one.</li>
+          <li>A <b>price below our floor</b> — a competitor is cheaper than we can be while still making our margin. Approving won't match them. Someone has to open the links and confirm it's the <b>same item</b> (not a smaller pack, not the conventional version of an organic product) and that the price is their <b>normal</b> price, not a promotion we can't see. One match is never enough to go below the floor — it takes a second, independent one. <b>If they're at or below what we pay, we don't carry it</b>; that's a buying decision, not a pricing one.</li>
+          <li>An item we'd be <b>badly overpriced</b> on — really a question about whether to carry it at all. If we'd sit well above a competitor's everyday price and can't match without going under the floor, the answer is usually not to list it, because customers read one overpriced item as a signal about everything else.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>why the Approve button might be greyed out</summary>
+        <ul>
+          <li><b>"SKU is not final"</b> — the category or storage area never got worked out, usually because the product page couldn't be read. The SKU still has <code>?</code> in it, which would follow the product into the stores and into Finale looking like real data. Comment a working link and it resolves on the next run.</li>
+          <li><b>No images chosen</b> — a listing with no photo isn't a listing. Tap at least one.</li>
+          <li><b>The Name breaks a rule</b> — usually a missing size. Every name ends with the size, so "Sourdough Loaf - 24 oz", never "Sourdough Loaf".</li>
+          <li><b>A rework is queued</b> — you've commented and the rewrite hasn't come back yet. Wait for the next run, or cancel the comment if you've changed your mind.</li>
+          <li>Whatever the reason, it's written on the product itself. <b>Don't work around a block</b> — each one exists because approving can't make it safe.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>when a field is blank</summary>
+        <ul>
+          <li><b>A blank is deliberate, not a bug.</b> Where we weren't confident we leave it empty and say what would fix it, because a confident wrong answer is much harder to spot than an empty one.</li>
+          <li><b>Ingredients are never invented</b> — they have the highest bar in the system. If we couldn't verify the panel, you'll be asked for it rather than given a plausible list.</li>
+          <li>Everything we need from you is in <b>one block at the top of the product</b>. There's no second place to check.</li>
+          <li>If a brand's website told us nothing about how they write, the copy is in our own voice — and it says so, so you can decide whether that's good enough.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">After<small>not yet automatic</small></div>
+    <div>
+      <div class="what">Published to the stores <span class="tag t-off">switched off</span></div>
+      <div class="who">Built and proven against a test store · waiting on sign-off</div>
+      <div class="desc">The automatic publish works and has been tested, but it's deliberately off until we've watched it on real products. <b>For now, tell Jack when a batch is approved and it goes out by hand.</b> The KeHE free-fill request goes with it.</div>
+      <details>
+        <summary>what happens when it is switched on</summary>
+        <ul>
+          <li>Approving is the only go-ahead — the publish takes what you approved and nothing else. Anything not approved is simply left out of that run and stays in your queue.</li>
+          <li>It runs the same checks the manual path always did: the export gate, and the compliance check that every product is on the right channel in every store.</li>
+          <li>The <b>KeHE free-fill request</b> is built and sent as part of the same step, then verified in Sent Items. If it can't be verified it says so and asks a person, rather than reporting success.</li>
+          <li>A batch someone already emailed by hand is <b>never emailed again</b> — the record of who sent what is checked first.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">Same day<small>after publishing</small></div>
+    <div>
+      <div class="what">Finale import <span class="tag t-you">you</span></div>
+      <div class="who">Manual — and always will be</div>
+      <div class="desc">Two files come out for someone to import into Finale. Finale can't accept this automatically. <b>The batch isn't finished until it's done</b> — a product that's buyable but missing from Finale can't be picked.</div>
+      <details>
+        <summary>how you know it worked</summary>
+        <ul>
+          <li>Sunday's order build checks each approved item against the four things that make a product genuinely live, and only then treats it as orderable.</li>
+          <li>Anything still waiting is <b>named on the Sunday card</b> as a blocker rather than quietly left out of the order. If you see an item sitting there week after week, the Finale import is the usual reason.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+</div>
+
+<h2>Part two · buying it</h2>
+<p class="lede">The order runs every Sunday whether or not anything new joined it.</p>
+<div class="card">
+
+  <div class="step">
+    <div class="when">Sunday<small>08:00</small></div>
+    <div>
+      <div class="what">The order is built <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · posts a card to Teams · Purchasing</div>
+      <div class="desc">Sizes every line from best-by dates, the forward order book, and each item's own trend — then layers on deal depth, case rounding and what's already on the way. <b>It never sends anything.</b></div>
+      <details>
+        <summary>what it does with your approved new items</summary>
+        <ul>
+          <li>A pre-ordered item's quantity <b>replaces</b> the engine's own number — it is never added to it. Adding would double-order every bring-back.</li>
+          <li>If the queue can't be read, the build <b>refuses</b> rather than ordering blind.</li>
+          <li>There are no fixed maximums anywhere. Every limit is worked out from shelf life, cover, and the economics of that week, with its reason printed on the line.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">Sunday<small>before 11pm</small></div>
+    <div>
+      <div class="what">You review and adjust <span class="tag t-you">you</span></div>
+      <div class="who"><a href="https://tcfarm.github.io/Purchasing/">tcfarm.github.io/Purchasing/</a> · plus the review page linked on the card</div>
+      <div class="desc">Approval is given on the <b>per-line diff</b>, never on totals. Change any quantity you like — <b>your number always wins.</b> It has to be done <b>the same Sunday, by 11pm</b> — the order goes out that night.</div>
+      <details>
+        <summary>changing the order vs changing the model</summary>
+        <ul>
+          <li>Change <em>this week's</em> order freely and without asking. That's what the approved-quantity column is for and nothing overrides it.</li>
+          <li>If a line is wrong for a reason that will recur, file it as feedback rather than editing code or config. The open count rides on the Sunday card so it reaches Jack.</li>
+          <li>Feedback is treated as <b>evidence, not instruction</b> — "cap this at 36" is read as "this is being sized past what velocity and shelf life justify", and the input or the model gets fixed instead.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">After KeHE<small>prices it</small></div>
+    <div>
+      <div class="what">Process the priced file <span class="tag t-you">you</span></div>
+      <div class="who">One command, run against the file KeHE sends back</div>
+      <div class="desc">Turns their priced download into everything downstream needs: the Finale purchase-order import, a shorts list, unknown items, cost corrections, and a repricing review.</div>
+      <details>
+        <summary>the command, and what each file is</summary>
+        <ul>
+          <li><code>kehe_order.py intake --sunday &lt;sunday&gt; --file &lt;priced.csv&gt;</code></li>
+          <li><b>Shorts</b> are KeHE failing to fill, <em>not</em> us under-ordering — they're tracked separately so the order model isn't blamed for a supplier's stockout.</li>
+          <li><b>Cost corrections</b> feed Finale. <b>Repricing review</b> is handed off as a ready-to-paste prompt — this side of the business never sets a retail price itself.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">Then<small>one command</small></div>
+    <div>
+      <div class="what">Finalize and upload <span class="tag t-you">you</span></div>
+      <div class="who">Produces the file you upload to KeHE</div>
+      <div class="desc">Writes the order in KeHE's own export shape, honouring every quantity you approved.</div>
+      <details>
+        <summary>the one irreversible step in the whole flow</summary>
+        <ul>
+          <li><code>kehe_order.py finalize --sunday &lt;sunday&gt;</code></li>
+          <li>Finalizing <b>closes</b> the pre-order lines, and that can't be undone. Rebuilding the order afterwards is fine and supported — the closed lines are pulled back in and flagged — but only for the <em>same</em> Sunday.</li>
+          <li>It refuses to send zero-cost or order-dominating lines without a flagged review.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">On arrival<small>at the dock</small></div>
+    <div>
+      <div class="what">Scan the best-by dates <span class="tag t-you">you</span></div>
+      <div class="who"><a href="https://tcfarm.github.io/receiving/">tcfarm.github.io/receiving/</a> · on a phone, at the pallet</div>
+      <div class="desc">Every date scanned here is what the whole markdown side runs on. No date means no deadline, and the item becomes scanning work instead.</div>
+      <details>
+        <summary>when a carton won't scan</summary>
+        <ul>
+          <li>A case barcode is often a different code from the retail one, so it genuinely won't match. That's expected.</li>
+          <li><b>The costly outcome is walking away</b> — then the product has neither a code we've learned nor a best-by. Use the rescue path on the page rather than moving on; it teaches the system that code for next time.</li>
+          <li>There's also an <b>audit mode</b> for stock already on the floor. It's kept separate from receiving on purpose: the day someone walked the cooler isn't the day the item arrived.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">Thursday<small>09:00</small></div>
+    <div>
+      <div class="what">The order is scored <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · records into the decision store</div>
+      <div class="desc">Scores the order whose window has actually closed — judged on <b>coverage against excess</b>, never on average error, because averaging hides the only thing a buyer can act on.</div>
+      <details>
+        <summary>why it sometimes refuses</summary>
+        <ul>
+          <li>It <b>refuses to score an unfinished window</b>. Scoring early produces confident backwards advice.</li>
+          <li>A recommendation repeated three weeks running is evidence. One week is noise, and nothing is ever applied automatically.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+</div>
+
+<h2>Part three · selling it right</h2>
+<p class="lede">Two different sales share one price field: our own markdowns on stock that's dating out, and the supplier's promo. They're built together so they can't fight.</p>
+<div class="card">
+
+  <div class="step">
+    <div class="when">Monday<small>06:00</small></div>
+    <div>
+      <div class="what">The week's sale is built <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · posts a card to Teams · Purchasing</div>
+      <div class="desc">Scores what's at risk of dating out, merges it with the supplier's promo set, and writes one plan. Where both want the same item, <b>the deeper discount wins</b> and the other is noted on the line. <b>It writes no prices.</b></div>
+      <details>
+        <summary>Monday is a reset, not a top-up</summary>
+        <ul>
+          <li>Every live sale is <b>re-decided</b> every Monday: deepened if it didn't clear, dialled back if it did, or retired entirely if the risk has gone — even if its badge hasn't expired yet.</li>
+          <li>An item can stay on sale week after week. There's no fixed run length; it comes off when the reason goes away.</li>
+          <li>Items that date out over and over aren't discounted deeper — they're routed to ordering as a buying problem, because a markdown can't fix an item that expires sixteen times.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step you">
+    <div class="when">Mon 06:00<small>→ 11:00</small></div>
+    <div>
+      <div class="what">You look it over — or don't <span class="tag t-you">you</span></div>
+      <div class="who"><a href="https://tcfarm.github.io/Purchasing/">tcfarm.github.io/Purchasing/</a> → Sale</div>
+      <div class="desc"><b>Silence means yes.</b> Anything you don't touch goes live at 11:00 at the recommended depth. Pull a line, or set your own price — a price you type beats a percentage.</div>
+      <details>
+        <summary>the two tabs, and what you can't do</summary>
+        <ul>
+          <li><b>Best Buy Protection Promo</b> is ours to decide. <b>Supplier promo</b> is read-only — that's the supplier's own cadence and it's repriced separately.</li>
+          <li>You can always go <b>deeper</b>. You can't make a live promise <b>shallower</b> — those controls are disabled, because a price a customer has already shopped against is a promise.</li>
+          <li>A half-saved line with neither a price nor a depth is <b>reported back to you</b>, never silently dropped.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">Monday<small>11:00</small></div>
+    <div>
+      <div class="what">Prices and badges go live <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · all three stores</div>
+      <div class="desc">Writes every sale price and every badge, and takes down the ones that are finished — restoring each item's original badge as it goes. Visible to customers from about 1pm.</div>
+      <details>
+        <summary>the badge is a delivery promise, not a price end-date</summary>
+        <ul>
+          <li>The badge names <b>the last delivery date at that price</b> — the Wednesday nine days out. That's why a sale can come off on Monday without breaking anything: everyone inside the badge window has already ordered.</li>
+          <li>Before it writes anything it checks the inputs are fresh, the plan was built against the current state, and the size of the change is in line with our own history. <b>Any doubt and it refuses</b> rather than writing a smaller version.</li>
+          <li>It re-checks for your overrides every two hours until <b>23:00 Monday</b>, then the week is locked. After that a change is a deliberate act by a person, not a routine one.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">Daily<small>07:30</small></div>
+    <div>
+      <div class="what">What to pull off the shelf <span class="tag t-live">running</span></div>
+      <div class="who">Automatic · posts a card to Teams · Fulfillment</div>
+      <div class="desc">A rolling seven days of what has to come off, grouped by the day it must be gone. The quantity is <b>what will still be there after booked orders ship</b> — not what's on hand.</div>
+      <details>
+        <summary>why the date on the card isn't the expiry date</summary>
+        <ul>
+          <li>A lot is listed under <b>the first delivery day it must not appear in</b>, not the day it expires — so it's off the shelf before that run gets picked, rather than after.</li>
+          <li>If the order book can't be read it <b>refuses</b>, because booked demand would read as zero and the floor would be sent to pull stock that's already sold.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="when">Later<small>when the window closes</small></div>
+    <div>
+      <div class="what">Was the markdown right? <span class="tag t-off">on request</span></div>
+      <div class="who">Run when you want it</div>
+      <div class="desc">Scores each markdown on <b>clearance against giveaway</b> — did it move before its deadline, and how much margin did it cost. Under-discounting leaves stock to write off; over-discounting hands back margin for sales you'd have made anyway.</div>
+      <details>
+        <summary>why it often says "not yet"</summary>
+        <ul>
+          <li>A markdown runs to its own pull date, up to three weeks out, so most windows aren't closed a week later. It <b>refuses to score an open one</b> rather than making the model look wrong.</li>
+          <li>Every markdown's expected units are recorded <b>at the moment it's decided</b>. That can't be reconstructed afterwards, which is why the scoring is worth anything at all.</li>
+        </ul>
+      </details>
+    </div>
+  </div>
+
+</div>
+
+<h2>What lands where</h2>
+<div class="card" style="padding-bottom:16px">
+  <div class="scroll"><table>
+    <tr><th>What</th><th>When</th><th>Where</th></tr>
+    <tr><td>New-item recommendations</td><td>Monday 07:30</td><td>Teams · Purchasing</td></tr>
+    <tr><td>This week's sale</td><td>Monday 06:00</td><td>Teams · Purchasing</td></tr>
+    <tr><td>The order to review</td><td>Sunday 08:00</td><td>Teams · Purchasing</td></tr>
+    <tr><td>What to pull off the shelf</td><td>Daily 07:30</td><td>Teams · Fulfillment</td></tr>
+    <tr><td>KeHE free-fill request</td><td>When a batch publishes</td><td>Email to our KeHE rep</td></tr>
+    <tr><td>Something broke overnight</td><td>Only when it does</td><td>Email · never silent</td></tr>
+  </table></div>
+  <p style="margin:14px 0 0; color:var(--ink-2); font-size:14.2px; max-width:64ch">
+    The two review apps don't post to Teams. They're queues you visit, not notification streams — so nothing nags you, and nothing gets lost in a channel.</p>
+</div>
+
+<h2>If something looks wrong</h2>
+<div class="card" style="padding-top:16px; padding-bottom:18px">
+  <ul style="margin:0; padding-left:19px">
+    <li style="margin-bottom:9px; color:var(--ink-2)"><b>Nothing went on sale on Monday.</b> That's never normal and it's never silent — a week nobody built raises an alarm rather than passing as a quiet week.</li>
+    <li style="margin-bottom:9px; color:var(--ink-2)"><b>The listing queue is empty.</b> Normal on a week with no new items. If you approved items on Monday and it's still empty Tuesday morning, say so.</li>
+    <li style="margin-bottom:9px; color:var(--ink-2)"><b>A product you commented on hasn't changed.</b> Give it ten minutes between 7am and 10pm. Outside those hours it waits for the morning.</li>
+    <li style="margin-bottom:9px; color:var(--ink-2)"><b>An approved item never reaches an order.</b> Almost always the Finale import. The Sunday card names it rather than leaving it out quietly.</li>
+    <li style="margin-bottom:9px; color:var(--ink-2)"><b>A sale price looks wrong on one store.</b> Prices go to all three together — one store differing is worth reporting, not fixing by hand.</li>
+    <li style="color:var(--ink-2)"><b>Don't work around a block.</b> The things that refuse to proceed do it because carrying on can't be made safe.</li>
+  </ul>
+</div>
+
+<div class="foot">
+  TC Farm · buy → list → sell → reorder · verified 11 September 2026<br>
+  Everything scheduled here runs unattended. A routine that fails — or that cannot run at all — emails rather than passing silently.
+</div>
+
+</div>
+
+</body>
+</html>
