@@ -367,7 +367,8 @@
           <li><code>kehe_order.py finalize --sunday &lt;sunday&gt;</code></li>
           <li>Finalizing <b>closes</b> the pre-order lines, and that can't be undone. Rebuilding the order afterwards is fine and supported &mdash; the closed lines are pulled back in and flagged &mdash; but only for the <em>same</em> Sunday.</li>
           <li>It refuses to send zero-cost or order-dominating lines without a flagged review.</li>
-          <li>The file KeHE ingests is <b>not</b> the same file Finale prints. The one you upload is three columns; the priced copy that comes back carries the costs.</li>
+          <li><b>The file you upload is <code>KeheUpload_&lt;sunday&gt;.xlsx</code></b> &mdash; three columns, nothing else. Two files are written and only this one goes to KeHE Connect.</li>
+          <li>The other one, <code>KeheOrder_&lt;sunday&gt;</code>, is the priced copy Finale&rsquo;s own format uses. It carries our costs and margins. <b>Never upload that one to KeHE.</b></li>
         </ul>
       </details>
     </div>
@@ -384,7 +385,7 @@
         <ul>
           <li>Today this is <b>one command</b>, run by Jack against the file KeHE sends back: <code>kehe_order.py intake --sunday &lt;sunday&gt; --file &lt;priced file&gt;</code></li>
           <li>Send Jack the priced file the same Sunday. It doesn&rsquo;t wait until Monday &mdash; the whole cycle closes the day the order goes out.</li>
-          <li><b>The Finale purchase-order import</b> is the thing that matters most. A product that&rsquo;s ordered but missing from Finale can&rsquo;t be received or picked.</li>
+          <li><b>The file to import into Finale is <code>FinalePOImport_&lt;sunday&gt;.csv</code></b>. This is the one that matters most &mdash; an order that never reaches Finale can&rsquo;t be received or picked, however well it went at KeHE.</li>
           <li><b>Shorts</b> are KeHE failing to fill, <em>not</em> us under-ordering &mdash; they&rsquo;re tracked separately so the order model isn&rsquo;t blamed for a supplier&rsquo;s stockout.</li>
           <li><b>Cost corrections</b> feed Finale. <b>Repricing review</b> is handed off as a ready-to-paste prompt &mdash; this side of the business never sets a retail price itself.</li>
           <li>KeHE hand out a spreadsheet, not a CSV, and both are handled &mdash; but if a run matches <em>no</em> rows it stops and says so. It will never hand back an empty import that looks fine and loads cleanly into Finale.</li>
