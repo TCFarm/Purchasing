@@ -749,6 +749,17 @@ function fromPayload(it){
     storage:it.storage||'', storageBasis:it.storage_basis||'',
     cost:+(it.cost||0), price:+(it.price||0), salePrice:+(it.sale_price||0),
     priceNote:it.price_basis||'',
+    /* ⛔⛔ THE PIPELINE'S OWN TARGET MARGIN AND TAX CLASS, WHICH THE ADAPTER
+       NEVER MAPPED (2026-09-11). `targetMargin()` documents the precedence
+       "operator override → the PIPELINE's own target → the category default"
+       and its middle step was added 2026-09-10 — but `p.targetMargin` was
+       never populated here, so that step could not fire and EVERY live row
+       fell through to the category default. ⛔ With a category outside the
+       page's list (`Water`) `catOf()` is null too, so the floor was computed
+       from a hardcoded 0.3 and the tax class from 'NT' — both shown to the
+       reviewer as if they were the row's real numbers. */
+    targetMargin:(it.target_margin==null||it.target_margin==='')?null:+it.target_margin,
+    taxPayload:it.tax||'',
     owner:it.owner||'', supplier:it.supplier||'', itemType:it.item_type||'',
     casepack:+(it.casepack||0), reorder:+(it.reorder||0),
     weightG:it.weight_g===''||it.weight_g==null?null:+it.weight_g,
@@ -766,7 +777,25 @@ function fromPayload(it){
        tests (2026-09-10) — which is the whole reason they exist. */
     kws:it.keywords||[],
     pageTitle:it.page_title||'', metaDesc:it.meta_desc||'',
-    flags:it.flags||[],
+    /* ⛔⛔ THE FLAG TEXT IS `t` ON THE PAGE AND `message` IN THE PAYLOAD
+       (2026-09-11). `renderFlags` interpolates `${f.t}` with no guard, so a
+       payload flag rendered the literal string **undefined** as its entire
+       body — the reviewer saw a flag type with no reason under it, on every
+       live row. ⭐ The fixtures use `t`, which is why the harness never caught
+       it: fixture flags and payload flags were different shapes and only one
+       was ever rendered in anger.
+       ⛔ NORMALISE HERE, in the adapter, not in the renderers — `t` is read in
+       several places and patching each one leaves the next one to be found the
+       same way. ⭐ `message` wins when present; `t` is kept so a fixture flag
+       still renders. */
+    flags:(it.flags||[]).map(function(f){
+      f=f||{};
+      var o={}; for(var key in f){ if(Object.prototype.hasOwnProperty.call(f,key)) o[key]=f[key]; }
+      o.k=f.k||f.type||'';
+      o.sev=f.sev||'warn';
+      o.t=(f.t!=null&&f.t!=='')?f.t:(f.message||f.detail||'');
+      return o;
+    }),
     imgs:imgs, pre:(it.preread||[]).filter(function(n){return n<imgs.length;}),
     preNote:it.preread_note||'',
     /* RIVIR, flattened the way the ops panel reads it. */
@@ -814,6 +843,22 @@ function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
     +'blank the page (an empty queue and a failed load look identical)');
+  /* ⭐⭐ ADOPT THE REAL VOCABULARIES (2026-09-11). CATS/BRANDS/OWNERS shipped
+     as FIXTURES — 45 invented category leaves against a real 156, nine brands
+     that never included a real one, and a hand-typed owner list. ⛔ A value
+     outside a fixture list is not merely unlistable: the select shows its
+     first entry and writes that back on save. ⭐ The payload now carries the
+     canon (`config/category_rules.json`, `config/brand_sku_codes.json`), so
+     the page stops guessing. ⛔ Mutated IN PLACE — they are `const` bindings
+     that other closures already captured. */
+  function _adopt(target, incoming){
+    if(!Array.isArray(incoming)||!incoming.length) return false;
+    target.length=0; incoming.forEach(function(x){target.push(x);});
+    return true;
+  }
+  _adopt(CATS,   payload&&payload.cats);
+  _adopt(BRANDS, payload&&payload.brands);
+  _adopt(OWNERS, payload&&payload.owners);
   var mapped=items.map(fromPayload);
   P.length=0; mapped.forEach(function(x){P.push(x);});
   st.length=0;
@@ -842,7 +887,10 @@ function targetMargin(p){
   if(p.targetMargin!=null)   return p.targetMargin;
   return (catOf(p.cat)||[])[3]??0.3;
 }
-function taxOf(p){return p.taxOverride||((catOf(p.cat)||[])[4]||'NT');}
+/* precedence mirrors targetMargin(): operator override → what the PIPELINE
+   resolved for this row → the category default. ⛔ The middle step was missing,
+   so a row whose category is not in the page's list silently read 'NT'. */
+function taxOf(p){return p.taxOverride||p.taxPayload||((catOf(p.cat)||[])[4]||'NT');}
 function floorOf(p){const t=targetMargin(p);return t>=1?p.cost:p.cost/(1-t);}
 function effPrice(p){return p.salePrice>0?p.salePrice:p.price;}
 function marginAt(p,pr){
