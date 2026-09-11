@@ -395,6 +395,14 @@ const STORAGE_LETTER={Frozen:'F',Refrigerated:'R',Dry:'D',DryBulk:'D',FrozenICE:
 const TAXES=['NT','Taxable Item'];
 const OWNERS=['TCFarm','NGF','MNFC','Raw Bistro','Ben the Baker','Double D BBQ','Pork King Good','TCFeeds'];
 const ITEM_TYPES=[['A','A — Consignment'],['B','B — Distributor'],['C','C — House Made'],['D','D — Existing']];
+/* ⭐ The known-brand list is FIXTURE DATA. The real vocabulary is whatever the
+   loaded batch carries, so offer both — a reviewer retagging one row to a
+   sibling brand in the same batch should find it in the list. */
+function brandList(){
+  const live=(typeof P!=='undefined'&&P&&P.length)
+    ? P.map(x=>x&&x.brand).filter(Boolean) : [];
+  return [...new Set(BRANDS.concat(live))].sort((a,b)=>a.localeCompare(b));
+}
 const BRANDS=['Boulart',"DrTung's",'Cadia','TC Farm Kitchen','Banza','Fillo\'s','Tonnino','VerMints','Katz'];
 
 /* ═══ work items — real data ═══ */
@@ -1012,7 +1020,7 @@ function renderShop(){
         <input class="ctl w-lg" id="edBadge" maxlength="24" value="${esc(p.badge)}">
         <div class="hint" id="badgeHint"></div></div>
       <div class="fld"><span class="lbl">Brand</span>
-        <select class="ctl w-md" id="edBrand">${BRANDS.map(b=>`<option ${b===p.brand?'selected':''}>${esc(b)}</option>`).join('')}</select></div>
+        <select class="ctl w-md" id="edBrand">${selOpts(brandList(),p.brand)}</select></div>
     </div>
     <div style="margin-top:9px"><span class="lbl">Alternatives the copywriter offered — click to use</span>
       <div class="tags" style="border:0;padding:4px 0" id="altRow">
@@ -1216,7 +1224,25 @@ function frow(k,sub,ctl,hint){
   return `<div class="frow"><div class="k">${k}${sub?`<em>${sub}</em>`:''}</div>
     <div class="v">${ctl}${hint?`<div class="hint">${hint}</div>`:''}</div></div>`;
 }
-function selOpts(list,val){return list.map(o=>{const v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;
+/* ⛔⛔ A SELECT MUST NEVER MISREPRESENT THE VALUE IT HOLDS (2026-09-11).
+   When `val` is not in `list`, NO option carries `selected`, so the browser
+   displays the FIRST one — and the control now shows a value the record does
+   not have. ⛔ That is not cosmetic: `#edBrand`/`#fBrand` write straight back
+   (`p.brand=$('#edBrand').value`), so saving an unrelated identity edit
+   SILENTLY OVERWRITES the real value with whatever happened to be first.
+   ⚠️ Measured 2026-09-11 on the first live batch: `BRANDS` is a fixture list
+   that has never contained a real brand, so LACROIX and KATIES PIZZA PASTA
+   both displayed as **Boulart** — the first entry — and one save would have
+   written Boulart onto both.
+   ⭐ So the current value is ALWAYS an option, and is marked when it is not
+   one of the known ones, because a value the vocabulary does not know is
+   something the reviewer should see rather than have quietly normalised. */
+function selOpts(list,val){
+  const has=list.some(o=>(Array.isArray(o)?o[0]:o)===val);
+  const head=(!has&&val!=null&&val!=='')
+    ? `<option value="${esc(val)}" selected>${esc(val)} — not in the list</option>`
+    : '';
+  return head+list.map(o=>{const v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;
   return `<option value="${esc(v)}" ${v===val?'selected':''}>${esc(l)}</option>`;}).join('');}
 
 function renderFields(){
@@ -1291,7 +1317,7 @@ function renderFields(){
     ${frow('SKU','derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`,
       `<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`)}
     ${frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.')}
-    ${frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(BRANDS,p.brand)}</select>`)}
+    ${frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`)}
     ${frow('Badge','__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.')}
     ${frow('Storage','__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
       '⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.')}
