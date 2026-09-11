@@ -561,6 +561,41 @@ async function graph(path,opts={}){
   return j;
 }
 
+/* ⛔⛔ AN `sp:` IMAGE IS BEHIND THE TENANT LOGIN, so a plain <img src> gets a
+   401 and renders as a broken tile. RIVIR studio shots are downloaded with
+   auth at intake and hosted in the same library as the payload — measured
+   2026-09-10, 8 of 39 products on one batch had NOTHING ELSE, so without this
+   one in five reviewers opens an EMPTY picker and is told nothing.
+   ⭐ Fetch with the user's own token, hand the browser a blob URL.
+   ⚠️ Cached per path: the grid and the lightbox ask for the same file, and a
+   second fetch of a 200 KB image per zoom is a visible stall. */
+const SPBLOB={};
+async function spSrc(spUrl){
+  const rel=String(spUrl||'').slice(3);
+  if(SPBLOB[rel])return SPBLOB[rel];
+  const path=encodeURIComponent('/'+rel).replace(/%2F/g,'/');
+  const t=await _getTok();
+  const r=await fetch(`${GRAPH}/sites/${CFG.siteId}/drive/root:${path}:/content`,
+                      {headers:{Authorization:"Bearer "+t}});
+  if(!r.ok)throw new Error(`${r.status} fetching ${rel}`);
+  const u=URL.createObjectURL(await r.blob());
+  SPBLOB[rel]=u; return u;
+}
+function isSp(u){return typeof u==='string'&&u.indexOf('sp:')===0;}
+/* Resolve every `sp:` image inside `root` after it is in the DOM.
+   ⛔ A failure is SHOWN, never swallowed — an image that quietly does not
+   appear is indistinguishable from a product that has fewer candidates. */
+function hydrateSp(root){
+  (root||document).querySelectorAll('img[data-sp]').forEach(async img=>{
+    const u=img.getAttribute('data-sp'); img.removeAttribute('data-sp');
+    try{ img.src=await spSrc(u); }
+    catch(e){ const host=img.parentNode;
+      if(host)host.innerHTML='<span>could not load this candidate<br>'+
+        String(e.message||e).slice(0,60)+'</span>'; }
+  });
+}
+window.spSrc=spSrc; window.hydrateSp=hydrateSp; window.isSp=isSp;
+
 /* ── the same precedence rule as listing_review.load_state ──────────────── */
 const SECTION_OF={name:'identity',badge:'identity',brand:'identity',
   price:'price',sale_price:'price',tiers:'price',warranty:'warranty',
@@ -1444,8 +1479,19 @@ function canVerify(im){return Math.min(im[2],im[3])>=VERIFY_MIN;}
 function lbOpen(i){
   const p=P[cur],im=p.imgs[i];if(!im)return;
   lbIdx=i;
-  $('#lbBig').innerHTML=`<span>${esc(im[0])}<br><br>${im[2]} × ${im[3]}<br>`
-    +`<span style="opacity:.6">full-size preview — the real image renders here</span></span>`;
+  /* ⛔ This was a PLACEHOLDER that printed "the real image renders here".
+     Rule 8 makes the zoom the verification surface — the only way to tell two
+     near-identical pack shots apart — so a placeholder here means the check
+     the rule requires was never actually possible. */
+  $('#lbBig').innerHTML = !im[5]
+    ? `<span>${esc(im[0])}<br><br>${im[2]} × ${im[3]}<br>`
+      +`<span style="opacity:.6">no image URL for this candidate</span></span>`
+    : isSp(im[5])
+    ? `<img data-sp="${esc(im[5])}" alt="${esc(im[1])}"
+         style="max-width:100%;max-height:100%;object-fit:contain">`
+    : `<img src="${esc(im[5])}" alt="${esc(im[1])}"
+         style="max-width:100%;max-height:100%;object-fit:contain">`;
+  hydrateSp($('#lbBig'));
   const picked=st[cur].picks.indexOf(i);
   $('#lbMeta').innerHTML=`<b>${esc(im[1])}</b> · ${esc(im[0])} · <b>${im[2]}×${im[3]}</b>`
     +(canVerify(im)?' · large enough to read the label'
@@ -1500,17 +1546,21 @@ function renderGrid(){
       aria-label="${esc(im[1])}, ${im[2]} by ${im[3]}${n>=0?', chosen as image '+(n+1):''}"
       ${n>=0?'data-pick="1"':''} data-small="${small}">
       ${n>=0?`<span class="pin">${n+1}</span>`:''}${n===0?'<span class="thumbtag">THUMB</span>':''}
-      <span class="art">${im[5]
-        ? `<img src="${esc(im[5])}" alt="${esc(im[1])}" loading="lazy"
+      <span class="art">${!im[5]
+        ? `<span>${esc(im[0])}</span>`
+        : isSp(im[5])
+        ? `<img data-sp="${esc(im[5])}" alt="${esc(im[1])}"
+             style="width:100%;height:100%;object-fit:contain">`
+        : `<img src="${esc(im[5])}" alt="${esc(im[1])}" loading="lazy"
              style="width:100%;height:100%;object-fit:contain"
-             onerror="this.parentNode.innerHTML='<span>'+${JSON.stringify(esc(im[0]))}+'<\\/span>'">`
-        : `<span>${esc(im[0])}</span>`}</span>
+             onerror="this.parentNode.innerHTML='<span>'+${JSON.stringify(esc(im[0]))}+'<\\/span>'">`}</span>
       <button type="button" class="zoom" data-zoom="${i}"
         title="open full size" aria-label="Open ${esc(im[1])} full size">⤢</button>
       <span class="cap"><b>${esc(im[1])}</b><em><span>${im[2]}×${im[3]}</span>
         <span>${im[4]==='upload'?'yours':small?'too small':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
     +`<button class="cand up" id="upTile"><span class="art"><span>+ upload<br>your own</span></span>
       <span class="cap"><b>Add an image</b><em><span>from your Mac</span><span></span></em></span></button>`;
+  hydrateSp($('#grid'));
   /* ⛔⛔ P-851 item 2 (2026-09-10). The zoom was a <span> INSIDE the tile's
      <button>, so a keyboard user could toggle the pick but could NEVER open
      the full-size view — and that view is the Rule 8 verification surface,
