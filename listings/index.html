@@ -1601,8 +1601,12 @@ function renderFields(){
     p.tiers=s;markEdited('price','Tier removed — ranges re-derived');});
   $('#tierBox').querySelectorAll('.tier').forEach((row,i)=>{
     const s=[...p.tiers].sort((a,b)=>a[0]-b[0]);
-    row.querySelector('[data-tq]').onchange=e=>{s[i][0]=Math.max(2,+e.target.value||2);p.tiers=s;renderAll();};
-    row.querySelector('[data-tp]').onchange=e=>{s[i][1]=+e.target.value||0;p.tiers=s;renderAll();};});
+    /* ⛔ Found alongside the EDITABLE_FIELDS gap above (2026-09-12): these two
+       did not even call markEdited — so editing an EXISTING tier's quantity
+       or percent (as opposed to adding/removing a whole tier) never flipped
+       the chip either, on top of never being in the save diff. */
+    row.querySelector('[data-tq]').onchange=e=>{s[i][0]=Math.max(2,+e.target.value||2);p.tiers=s;markEdited('price','Tier quantity saved — ranges re-derived');};
+    row.querySelector('[data-tp]').onchange=e=>{s[i][1]=+e.target.value||0;p.tiers=s;markEdited('price','Tier discount saved — ranges re-derived');};});
   [['fName','name'],['fBadge','badge'],['fPT','pageTitle'],['fMD','metaDesc'],['fSup','supplier']]
     .forEach(([id,key])=>{const e=$('#'+id);if(e)e.onchange=()=>{p[key]=e.value;markEdited('identity');};});
   /* ⛔ A16: the label promised "12 digits" and accepted anything. Given this
@@ -2558,11 +2562,19 @@ async function saveDecision(batch, sku, patch){
 
 /* ⭐ Every field the BC-fields tab can change. ⛔ A field missing here is a
    field whose edit is silently dropped — the exact bug this replaces — so add
-   to it whenever a new editable control is added to the page. */
+   to it whenever a new editable control is added to the page.
+   ⛔⛔ THREE WERE MISSING (found 2026-09-12, Jack: "when I add a discount tier,
+   that doesn't auto save"): `tiers`, `cq` and `supplier` all have real editing
+   UI (add/remove/edit tier, add/remove/edit a Common Question, the Supplier 1
+   text box) that called `markEdited`/mutated state exactly like every other
+   field — so the chip flipped, autosave even fired — but `decisionPatch`'s
+   diff only walks THIS array, so none of the three was ever in `edits` and
+   all three saved as if nothing had changed. Exactly the bug this comment
+   already warns about, just three fields it had not caught up to yet. */
 var EDITABLE_FIELDS=['name','badge','brand','upc','price','salePrice','weightG',
   'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
   'optionName','marginOverride','taxOverride','dims','variants','prose',
-  'warranty','kws','pageTitle','metaDesc'];
+  'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier'];
 
 function _snapshot(p){
   var o={};
