@@ -188,10 +188,19 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .hint.okk{color:var(--ok)}
 
 .gstrip{display:flex;gap:8px;flex-wrap:wrap}
-.gslot{width:78px;height:78px;border-radius:5px;border:1px solid var(--line);background:var(--tile);display:grid;place-items:center;text-align:center;padding:5px;position:relative}
-.gslot .n{position:absolute;top:-6px;left:-6px;width:19px;height:19px;border-radius:99px;background:var(--accent);color:#fff;font-family:var(--f-mono);font-size:11px;font-weight:600;display:grid;place-items:center}
-.gslot .cap{font-size:8.5px;line-height:1.2;color:var(--ink-3);word-break:break-word}
-.gslot.empty{border-style:dashed;background:none}
+/* ⭐ 2026-09-12 (Jack: "if we can get the images to display on the preview,
+   that'd be ideal"): a `.gslot` used to be text only — a number badge and the
+   candidate's caption, no picture — because it was never wired to the same
+   `im[5]`/`isSp`/`hydrateSp` pipeline `renderGrid()` (the Images tab) already
+   uses. It now shares that exact pipeline: `.art` is `renderGrid`'s own class
+   name and fallback shape, just at gallery-strip size. */
+.gslot{width:92px;border-radius:5px;border:1px solid var(--line);background:var(--panel);text-align:center;position:relative;overflow:hidden}
+.gslot .n{position:absolute;top:4px;left:4px;width:19px;height:19px;border-radius:99px;background:var(--accent);color:#fff;font-family:var(--f-mono);font-size:11px;font-weight:600;display:grid;place-items:center;z-index:1}
+.gslot .art{width:92px;height:92px;background:repeating-linear-gradient(135deg,var(--tile) 0 9px,var(--tile-2) 9px 18px);display:grid;place-items:center;padding:6px;text-align:center}
+.gslot .art span{font-family:var(--f-mono);font-size:8px;line-height:1.3;color:var(--ink-3);word-break:break-word}
+.gslot .art img{width:100%;height:100%;object-fit:contain}
+.gslot .cap{display:block;font-size:8.5px;line-height:1.2;color:var(--ink-3);word-break:break-word;padding:4px 5px}
+.gslot.empty{width:78px;height:78px;border-style:dashed;background:none;display:grid;place-items:center;padding:5px}
 
 .cbox{margin-top:10px;display:grid;gap:7px}
 .cbox textarea{width:100%;min-height:62px;padding:9px 11px;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
@@ -1102,7 +1111,21 @@ function sec(k,body,extra){
 function renderShop(){
   const p=P[cur],pk=st[cur].picks,E=editing;
   $('#railKind').textContent=p.kind==='update'?'UPDATE · publishes via bc_publish':'CREATE · publishes via bc_create';
-  const slots=pk.length?pk.map((x,n)=>`<span class="gslot"><span class="n">${n+1}</span><span class="cap">${esc(p.imgs[x][1])}</span></span>`).join('')
+  /* ⭐ same rule as `renderGrid()`'s `.cand .art`: no `im[5]` means nothing to
+     show, so fall back to the filename text rather than a broken image; an
+     `sp:` reference needs `hydrateSp()` (below); anything else is a plain
+     URL with an `onerror` fallback so a 401/404 degrades to text too. */
+  const slots=pk.length?pk.map((x,n)=>{
+      const im=p.imgs[x];
+      const art = !im[5]
+        ? `<span>${esc(im[0])}</span>`
+        : isSp(im[5])
+        ? `<img data-sp="${esc(im[5])}" alt="${esc(im[1])}">`
+        : `<img src="${esc(im[5])}" alt="${esc(im[1])}" loading="lazy"
+             onerror="this.parentNode.innerHTML='<span>'+${JSON.stringify(esc(im[0]))}+'<\\/span>'">`;
+      return `<span class="gslot"><span class="n">${n+1}</span><span class="art">${art}</span>
+        <span class="cap">${esc(im[1])}</span></span>`;
+    }).join('')
     :`<span class="gslot empty"><span class="cap">none<br>selected</span></span>`;
 
   /* identity — name + badge + alternatives, all editable */
@@ -1186,6 +1209,7 @@ function renderShop(){
   ].join('');
   $('#shopBody').querySelectorAll('.sec').forEach(wireSec);
   wireEditors();
+  hydrateSp($('#shopBody'));
   $('#listLegend').innerHTML = p.src==='enhance'
     ? `<b>Enhance item — already live.</b> The dashed block under the description is what is on the storefront today.`
     : p.src==='clone' ? `<b>Cloned from ${esc(p.cloneOf)}.</b> The two open flags are the decisions only staff can make.`
@@ -1350,7 +1374,38 @@ function selOpts(list,val){
   return head+list.map(o=>{const v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;
   return `<option value="${esc(v)}" ${v===val?'selected':''}>${esc(l)}</option>`;}).join('');}
 
+/* ⭐⭐ FOCUS SURVIVES A RE-RENDER (2026-09-12). `renderFields()` rebuilds the
+   ENTIRE fields tab (`$('#fields').innerHTML=…`) on every single edit — even
+   a one-digit tier tweak — because `markEdited()` calls `renderAll()`. That
+   destroys and recreates every input, so the browser drops focus to
+   `<body>`. Invisible for a text field (you click elsewhere next anyway) but
+   fatal for a NUMBER SPINNER: Jack (2026-09-12) — "it breaks once we do the
+   first increase or decrease and stops changing" — a held-down spinner click
+   or a second ArrowUp keypress both land on `<body>`, not the field, once
+   the first tick has already re-rendered underneath them.
+   ⭐ Fields with a stable `id` (most of them) restore by `#id`. Tier and
+   variant rows have no `id` — each row is keyed by its own `data-t`/`data-v`
+   index instead, which survives the rebuild as long as the row itself still
+   exists (it does; only its VALUES changed). */
+function _fieldFocusSelector(el){
+  if(!el||el===document.body) return null;
+  if(el.id) return '#'+el.id;
+  const tier=el.closest&&el.closest('.tier[data-t]');
+  if(tier){
+    for(const a of ['data-tq','data-tp'])
+      if(el.hasAttribute(a)) return `.tier[data-t="${tier.getAttribute('data-t')}"] [${a}]`;
+  }
+  const vrow=el.closest&&el.closest('[data-v]');
+  if(vrow){
+    for(const a of ['data-vval','data-vprice','data-vstock','data-vupc'])
+      if(el.hasAttribute(a)) return `[data-v="${vrow.getAttribute('data-v')}"] [${a}]`;
+  }
+  return null;
+}
 function renderFields(){
+  const _fSel=_fieldFocusSelector(document.activeElement);
+  let _fSelStart=null;
+  if(_fSel){ try{ _fSelStart=document.activeElement.selectionStart; }catch(_){} }
   const p=P[cur],c=catOf(p.cat)||[];
   const parents=[...new Set(CATS.map(x=>x[1]))].sort();
   const catSelect=`<select class="ctl w-lg" id="fCat">${parents.map(par=>
@@ -1362,9 +1417,9 @@ function renderFields(){
   const tiersHtml=`<div class="tiers" id="tierBox">${ranges.map((r,i)=>{
       const unit=p.price*(1-r.pct/100);
       return `<div class="tier" data-t="${i}">
-        <span class="lbl">qty</span><input class="ctl mono" type="number" min="2" value="${r.min}" data-tq>
+        <span class="lbl">qty</span><input class="ctl mono" type="number" min="2" step="1" value="${r.min}" data-tq>
         <span class="lbl">${r.max?'– '+r.max:'and up'}</span>
-        <input class="ctl mono" type="number" min="0" max="90" step="0.01" value="${r.pct}" data-tp>
+        <input class="ctl mono" type="number" min="0" max="90" step="1" value="${Math.round(r.pct)}" data-tp>
         <span class="lbl">% off</span><span class="unit">${money(unit)} ea</span>
         <button class="x" data-rmt="${i}" title="remove">×</button></div>`;}).join('')
     ||'<div class="hint">No tiers on this product.</div>'}</div>
@@ -1605,8 +1660,13 @@ function renderFields(){
        did not even call markEdited — so editing an EXISTING tier's quantity
        or percent (as opposed to adding/removing a whole tier) never flipped
        the chip either, on top of never being in the save diff. */
-    row.querySelector('[data-tq]').onchange=e=>{s[i][0]=Math.max(2,+e.target.value||2);p.tiers=s;markEdited('price','Tier quantity saved — ranges re-derived');};
-    row.querySelector('[data-tp]').onchange=e=>{s[i][1]=+e.target.value||0;p.tiers=s;markEdited('price','Tier discount saved — ranges re-derived');};});
+    row.querySelector('[data-tq]').onchange=e=>{s[i][0]=Math.max(2,Math.round(+e.target.value||2));p.tiers=s;markEdited('price','Tier quantity saved — ranges re-derived');};
+    /* ⛔ A discount tier is a WHOLE percent (Jack, 2026-09-12: "they go up and
+       down by .01 like a dollar, they should be whole numbers"). `step="1"`
+       on the input fixes the spinner; `Math.round` here catches a typed or
+       pasted decimal too, since a number input does not enforce its step on
+       manual entry. */
+    row.querySelector('[data-tp]').onchange=e=>{s[i][1]=Math.max(0,Math.min(90,Math.round(+e.target.value||0)));p.tiers=s;markEdited('price','Tier discount saved — ranges re-derived');};});
   [['fName','name'],['fBadge','badge'],['fPT','pageTitle'],['fMD','metaDesc'],['fSup','supplier']]
     .forEach(([id,key])=>{const e=$('#'+id);if(e)e.onchange=()=>{p[key]=e.value;markEdited('identity');};});
   /* ⛔ A16: the label promised "12 digits" and accepted anything. Given this
@@ -1657,6 +1717,12 @@ function renderFields(){
      what tells the reviewer the change was registered at all. */
   [0,1,2].forEach(i=>{const e=$('#fD'+i);if(e)e.onchange=()=>{
     p.dims[i]=+e.value||0; markEdited('identity','Dimension saved'); };});
+  if(_fSel){
+    const back=document.querySelector(_fSel);
+    if(back){ back.focus();
+      if(_fSelStart!=null){ try{back.setSelectionRange(_fSelStart,_fSelStart);}catch(_){} }
+    }
+  }
 }
 
 /* ═══ images ═══
