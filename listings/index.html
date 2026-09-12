@@ -957,7 +957,13 @@ function markEdited(k,what){
   renderAll();
   toast(hadJob
     ? '⚠ Saved — but a rewrite is still queued on '+LBL[k]+'. Tonight it will overwrite this. Cancel it in the rework tray.'
-    : (what||'Saved through the applier · normalizer re-run'));}
+    : (what||'Saved through the applier · normalizer re-run'));
+  /* ⭐ P-1120: actually write it. `scheduleAutosave` debounces + chains per
+     product, and its own `persist()` call fires a SECOND toast a moment
+     later — 'Saved · revision N' on success, 'NOT SAVED — …' on failure —
+     so the chip flipping and the word 'Saved' above are never the only
+     signal that this reached SharePoint. */
+  scheduleAutosave(cur, what);}
 function cancelRework(k){delete st[cur].cm[k];
   if(st[cur].sec[k]==='rework')st[cur].sec[k]='edited';
   renderAll();toast('Rewrite cancelled — your edit stands');}
@@ -1303,7 +1309,8 @@ function wireSec(el){
       box.querySelector('[data-cancel]').onclick=()=>box.remove();
       box.querySelector('[data-save]').onclick=()=>{const v=box.querySelector('textarea').value.trim();
         if(!v){toast('Add a note first');return;}
-        st[cur].cm[k]=v;st[cur].sec[k]='rework';renderAll();toast('Rework queued — runs tonight 21:30');};
+        st[cur].cm[k]=v;st[cur].sec[k]='rework';renderAll();toast('Rework queued — runs tonight 21:30');
+        scheduleAutosave(cur,'Rework request saved');};
     }
   });
 }
@@ -1750,6 +1757,7 @@ function togglePick(i){
   if(st[cur].sec.gallery!=='rework'){st[cur].sec.gallery='edited';
     st[cur].by.gallery='edited by jack@tc.farm · just now';}
   renderAll();
+  scheduleAutosave(cur,'Image selection saved');
 }
 window.togglePick=togglePick;
 
@@ -1763,6 +1771,7 @@ function addUpload(){
   st[cur].picks.push(p.imgs.length-1);
   st[cur].sec.gallery='edited';st[cur].by.gallery='edited by jack@tc.farm · just now';
   renderAll();toast('Uploaded and added to the gallery — it joins the same pool as the scraped candidates');
+  scheduleAutosave(cur,'Image upload saved');
 }
 window.addUpload=addUpload;
 
@@ -2195,6 +2204,7 @@ $('#btnClear').onclick=()=>{
   st[cur].picks=[]; renderAll();
   _undoPicks={i:cur, picks:was};
   toast(`${was.length} pick${was.length>1?'s':''} cleared — press u to undo`);
+  scheduleAutosave(cur,'Cleared picks saved');
 };
 let _undoPicks=null;
 /* ⛔ A FUNCTION DECLARATION, not `window.x=function`. The keydown handler
@@ -2204,14 +2214,18 @@ let _undoPicks=null;
    global keydown handler and nothing else would have exercised that key. */
 function undoClearPicks(){
   if(!_undoPicks){ toast('Nothing to undo'); return false; }
-  st[_undoPicks.i].picks=_undoPicks.picks.slice();
+  const i=_undoPicks.i;
+  st[i].picks=_undoPicks.picks.slice();
   const n=_undoPicks.picks.length; _undoPicks=null;
-  renderAll(); toast(`${n} pick${n>1?'s':''} restored`); return true;
+  renderAll(); toast(`${n} pick${n>1?'s':''} restored`);
+  scheduleAutosave(i,'Restored picks saved');
+  return true;
 }
 window.undoClearPicks=undoClearPicks;
 $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
   st[cur].cm.gallery='None of the candidates show this product. Fetch a fresh pool.';
-  renderAll();toast('Queued an image_fetch_agent for tonight');};
+  renderAll();toast('Queued an image_fetch_agent for tonight');
+  scheduleAutosave(cur,'Rework request saved');};
 $('#btnApprove').onclick=()=>openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
   <div class="sub">Approving is the publish consent. Tonight's run will
   ${P[cur].kind==='update'?'update this product on all three stores via <b>bc_publish</b>, snapshot-first'
@@ -2361,6 +2375,21 @@ if(IS_BROWSER){
   document.querySelector('#btnSignIn').onclick=function(){ beginLogin(); };
   var _sel=document.querySelector('#batchSel');
   if(_sel) _sel.onchange=function(){ if(_tok) bootLive(); };
+  /* ⭐ P-1120 backstop. The debounced autosave in `scheduleAutosave` should
+     always flush a pending edit within ~700ms, but a dropped network call or
+     a reload inside that window is still possible — this is the last line of
+     defence, not the primary mechanism.
+     ⛔ Guarded on the method existing, not just on `IS_BROWSER`: the
+     `test_merge_parity.py` harness deliberately sets `location`/`fetch`/
+     `crypto` so `IS_BROWSER` reads true (it runs the real page script, not a
+     stub of it) but stubs `window` as a plain `{}` with no
+     `addEventListener` — an unconditional call throws there, which is not a
+     failure of the guard, only of that stub. */
+  if(typeof window.addEventListener==='function'){
+    window.addEventListener('beforeunload', function(e){
+      if(pendingAutosave()){ e.preventDefault(); e.returnValue=''; return ''; }
+    });
+  }
   (async function(){
     /* ⭐⭐ AUTO-REDIRECT TO SIGN-IN, matching the sibling apps (Jack,
        2026-09-10: *"i do not get OAUTH if I go to … in a private browser"*).
@@ -2570,6 +2599,46 @@ function decisionPatch(i){
     expect_revision: (p._decision&&p._decision.revision)||0
   };
 }
+
+/* ═══ autosave (P-1120, 2026-09-12) ════════════════════════════════════════
+   ⛔ Before this, a write to SharePoint happened ONLY on Approve / bulk
+   Approve / Send rework / Defer / Cost correction / Run now — every ordinary
+   field edit (name, price, category, dims, gallery picks…) lived in browser
+   memory only. The section chip flipped to 'edited' and a toast said
+   'Saved' regardless, so there was no way to tell a real save from one that
+   would vanish on refresh — which is exactly what happened (see the
+   `_base`/`_snapshot` comment above `decisionPatch`).
+   ⭐ `markEdited()` is the single choke point every field-edit handler
+   already funnels through, so it is also the one place an autosave can be
+   wired without touching each of the ~20 call sites. Three gallery actions
+   (`togglePick`, `addUpload`, clear/undo/none-of-these) mutate state directly
+   without going through `markEdited` and call this too, at their own sites.
+   ⛔ DEBOUNCED per product index — a burst of edits (tabbing through 3
+   dimension fields) becomes ONE write, not three racing each other.
+   ⛔ CHAINED per product index — `decisionPatch` reads `p._decision.revision`
+   synchronously the moment `persist()` is called, so two saves fired before
+   either resolves would send the SAME `expect_revision` and the second could
+   read back a revision the first had already bumped: a 'stale' conflict
+   against the reviewer's OWN edit. Chaining onto the prior save's promise
+   guarantees each one starts only once the last has updated that revision. */
+var _autosaveTimer={}, _autosaveChain={}, _dirty={};
+function pendingAutosave(){ return Object.keys(_dirty).some(function(k){return _dirty[k];}); }
+function scheduleAutosave(i, label){
+  if(!IS_BROWSER) return;   /* test harness / no session — persist() would refuse anyway */
+  _dirty[i]=true;
+  clearTimeout(_autosaveTimer[i]);
+  _autosaveTimer[i]=setTimeout(function(){
+    _autosaveChain[i]=(_autosaveChain[i]||Promise.resolve()).then(function(){
+      return persist(i, label||null);
+    }).then(function(res){
+      /* ⛔ Only clear the dirty flag on a CONFIRMED save. A failed save
+         (network error or a 'stale' conflict) already toasts loudly via
+         `persist()` — the flag stays true so `beforeunload` keeps warning. */
+      if(res && res.ok) delete _dirty[i];
+    });
+  }, 700);
+}
+window.scheduleAutosave=scheduleAutosave; window.pendingAutosave=pendingAutosave;
 
 async function persist(i, label){
   if(!IS_BROWSER) return {ok:false, reason:'not a browser'};
