@@ -825,6 +825,12 @@ function fromPayload(it){
        so a missing value reads as MISSING rather than as a measurement. */
     tiers:it.tiers||[],            /* the ladder is derived, never guessed */
     dims:it.dims||[0,0,0],         /* p.dims[0] is dereferenced unguarded */
+    /* ⭐ Where the dimensions CAME FROM. `rivir_declared` is the manufacturer's
+       own figure for this GTIN and needs no review; anything else is an
+       estimate and the reviewer should be told which. ⛔ Mapped here because
+       test_merge_parity asserts every emitted payload field is read — the
+       check that caught this field half-wired. */
+    dimsMeta:it.dims_meta||{},
     visible:it.visible==null?true:!!it.visible,
     units:it.units==null?null:it.units,
     ingredients:it.ingredients||'',
@@ -1497,7 +1503,11 @@ function renderFields(){
       <input class="ctl w-sm mono" id="fD0" type="number" value="${p.dims[0]}">
       <input class="ctl w-sm mono" id="fD1" type="number" value="${p.dims[1]}">
       <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}"></div>`)}
-    ${frow('__Volume','derived',`<input class="ctl w-sm mono" value="${p.dims[0]*p.dims[1]*p.dims[2]}" disabled>`,'<span class="derived">W × H × D — drives van load planning</span>')}
+    ${frow('__Volume','derived',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
+      '<span class="derived">L × W × H cm³ — drives van load planning</span>'
+      +((p.dimsMeta&&p.dimsMeta.basis==='rivir_declared')
+        ? ' · <b>from RIVIR</b>, the manufacturer\'s declared package'
+        : ' · <b>ESTIMATED</b> — check it'))}
   </div></div>
 
   <div class="fgroup"><h3>Ordering &amp; Finale</h3><div class="body">
