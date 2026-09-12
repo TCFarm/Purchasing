@@ -859,6 +859,7 @@ function applyPayload(payload){
   _adopt(CATS,   payload&&payload.cats);
   _adopt(BRANDS, payload&&payload.brands);
   _adopt(OWNERS, payload&&payload.owners);
+  adoptSizeUnits(payload&&payload.size_units);
   var mapped=items.map(fromPayload);
   P.length=0; mapped.forEach(function(x){P.push(x);});
   st.length=0;
@@ -1613,7 +1614,29 @@ const VERIFY_MIN=800;
    pack-quantity check exempted any name containing the letter "x" anywhere,
    so "Flax Crackers - 6 ct" and "Deluxe Box - 24 ct" were never flagged. The
    exemption now has to match an actual multi-unit form (4 x 6oz), not a stray x. */
-const SIZE_RE=/\s-\s(?:avg\.?|approx\.?|about|~)?\s*\d+(?:\.\d+|(?:\s+\d+)?\/\d+)?(?:\s*x\s*\d+(?:\.\d+)?)?\s*(oz|ounces?|fl\s*oz|lb|lbs?|pounds?|g|grams?|kg|ml|l|liters?|ct|count|each|ea|pk|packs?|bars?|yd|yards?|ft|feet|inch|inches|cm|mm)\b/i;
+/* ⛔⛔ THIS IS A COPY OF A PATTERN THAT HAS ONE CANONICAL DEFINITION
+   (`pass1_normalizer.SIZE_UNIT_ALTERNATION`), AND IT HAD ALREADY DRIFTED
+   (2026-09-11): no qt/pt/gal, no cans/bottles/wipes/loads. So
+   "Vanilla Bean Ice Cream - 1.5 qt" — a CORRECT name the Python export gate
+   accepts — was reported to the reviewer as breaking the Name rule.
+   ⚠️ A false violation is worse than no check: it teaches the reviewer that
+   this warning is noise, and the next one is real.
+   ⭐ The payload now ships the canonical alternation (`size_units`) and
+   `adoptSizeUnits()` rebuilds this regex from it, so the page stops being a
+   third copy. ⛔ The literal below is only the pre-payload fallback — do NOT
+   add units to it; add them to pass1_normalizer, which every consumer reads.
+   ⚠️ The Python side consolidated for exactly this reason: two copies drifted
+   in opposite directions and one floss SKU aborted a 39-product export. */
+let SIZE_UNITS_SRC='oz|ounces?|fl\\s*oz|lb|lbs?|pounds?|g|grams?|kg|ml|l|liters?|ct|count|each|ea|pk|packs?|bars?|yd|yards?|ft|feet|inch|inches|cm|mm';
+function _buildSizeRe(units){
+  return new RegExp('\\s-\\s(?:avg\\.?|approx\\.?|about|~)?\\s*\\d+(?:\\.\\d+|(?:\\s+\\d+)?\\/\\d+)?(?:\\s*x\\s*\\d+(?:\\.\\d+)?)?\\s*('+units+')\\b','i');
+}
+let SIZE_RE=_buildSizeRe(SIZE_UNITS_SRC);
+function adoptSizeUnits(units){
+  if(!units||typeof units!=='string') return false;
+  try{ const re=_buildSizeRe(units); SIZE_RE=re; SIZE_UNITS_SRC=units; return true; }
+  catch(e){ return false; }   /* ⛔ a bad pattern must not break the page */
+}
 const MULTIUNIT_RE=/\d+\s*(?:ct|pk)\b.*?\d+\s*x\s*\d+/i;
 const PACKQTY_RE=/\b\d+\s*(ct|pk|pack)\b/i;
 function hasSizeSuffix(v){return SIZE_RE.test(String(v||''));}
