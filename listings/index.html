@@ -1287,9 +1287,18 @@ function frow(k,sub,ctl,hint){
    something the reviewer should see rather than have quietly normalised. */
 function selOpts(list,val){
   const has=list.some(o=>(Array.isArray(o)?o[0]:o)===val);
+  /* ⛔⛔ AN EMPTY VALUE MUST SHOW AS EMPTY, NOT AS THE FIRST OPTION
+     (2026-09-11). With no option carrying `selected` the browser displays
+     entry one — so a row with NO owner rendered as whatever sorted first.
+     ⚠️ The hardcoded list used to begin with 'TCFarm', so a blank owner looked
+     RIGHT by accident; the moment the list was sorted alphabetically every
+     such row showed 'Ben the Baker' — a consignment vendor — on products
+     TC Farm owns. ⛔ `__Owner` decides the consignment income account, so a
+     silently-wrong default here routes real revenue to the clearing account. */
   const head=(!has&&val!=null&&val!=='')
     ? `<option value="${esc(val)}" selected>${esc(val)} — not in the list</option>`
-    : '';
+    : ((val==null||val==='')
+        ? `<option value="" selected>— not set —</option>` : '');
   return head+list.map(o=>{const v=Array.isArray(o)?o[0]:o,l=Array.isArray(o)?o[1]:o;
   return `<option value="${esc(v)}" ${v===val?'selected':''}>${esc(l)}</option>`;}).join('');}
 
