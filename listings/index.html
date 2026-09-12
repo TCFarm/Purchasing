@@ -851,6 +851,19 @@ function fromPayload(it){
     cloneOf:it.clone_of||'', optionName:it.option_name||'',
     variants:it.variants||[],
     _origin:it._origin||{}, _comments:it._comments||{},
+    /* ⛔⛔ SNAPSHOT OF THE VALUES AS LOADED (2026-09-11). `decisionPatch` used
+       to build `edits` from `_origin[f]==='you'`, and `_origin` is set in
+       exactly ONE place — `mergeState`, when RELOADING an edit already stored
+       in SharePoint. Nothing in the live editing path ever set it, so a brand
+       new edit was never in `edits` and was NEVER SAVED. ⛔ Every handler
+       calls `markEdited(section)`, which flips the section chip to 'edited' —
+       so the reviewer got visible confirmation of a change that was then
+       silently discarded on save. Measured 2026-09-11: FPrep7882KaPiz saved
+       with sections {identity:'edited', gallery:'edited'} and edits_json {}.
+       ⭐ Diffing against this snapshot captures EVERY field without wiring
+       each of the ~15 handlers — including ones added later, which is the
+       failure mode that produced this bug in the first place. */
+    _base:null,
     _decision:it._decision||null
   };
 }
@@ -881,6 +894,7 @@ function applyPayload(payload){
   _adopt(OWNERS, payload&&payload.owners);
   adoptSizeUnits(payload&&payload.size_units);
   var mapped=items.map(fromPayload);
+  mapped.forEach(function(x){ x._base=_snapshot(x); });
   P.length=0; mapped.forEach(function(x){P.push(x);});
   st.length=0;
   P.forEach(function(p){
@@ -1616,7 +1630,12 @@ function renderFields(){
   $('#fBrand').onchange=()=>{p.brand=$('#fBrand').value;markEdited('identity');};
   $('#fIT').onchange=()=>{p.itemType=$('#fIT').value;markEdited('identity');};
   $('#fVis').onchange=()=>{p.visible=$('#fVis').value==='1';markEdited('identity');};
-  [0,1,2].forEach(i=>{const e=$('#fD'+i);if(e)e.onchange=()=>{p.dims[i]=+e.value||0;renderAll();};});
+  /* ⛔ This alone of all the field handlers did not call markEdited, so a
+     typed dimension changed the screen and never even flipped the section
+     chip. ⚠️ The SAVE is now handled by the snapshot diff, but the chip is
+     what tells the reviewer the change was registered at all. */
+  [0,1,2].forEach(i=>{const e=$('#fD'+i);if(e)e.onchange=()=>{
+    p.dims[i]=+e.value||0; markEdited('identity','Dimension saved'); };});
 }
 
 /* ═══ images ═══
@@ -2498,12 +2517,38 @@ async function saveDecision(batch, sku, patch){
   return {ok:true, sp_id:made&&made.id, revision:1, created:true};
 }
 
+/* ⭐ Every field the BC-fields tab can change. ⛔ A field missing here is a
+   field whose edit is silently dropped — the exact bug this replaces — so add
+   to it whenever a new editable control is added to the page. */
+var EDITABLE_FIELDS=['name','badge','brand','upc','price','salePrice','weightG',
+  'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
+  'optionName','marginOverride','taxOverride','dims','variants','prose',
+  'warranty','kws','pageTitle','metaDesc'];
+
+function _snapshot(p){
+  var o={};
+  EDITABLE_FIELDS.forEach(function(f){
+    o[f]=(p[f]===undefined)?null:JSON.parse(JSON.stringify(p[f]===undefined?null:p[f]));
+  });
+  return o;
+}
+
 /* What the CURRENT product's state is, in the shape saveDecision wants. */
 function decisionPatch(i){
   var p=P[i], s=st[i];
   var edits={};
+  /* ⭐ Anything already stored as YOUR edit stays an edit. */
   Object.keys(p._origin||{}).forEach(function(f){
     if(p._origin[f]==='you') edits[f]=p[f];
+  });
+  /* ⭐⭐ …AND anything that differs from what the payload loaded. ⛔ This is
+     the half that was missing: it does not depend on a handler remembering to
+     record itself, so a control added later cannot silently stop saving. */
+  var base=p._base||{};
+  EDITABLE_FIELDS.forEach(function(f){
+    var now=(p[f]===undefined)?null:p[f];
+    var was=(base[f]===undefined)?null:base[f];
+    if(JSON.stringify(now)!==JSON.stringify(was)) edits[f]=now;
   });
   return {
     overall: s.approved?'approved':(Object.keys(s.cm||{}).length?'rework':'pending'),
