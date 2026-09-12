@@ -624,7 +624,12 @@ function mergeState(payload, rows){
     item._origin={}; item._comments={};
     const row=by[item.sku]; if(!row) return;
     const J=s=>{try{return JSON.parse(s||'{}')}catch(_){return {}}};
-    const edits=J(row.edits_json), comments=J(row.comments_json), sections=J(row.sections_json);
+    const edits=J(row.edits_json), sections=J(row.sections_json);
+    /* ⛔ A drained row's comments have already been turned into rework and the
+       payload now carries the rewritten copy — re-showing them would ask the
+       reviewer to re-request work that is already done. ⭐ The DECISION
+       (approved / sections / edits / image order) is kept either way. */
+    const comments=row._drained?{}:J(row.comments_json);
     const decidedAt=String(row.decided_at||'');
     /* ⛔ only a payload generated AFTER the decision may displace an edit, and
        only on a section the reviewer actually asked to have rewritten.
@@ -702,7 +707,22 @@ async function loadLive(batch){
     (b.value||[]).forEach(it=>{
       const f=it.fields||{}; f._sp_id=it.id;
       if(String(f.batch||'')!==String(batch))return;
-      if(String(f.drained||'').toLowerCase()==='true')return;   /* consumed already */
+      /* ⛔⛔ A DRAINED ROW IS NOT A VOID ROW (2026-09-11). `drained` means the
+         poller has APPLIED this row's edits and rework — it does NOT mean the
+         decision has been acted on. ⛔ Skipping these here made a reviewer's
+         APPROVAL VANISH on the next refresh: the rework poller runs every 10
+         minutes, so an approval was typically drained within minutes and the
+         product came back reading 'pending', with nothing to say why.
+         ⚠️ Measured 2026-09-11: FPrep7882KaPiz approved at revision 1, drained,
+         and gone from the reviewer's view — while still correctly queued to
+         publish, so the two surfaces disagreed about the same row.
+         ⭐ `listing_review.approved()` learned this on 2026-09-10 and was fixed
+         to INCLUDE drained rows, with the note that excluding them meant
+         "whichever ran first HID the approval from the other". The page was the
+         other half of that bug and was never fixed.
+         ⭐ The comments ARE dropped below — those genuinely have been acted on
+         and must not reappear as open requests. */
+      f._drained=(String(f.drained||'').toLowerCase()==='true');
       rows.push(f);
     });
     url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
