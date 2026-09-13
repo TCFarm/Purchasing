@@ -996,19 +996,24 @@ async function reinstateAdded(rows, saved, week, orderMeta){
 }
 
 /* ── the week switcher ───────────────────────────────────────────────────── */
-/* ⭐ WHICH WEEK DO WE OPEN? ⛔ NOT simply "the newest". A publish must never move
-   someone mid-review, so a week that already has decisions in it outranks a week
-   that has none, however new. And an explicit choice made in this browser session
-   outranks both — being returned to another week by a reload is the same failure
-   wearing a different hat. */
+/* ⭐ WHICH WEEK DO WE OPEN? Always the newest published week. ⛔ CHANGED
+   2026-09-13 (Jack: "the purchasing app doesn't default to the newest date — it
+   goes to an old one"): this used to let a week that already had saved decisions
+   outrank a newer one with none, on the theory that a fresh publish should never
+   move someone mid-review. In practice that meant a stale prior week — reviewed
+   once, left with a handful of saved lines — permanently out-ranked every new
+   Sunday build that nobody had touched yet, so the app opened on old data by
+   default every single time. ⭐ An explicit choice made earlier in THIS browser
+   session still wins (switching weeks mid-session and reloading must not bounce
+   you back) — that part is unchanged and is the real fix for "don't move someone
+   mid-review". A week with unfinished decisions from a PRIOR session is not lost;
+   it is still in the dropdown with its saved-decision count, just not the
+   default. */
 function pickWeek(){
   let mem=null; try{ mem=sessionStorage.getItem(WEEK_MEM); }catch(_){}
   if(mem && WEEKS.some(w=>w.key===mem))
     return {key:mem, reason:"the week you chose earlier in this session"};
-  const withWork=WEEKS.filter(w=>savedCount(w.key)>0);
-  if(withWork.length)
-    return {key:withWork[0].key, reason:"the newest week that already has saved decisions"};
-  return {key:WEEKS[0].key, reason:"the newest published week — none has decisions yet"};
+  return {key:WEEKS[0].key, reason:"the newest published week"};
 }
 /* ⛔ Rebuilt only when the week set, the selection or the decision counts change —
    never on render(). Repainting a <select> the user has open closes it. */
