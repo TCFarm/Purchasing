@@ -916,6 +916,18 @@ function applyPayload(payload){
     var d=p._decision||{}, secs=d.sections||{};
     st.push({sec:Object.fromEntries(SEC.map(function(s){
                return [s, secs[s]||'pending'];})),
+             /* ⛔⛔ FOUND 2026-09-14 (Jack: "when I reload, I see all three as
+                if the two were not approved"). `approved` was NEVER restored
+                from the loaded decision — only `approveProduct()` and the
+                bulk-approve loop ever set it, both current-session-only
+                actions. So `st[i].approved` started `false` on every single
+                page load regardless of what SharePoint actually held,
+                showing an already-approved, already-PUBLISHED product as
+                "Not yet approved" the moment anyone refreshed. ⭐ `overall`
+                is exactly what `decisionPatch()` writes FROM `s.approved` on
+                save (`overall: s.approved?'approved':…`), so reading it back
+                the same way is the correct inverse, not a guess. */
+             approved: d.overall==='approved', approvedBy: d.decided_by||'',
              cm:p._comments||{}, picks:p.pre.slice(), by:{}});
   });
   cur=0; filter='all'; editing=null;
@@ -1092,7 +1104,7 @@ function sec(k,body,extra){
   const s=st[cur].sec[k];
   const chip=s==='approved'?'<span class="chip ok">approved</span>':s==='edited'?'<span class="chip ed">edited by you</span>':s==='rework'?'<span class="chip rw">rework queued</span>':'';
   const by=st[cur].by[k]?`<span class="byline">${esc(st[cur].by[k])}</span>`:'';
-  const note=st[cur].cm[k]?`<div class="cnote"><b>Queued for tonight's run</b>${esc(st[cur].cm[k])}</div>`:'';
+  const note=st[cur].cm[k]?`<div class="cnote"><b>Queued for the next run</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
   /* ⭐ RULING (Jack, 2026-09-08): APPROVAL IS WHOLE-PRODUCT, not per section.
      Sections still track CHANGE (edited / rework queued) because the rework
@@ -1326,14 +1338,22 @@ function wireSec(el){
     else if(a==='comment'){
       if(el.querySelector('.cbox'))return;
       const box=document.createElement('div');box.className='cbox';
-      box.innerHTML=`<textarea placeholder="What should change, and why? Tonight's run rewrites just this section with your note in the prompt."></textarea>
+      box.innerHTML=`<textarea placeholder="What should change, and why? The next scheduled run rewrites just this section with your note in the prompt."></textarea>
         <div class="row"><button class="tbtn go" data-save>Queue rework</button><button class="tbtn" data-cancel>Cancel</button>
         <span class="hint">Nothing changes until the run — the current copy stays live meanwhile.</span></div>`;
       el.querySelector('.sec-body').after(box);box.querySelector('textarea').focus();
       box.querySelector('[data-cancel]').onclick=()=>box.remove();
       box.querySelector('[data-save]').onclick=()=>{const v=box.querySelector('textarea').value.trim();
         if(!v){toast('Add a note first');return;}
-        st[cur].cm[k]=v;st[cur].sec[k]='rework';renderAll();toast('Rework queued — runs tonight 21:30');
+        st[cur].cm[k]=v;st[cur].sec[k]='rework';renderAll();
+        /* ⛔ Found 2026-09-12 (Jack, after a 3h wait): this used to say "runs
+           tonight 21:30" — stale copy from before the poller's cadence
+           changed. It now runs on a fixed schedule, 07:00-21:00 every 2h
+           (0 7,9,11,13,15,17,19,21 * * *) — so "tonight" both overpromises
+           (nothing runs 21:00-07:00) and underspecifies (it may be the very
+           next hour, or up to 2h away, or until 07:00 if queued after 21:00).
+           ⛔ Never hardcode a time here again — say the RULE, not a promise. */
+        toast('Rework queued — the poller runs 07:00–21:00, every 2 hours (not overnight)');
         scheduleAutosave(cur,'Rework request saved');};
     }
   });
@@ -2239,7 +2259,7 @@ window.cloneSheet=function(){openSheet(`<h2>Make a similar version</h2>
 $('#btnClone').onclick=()=>window.cloneSheet();
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
-  openSheet(`<h2>Queued for tonight's run</h2><div class="sub">Each re-runs <b>only that section</b>
+  openSheet(`<h2>Queued for the next run</h2><div class="sub">Each re-runs <b>only that section</b>
    for that product, with your note in the prompt. The current copy stays live meanwhile.</div>
    ${items.length?items.map(t=>`<div class="rwitem"><b>${esc(t[0])}</b> · <span class="lbl">${esc(t[1])}</span><p>${esc(t[2])}</p></div>`).join('')
    :'<div class="rwitem"><p>Nothing queued. Hover a section and hit <b>Comment</b>.</p></div>'}
@@ -2253,8 +2273,14 @@ $('#btnRw').onclick=()=>{const items=[];
 $('#btnRunNow').onclick=async()=>{
   const s=st[cur]||{}, pending=Object.keys(s.cm||{}).length;
   if(pending && !s._saved){ await persist(cur,'Saved — queued for rework'); }
+  /* ⛔ Was "within about 10 minutes" — stale from before the poller's cadence
+     was cut to every 2h, 07:00-21:00 (Jack, 2026-09-11, to save tokens). A
+     reviewer who queued a comment after 21:00 and read "10 minutes" would
+     wait all night for nothing; found 2026-09-12 after Jack waited 3h on a
+     genuinely stuck row and this button's own promise was part of why it
+     looked broken rather than merely due. */
   toast(pending
-    ? 'Queued. The next run picks it up within about 10 minutes.'
+    ? 'Queued — the poller runs 07:00–21:00, every 2 hours (not overnight).'
     : 'Nothing to rework on this product — comment on a section first.');
 };
 $('#btnNotes').onclick=()=>{const on=document.body.dataset.notes==='1';
