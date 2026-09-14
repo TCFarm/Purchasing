@@ -936,6 +936,13 @@ function applyPayload(payload){
                 save (`overall: s.approved?'approved':…`), so reading it back
                 the same way is the correct inverse, not a guess. */
              approved: d.overall==='approved', approvedBy: d.decided_by||'',
+             /* ⛔⛔ P-1126: restored from the decision the same way `approved`
+                is, and for the same reason — without this, a flag actioned in
+                an earlier session reads as un-actioned again after a reload,
+                until `openFlags`'s local hide is the ONLY thing keeping it
+                hidden and a refresh throws that away. `_flagActions` lives
+                inside `edits_json` (see `decisionPatch`), not a new column. */
+             flagAct:(d.edits&&d.edits._flagActions)||{},
              cm:p._comments||{}, picks:p.pre.slice(), by:{}});
   });
   cur=0; filter='all'; editing=null;
@@ -1941,32 +1948,96 @@ function renderSeq(){
 }
 
 function renderFlags(){
-  const p=P[cur];$('#tabFlagN').textContent=p.flags.length;
+  const p=P[cur], open=openFlags(cur);
+  $('#tabFlagN').textContent=open.length;
+  /* ⛔ `idx` below indexes into `open` (what's rendered), never into `p.flags`
+     (the full array) — the two only coincide until the first flag is
+     actioned, and diverging silently is exactly how the old bug shipped. */
   $('#flags').innerHTML=`<div class="note"><b>Three actions, never two</b> — Resolve · Override with
     reason · Defer. A blocking flag holds the product back even when every section is approved.</div>`
-    +p.flags.map((f,i)=>`<div class="flag ${f.sev==='warn'?'warn':''}" data-fi="${i}"><span class="flag-k">${esc(f.k)}</span>
-      <div><p>${f.t}</p><div class="acts">
+    +(open.length?open.map((f,i)=>`<div class="flag ${f.sev==='warn'?'warn':''}" data-fi="${i}"><span class="flag-k">${esc(f.k)}</span>
+      <div><p>${esc(f.t)}</p><div class="acts">
         <button class="tbtn go" data-do="resolve">Resolve</button>
         <button class="tbtn" data-do="override">Override with reason</button>
-        <button class="tbtn" data-do="defer">Defer from batch</button></div></div></div>`).join('');
+        <button class="tbtn" data-do="defer">Defer from batch</button></div></div></div>`).join('')
+      :`<div class="note">No open flags on this product.</div>`);
   $('#flags').querySelectorAll('[data-do]').forEach(b=>b.onclick=()=>{
     const d=b.dataset.do;
     const idx=+b.closest('.flag').dataset.fi;
-    if(d==='resolve'){
-      /* ⭐ A7: in the real app this opens the flag-specific applier. In the
-         wireframe it clears the flag so the end-to-end path is walkable —
-         otherwise 2 of 4 products can never be approved and the review flow
-         being reviewed cannot be demonstrated. */
-      P[cur].flags.splice(idx,1);renderAll();
-      toast('Resolved — the real app opens that flag\'s own applier');return;}
-    if(d==='defer'){toast('Deferred — apply_defer_from_export(), flag stays open for next batch');return;}
+    const f=open[idx]; if(!f)return;
+    if(d==='resolve')return resolveFlag(f);
+    if(d==='defer')return deferFlag(f);
     if(d==='override')openSheet(`<h2>Override with a reason</h2>
       <div class="sub">The flag is <b>transformed, not deleted</b> — it stays on the record with your
       reason and a timestamp, and the master XLSX lists every record exported under override.</div>
       <label style="display:block"><span class="lbl">Reason (required)</span>
-      <textarea class="ctl" rows="3" placeholder="Why is it safe to ship this anyway?"></textarea></label>
-      <button class="btn primary" style="margin-top:12px" onclick="recordOverride(${idx})">Record override</button>`);});
+      <textarea id="overrideReason" class="ctl" rows="3" placeholder="Why is it safe to ship this anyway?"></textarea></label>
+      <button class="btn primary" style="margin-top:12px" onclick="recordOverride(${esc(JSON.stringify(f.k))})">Record override</button>`);});
 }
+/* ═══ P-1126 — the three flag actions actually persist ═══════════════════
+   ⛔ Before this, all three buttons above only mutated `P[cur].flags` (or,
+   for Resolve, nothing at all) in browser memory — nothing was ever sent to
+   SharePoint, so the very next `applyPayload` (a reload, or the next poller
+   tick) rebuilt `p.flags` from the untouched staging record and the "settled"
+   flag reappeared exactly as if nothing had happened. ⭐ All three now write
+   into `st[i].flagAct[flagType]`, which `decisionPatch` folds into
+   `edits._flagActions` — riding the SAME `edits_json` column, autosave,
+   revision guard and stale-conflict handling every other edit already uses,
+   rather than a new column. `listing_drain.py` pops that reserved key out of
+   `edits` before its normal field-diff loop and applies it for real:
+   override → `batch_runner.apply_operator_override` (existing, generic to
+   every flag type); defer → `apply_defer_from_export` (existing — the button
+   already claimed this since the wireframe, it just never actually called
+   it); resolve → the flag-specific applier where one exists
+   (`apply_size_answer` / `apply_tcf_cost_answer` / `apply_reorder_qty_answer`),
+   else a generic `_resolved=true` + the operator's own answer recorded on the
+   flag — the same `_resolved` convention `scrape_quality.py` and
+   `listing_payload._confidence_notes` already use, so a type with no bespoke
+   applier still genuinely settles rather than reappearing. */
+function _recordFlagAction(f, action, extra){
+  st[cur].flagAct=st[cur].flagAct||{};
+  const prior=st[cur].flagAct[f.k];
+  st[cur].flagAct[f.k]=Object.assign({action:action, at:new Date().toISOString(),
+    by:ACCOUNT||''}, extra||{});
+  renderAll();
+  return persist(cur, null).then(function(res){
+    if(res&&res.ok===false){
+      /* ⛔ Roll back on a failed save — an action that LOOKS recorded but was
+         never sent is the exact bug this whole block exists to fix. */
+      if(prior)st[cur].flagAct[f.k]=prior; else delete st[cur].flagAct[f.k];
+      renderAll();
+    }
+    return res;
+  });
+}
+window.resolveFlag=function(f){
+  openSheet(`<h2>Resolve — ${esc(f.k)}</h2>
+    <div class="sub">${esc(f.t)}</div>
+    <label style="display:block"><span class="lbl">Your answer (required)</span>
+    <textarea id="resolveAnswer" class="ctl" rows="3" placeholder="Type the answer…"></textarea></label>
+    <button class="btn primary" style="margin-top:12px" onclick="submitResolve(${esc(JSON.stringify(f.k))})">Submit</button>`);
+};
+window.submitResolve=function(k){
+  const f=(P[cur].flags||[]).find(x=>x.k===k); if(!f)return;
+  const el=$('#resolveAnswer'), val=(el&&el.value||'').trim();
+  if(!val){toast('An answer is required to resolve this flag');return;}
+  closeSheet();
+  _recordFlagAction(f,'resolve',{answer:val}).then(function(res){
+    if(res&&res.ok!==false)toast('Resolved — applied on the next drain');});
+};
+window.deferFlag=function(f){
+  _recordFlagAction(f,'defer',{}).then(function(res){
+    if(res&&res.ok!==false)toast('Deferred — excluded from this batch, flag stays open for next batch');});
+};
+window.recordOverride=function(k){
+  const f=(P[cur].flags||[]).find(x=>x.k===k); if(!f)return;
+  const el=$('#overrideReason'), reason=(el&&el.value||'').trim();
+  if(!reason){toast('A reason is required to override this flag');return;}
+  closeSheet();
+  /* ⛔ The flag is TRANSFORMED, never deleted — the audit trail is the point. */
+  _recordFlagAction(f,'override',{reason:reason}).then(function(res){
+    if(res&&res.ok!==false)toast('Override recorded — the flag stays on the record with your reason');});
+};
 
 function renderLog(){
   const steps=[['ingest','1 new P&M file → 42 queue items','fingerprint changed; 2 UPCs superseded'],
@@ -2025,12 +2096,24 @@ function renderOps(){
   </section>`;
 }
 
+/* ⛔⛔ P-1126 / "flags always come back" (Jack, 2026-09-14). A flag the
+   reviewer actioned (Resolve / Override / Defer) is OPEN until `st[i].flagAct`
+   carries a recorded action for its key — that map is what actually reaches
+   SharePoint (`decisionPatch`'s `edits._flagActions`) and what `listing_drain`
+   applies for real. Every place that used to read `P[i].flags` directly (or
+   check the never-populated `f._overridden`, which no payload flag has ever
+   carried) now goes through this so a locally-actioned flag disappears from
+   the UI THE SAME TURN it is actioned, not only after the next drain tick. */
+function openFlags(i){
+  const acted=st[i].flagAct||{};
+  return (P[i].flags||[]).filter(f=>!acted[f.k]);
+}
 function productApproved(i){return !!st[i].approved;}
 function productBlocked(i){
   /* ⛔ Derived from the QUEUED JOB (cm), not the section chip — the chip is
      cosmetic and an edit used to clear it while the rewrite stayed scheduled. */
   const rw=Object.keys(st[i].cm||{}).length;
-  const blk=P[i].flags.filter(f=>f.sev==='stop'&&!f._overridden).length;
+  const blk=openFlags(i).filter(f=>f.sev==='stop').length;
   /* ⛔ A5: no gallery means no thumbnail, which product_compliance.audit_content
      treats as a bare stub. An approval with zero images is not an approval. */
   const noImgs=(st[i].picks||[]).length===0;
@@ -2057,7 +2140,7 @@ function renderDecide(){
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
     +(blk?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
-        +P[cur].flags.filter(f=>f.sev==='stop'&&!f._overridden).map(f=>esc(f.k)).join(', ')
+        +openFlags(cur).filter(f=>f.sev==='stop').map(f=>esc(f.k)).join(', ')
         +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a></span>`:'')
     +(!blk&&noImgs?` · <span style="color:var(--warn)">no images chosen — <a href="#" onclick="selectTab('images');return false" style="color:var(--warn)">pick some</a></span>`:'')
     +(!blk&&nameBad?` · <span style="color:var(--warn)">the Name breaks a rule</span>`:'')
@@ -2092,12 +2175,11 @@ function openSheet(h){$('#sheet').innerHTML=h;$('#drawer').dataset.open='1';}
 function closeSheet(){$('#drawer').dataset.open='0';}
 $('#drawer').onclick=e=>{if(e.target.id==='drawer')closeSheet();};
 window.closeSheet=closeSheet;window.toast=toast;
-window.recordOverride=function(i){
-  const f=P[cur].flags[i]; if(!f)return;
-  /* ⛔ The flag is TRANSFORMED, never deleted — the audit trail is the point. */
-  f._overridden=true; f._overridden_by='jack@tc.farm'; f.sev='warn';
-  f.k=f.k+' · OVERRIDDEN';
-  closeSheet();renderAll();toast('Override recorded — the flag stays on the record with your reason');};
+/* ⭐ `recordOverride`/`resolveFlag`/`submitResolve`/`deferFlag` are defined
+   above, next to `renderFlags` — this used to be a SECOND, later definition
+   of `recordOverride` that silently won (script order) and clobbered the
+   persisting one with the original wireframe stub (local mutation only,
+   never sent anywhere). Removed rather than left as dead code, per P-1126. */
 window.approveProduct=async function(){
   /* ⛔ Approving IS the publish consent (ruling R3), so it must be RECORDED,
      not just shown. Before this the button only toasted — the wireframe's
@@ -2725,6 +2807,15 @@ function decisionPatch(i){
     var was=(base[f]===undefined)?null:base[f];
     if(JSON.stringify(now)!==JSON.stringify(was)) edits[f]=now;
   });
+  /* ⛔⛔ P-1126: `_flagActions` rides inside `edits_json` as a reserved key —
+     `listing_drain.py` pops it out before its normal per-field diff loop (a
+     real product field would be refused by `FIELD_MAP`, exactly the failure
+     this would hit otherwise). Not a new SharePoint column: `edits_json`
+     already exists, is already sent on every save, and already carries the
+     revision guard + stale-conflict handling this needs for free. Only
+     included when non-empty so a product with no flag actions writes exactly
+     what it always did. */
+  if(s.flagAct && Object.keys(s.flagAct).length) edits._flagActions=s.flagAct;
   return {
     overall: s.approved?'approved':(Object.keys(s.cm||{}).length?'rework':'pending'),
     sections: s.sec, edits: edits, comments: s.cm||{},
