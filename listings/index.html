@@ -646,7 +646,15 @@ function mergeState(payload, rows){
     const payloadNewer = !!(genAt && decidedAt && genAt > decidedAt);
     Object.keys(edits).forEach(field=>{
       const section=SECTION_OF[field];
-      if(payloadNewer && section && sections[section]==='rework'){
+      /* ⛔ 2026-09-14: also matches 'reworked@<timestamp>' (listing_drain.py
+         now stamps a section this way once its rework request is actually
+         resolved), not just the bare 'rework' string — otherwise a section
+         already flipped to 'reworked' would fall through and REAPPLY the
+         stale typed edit on top of the fresh regenerated content, exactly
+         the bug this check exists to prevent. */
+      const wasQueued=sections[section]==='rework'||
+        (typeof _reworkedAt==='function'&&_reworkedAt(sections[section])!==null);
+      if(payloadNewer && section && wasQueued){
         item._origin[field]='rewritten-since-your-edit'; return;
       }
       item[field]=edits[field]; item._origin[field]='you';
@@ -1046,7 +1054,7 @@ function suggestLadder(caseQty){   /* ⛔ A13: price deliberately absent */
 function renderQueue(){
   const vis=visible();
   $('#queue').innerHTML=vis.map(i=>{const p=P[i],s=st[i].sec;
-    const dots=SEC.map(k=>`<i class="${s[k]==='edited'?'ed':s[k]==='rework'?'rw':''}"></i>`).join('');
+    const dots=SEC.map(k=>`<i class="${s[k]==='edited'||_reworkedAt(s[k])!==null?'ed':s[k]==='rework'?'rw':''}"></i>`).join('');
     const g=productBlocked(i);
     const tick=st[i].approved?'<span class="chip ok" style="padding:1px 5px">✓ approved</span>'
       :g.blk?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">blocked</span>'
@@ -1099,10 +1107,24 @@ function wireRte(bar,target){
   });
 }
 
+/* ⛔ 2026-09-14 (Jack: "it still shows as 'rework queued' even when it was
+   already reworked... it should say 'reworked' and maybe list the
+   date/time"). `listing_drain.py` now flips a resolved section from the bare
+   string 'rework' to 'reworked@<ISO timestamp>' once the rewrite actually
+   lands — this reads that back. A section still genuinely queued (not yet
+   drained) still reads exactly 'rework', so the two states stay distinct. */
+function _reworkedAt(s){
+  if(typeof s!=='string'||s.indexOf('reworked@')!==0)return null;
+  const d=new Date(s.slice(9));
+  return isNaN(d)?'':d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+}
 /* ═══ the storefront preview ═══ */
 function sec(k,body,extra){
   const s=st[cur].sec[k];
-  const chip=s==='approved'?'<span class="chip ok">approved</span>':s==='edited'?'<span class="chip ed">edited by you</span>':s==='rework'?'<span class="chip rw">rework queued</span>':'';
+  const reworkedAt=_reworkedAt(s);
+  const chip=s==='approved'?'<span class="chip ok">approved</span>':s==='edited'?'<span class="chip ed">edited by you</span>'
+    :reworkedAt!==null?`<span class="chip ok">reworked${reworkedAt?' · '+esc(reworkedAt):''}</span>`
+    :s==='rework'?'<span class="chip rw">rework queued</span>':'';
   const by=st[cur].by[k]?`<span class="byline">${esc(st[cur].by[k])}</span>`:'';
   const note=st[cur].cm[k]?`<div class="cnote"><b>Queued for the next run</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
