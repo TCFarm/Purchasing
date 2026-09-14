@@ -2661,7 +2661,17 @@ async function saveDecision(batch, sku, patch){
                       : _flat((patch.image_excluded||[]).join(',')),
     decided_by: _flat(ACCOUNT||patch.decided_by||''),
     decided_at: new Date().toISOString().slice(0,19),
-    revision: String(curRev+1)
+    revision: String(curRev+1),
+    /* ⛔⛔ FOUND 2026-09-14 (Jack: edited + re-approved LaCroix, the drain
+       reported "nothing to drain" — nothing happened). `drained` was never
+       part of this body, so once `mark_drained()` set it `true` the first
+       time, it stayed `true` FOREVER: `listing_drain.py`'s
+       `read_decisions(batch, include_drained=False)` filters on that exact
+       flag, so every later edit on an already-drained row was invisible to
+       the drain step, permanently, with no error anywhere. ⭐ Every save is
+       NEW undrained work by definition — clear it here so the next drain
+       tick (or a manual run) actually sees it. */
+    drained: ''
   });
 
   if(row.id){
