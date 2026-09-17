@@ -3081,6 +3081,23 @@ function kehepoUploadFileName(sunday, file){
   return `kehe_upload_${sunday}-${Date.now()}${ext}`;
 }
 /* ── step 1: upload the priced file, queue intake, poll, load the review ── */
+/* ⭐ Factored out of startKehePoUpload so setMode() can RESUME a poll for a job already in
+   flight when the operator switches away and back — see _resumeKehepoPolls(). */
+function _kehepoUploadTick(sunday){
+  return f=>{
+    const st=String(f.State||"");
+    if(st==="done"){
+      KEHEPO_UPLOAD_STATE="done"; KEHEPO_UPLOAD_MSG="✓ read — loading the review…";
+      loadKeheReview(sunday).then(renderKehePo);
+    } else if(st==="needs_human"||st==="refused"||st==="failed"){
+      KEHEPO_UPLOAD_STATE="failed";
+      KEHEPO_UPLOAD_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+    } else {
+      KEHEPO_UPLOAD_MSG=`${st||"queued"}…`;
+    }
+    renderKehePo();
+  };
+}
 async function startKehePoUpload(file){
   const sunday=kehepoSunday();
   if(!sunday){ KEHEPO_UPLOAD_MSG="⛔ no order week selected"; renderKehePo(); return; }
@@ -3097,19 +3114,7 @@ async function startKehePoUpload(file){
     const jobId=await postAgentJob("kehe.intake_from_upload",sunday,{upload_name:name});
     KEHEPO_UPLOAD_JOB=jobId; KEHEPO_UPLOAD_STATE="polling";
     KEHEPO_UPLOAD_MSG="reading your file…"; renderKehePo();
-    await pollAgentJob(jobId, f=>{
-      const st=String(f.State||"");
-      if(st==="done"){
-        KEHEPO_UPLOAD_STATE="done"; KEHEPO_UPLOAD_MSG="✓ read — loading the review…";
-        loadKeheReview(sunday).then(renderKehePo);
-      } else if(st==="needs_human"||st==="refused"||st==="failed"){
-        KEHEPO_UPLOAD_STATE="failed";
-        KEHEPO_UPLOAD_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
-      } else {
-        KEHEPO_UPLOAD_MSG=`${st||"queued"}…`;
-      }
-      renderKehePo();
-    });
+    await pollAgentJob(jobId, _kehepoUploadTick(sunday));
   }catch(e){
     KEHEPO_UPLOAD_STATE="failed"; KEHEPO_UPLOAD_MSG="⛔ "+(e.message||String(e));
     renderKehePo();
@@ -3128,6 +3133,36 @@ async function loadKeheReview(sunday){
     KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR=e.message||String(e);
   }
 }
+/* ⭐ Factored out for the same reason as _kehepoUploadTick — resumability. */
+function _kehepoCreateTick(){
+  return f=>{
+    const st=String(f.State||"");
+    if(st==="done"){
+      KEHEPO_CREATE_STATE="done"; KEHEPO_CREATE_MSG="✓ done";
+      try{ KEHEPO_CREATE_RESULT=JSON.parse(f.Message||"{}"); }
+      catch(_){ KEHEPO_CREATE_RESULT=null; }
+    } else if(st==="needs_human"||st==="refused"||st==="failed"){
+      KEHEPO_CREATE_STATE="failed";
+      KEHEPO_CREATE_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+    } else {
+      KEHEPO_CREATE_MSG=`${st||"queued"}…`;
+    }
+    renderKehePo();
+  };
+}
+/* ⛔⛔ RESUME, NEVER ABANDON, A JOB STILL IN FLIGHT — found by an Opus audit 2026-09-17:
+   `setMode()` clears `KEHEPO_POLL` on every mode switch (correctly — see its own comment) but
+   never restarted it on returning to kehepo mode, so leaving mid-poll and coming back left the
+   button permanently disabled with no way to learn the job had actually finished (a REAL locked
+   Finale order, invisible to the operator, who could easily conclude nothing happened and try
+   again — leaning entirely on the create-side duplicate guard to save them). Called from
+   setMode()'s kehepo branch every time the mode is entered. */
+function _resumeKehepoPolls(){
+  if(KEHEPO_UPLOAD_JOB && (KEHEPO_UPLOAD_STATE==="queued"||KEHEPO_UPLOAD_STATE==="polling"))
+    pollAgentJob(KEHEPO_UPLOAD_JOB, _kehepoUploadTick(kehepoSunday()));
+  if(KEHEPO_CREATE_JOB && (KEHEPO_CREATE_STATE==="queued"||KEHEPO_CREATE_STATE==="polling"))
+    pollAgentJob(KEHEPO_CREATE_JOB, _kehepoCreateTick());
+}
 /* ── step 2: create in finale — the ONLY control that ever touches Finale ── */
 async function startKehePoCreate(){
   const sunday=kehepoSunday();
@@ -3139,28 +3174,26 @@ async function startKehePoCreate(){
   KEHEPO_CREATE_STATE="queued"; KEHEPO_CREATE_MSG="queuing…"; KEHEPO_CREATE_RESULT=null;
   renderKehePo();
   try{
-    const jobId=await postAgentJob("kehe.create_finale_po",sunday,{});
+    /* ⛔⛔ `force_new` IS REQUIRED, not optional — found 2026-09-17 by an Opus audit: every
+       schema key in job_kinds.json is treated as REQUIRED by jobs.py's own validate(), so an
+       empty params object here made every single Create-in-Finale tap get REFUSED before the
+       handler ever ran. This button never worked in production until this line existed. ⭐ The
+       UI has no "add-on order" concept yet, so it always asks for the default (non-force) path;
+       a genuine KeHE add-on order for an already-committed week still needs the CLI fallback
+       (`kehe_finale_po.py --sunday <sunday> --force-new --live`) until this gets its own control. */
+    const jobId=await postAgentJob("kehe.create_finale_po",sunday,{force_new:"false"});
     KEHEPO_CREATE_JOB=jobId; KEHEPO_CREATE_STATE="polling";
     KEHEPO_CREATE_MSG="creating the order in Finale…"; renderKehePo();
-    await pollAgentJob(jobId, f=>{
-      const st=String(f.State||"");
-      if(st==="done"){
-        KEHEPO_CREATE_STATE="done"; KEHEPO_CREATE_MSG="✓ done";
-        try{ KEHEPO_CREATE_RESULT=JSON.parse(f.Message||"{}"); }
-        catch(_){ KEHEPO_CREATE_RESULT=null; }
-      } else if(st==="needs_human"||st==="refused"||st==="failed"){
-        KEHEPO_CREATE_STATE="failed";
-        KEHEPO_CREATE_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
-      } else {
-        KEHEPO_CREATE_MSG=`${st||"queued"}…`;
-      }
-      renderKehePo();
-    });
+    await pollAgentJob(jobId, _kehepoCreateTick());
   }catch(e){
     KEHEPO_CREATE_STATE="failed"; KEHEPO_CREATE_MSG="⛔ "+(e.message||String(e));
     renderKehePo();
   }
 }
+/* ⛔ The file input's accept is ".csv,.xlsx" — NOT .xls. kehe_order.py's reader uses openpyxl,
+   which cannot open the legacy binary .xls format at all; offering it invites a confusing
+   refusal. (Not an HTML comment inside the template literal below — see build_purchasing_page.py
+   on why: a backtick inside one closes the template early and kills the whole page silently.) */
 function renderKehePo(){
   const sunday=kehepoSunday(), m=document.getElementById("main");
   if(!sunday){
@@ -3176,7 +3209,7 @@ function renderKehePo(){
         after pricing (the same file you would otherwise hand to
         <code>kehe_order.py intake</code>).</div>
       <div style="margin-top:9px">
-        <input type="file" id="kehefile" accept=".csv,.xlsx,.xls"
+        <input type="file" id="kehefile" accept=".csv,.xlsx"
                ${KEHEPO_UPLOAD_STATE==="uploading"||KEHEPO_UPLOAD_STATE==="polling"?"disabled":""}>
       </div>
       <div class="mut small" style="margin-top:6px">${KEHEPO_UPLOAD_MSG||""}</div>`;
@@ -3763,6 +3796,7 @@ async function setMode(m){
     renderSale();
   } else if(m==="kehepo"){
     renderKehePo();
+    _resumeKehepoPolls();
   } else if(!ORDER){
     /* ⛔ render() dereferences ORDER.meta unconditionally, so switching back
        after a failed order load would throw a TypeError and blank the page —
