@@ -40,6 +40,15 @@ h1{font-size:18px;margin:0;letter-spacing:-.01em}
   background:var(--card);display:grid;grid-template-columns:1fr auto;gap:6px 14px}
 .sline.chronic{border-left:3px solid var(--warn)}
 .sline.decided{opacity:.72}
+/* ── KeHE PO mode (PM-1277) ── plain step cards, not the order-line grid above */
+.kstep{border:1px solid var(--line);border-radius:10px;padding:14px;margin:10px 0;background:var(--card)}
+.kstep.wait{opacity:.55}
+.kstep h3{margin:0 0 8px;font-size:14.5px}
+.kstats{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0;font-size:12.5px;
+  font-variant-numeric:tabular-nums;color:var(--mut)}
+.kstats b{color:var(--ink)}
+.kalert{border-left:3px solid var(--warn);padding:5px 10px;margin:5px 0;font-size:12.5px;
+  background:var(--chip);border-radius:0 6px 6px 0}
 .snums{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;
   font-variant-numeric:tabular-nums;color:var(--mut)}
 .snums b{color:var(--ink)}
@@ -336,6 +345,11 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
   <div class="weekbar" id="modebar">
     <button class="ghost modebtn on" id="mode-order" data-mode="order">Order</button>
     <button class="ghost modebtn" id="mode-sale" data-mode="sale">Sale</button>
+    <!-- ⭐ KeHE PO (PM-1277, 2026-09-17): upload the KeHE priced download, review
+         what intake() found, then Create in Finale — TWO taps, never collapsed
+         into one (posting unreviewed numbers to Finale is the exact mistake this
+         flow exists to prevent). Reuses the same #week picker as Order mode. -->
+    <button class="ghost modebtn" id="mode-kehepo" data-mode="kehepo">KeHE PO</button>
     <span class="mut small" id="modenote"></span>
   </div>
   <!-- ⭐⭐ WHICH WEEK AM I EDITING? Until 2026-09-06 the page loaded whichever
@@ -405,7 +419,7 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
        scrolled past on a long order; this bar cannot — it is fixed. -->
   <b id="footweek" class="footweek">—</b>
   <span id="tally" class="mut small">—</span>
-  <span class="mut small">⛔ nothing is saved until you press Save</span>
+  <span id="footnote" class="mut small">⛔ nothing is saved until you press Save</span>
   <button class="ghost" id="reset">Reset changes</button>
   <button class="primary" id="save" disabled>Save decisions</button>
   <button class="ghost" id="final" disabled>Finalize order…</button>
@@ -1068,6 +1082,16 @@ async function switchWeek(key, opts){
     const extra=await reinstateAdded(rows, saved, sunday, doc.meta||{});
     ORDER=doc; LINES=rows.concat(extra); SAVED=saved; EDIT={}; WEEK=key;
     WEEK_REASON=opts.reason||WEEK_REASON;
+    /* ⭐ KeHE-PO mode reuses this SAME week picker (kehepoSunday()) — its own
+       upload/review/create state belongs to whichever week it was built for,
+       not "whatever is on screen now". `renderKehePo()`'s own check already
+       stops a stale review from being SHOWN under the wrong week; this just
+       stops the upload status TEXT from lingering too. */
+    if(KEHEPO_POLL){ clearInterval(KEHEPO_POLL); KEHEPO_POLL=null; }
+    KEHEPO_UPLOAD_STATE="idle"; KEHEPO_UPLOAD_NAME=""; KEHEPO_UPLOAD_JOB=null;
+    KEHEPO_UPLOAD_MSG=""; KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR="";
+    KEHEPO_CREATE_STATE="idle"; KEHEPO_CREATE_JOB=null; KEHEPO_CREATE_MSG="";
+    KEHEPO_CREATE_RESULT=null;
     FILTER="all"; RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
     LOSS=false; REVW=false;
     /* ⛔ THE ADD PANEL BELONGS TO ONE WEEK. Left loaded across a switch, the next
@@ -2060,6 +2084,7 @@ function render(){
      ⚠️ `MODE` is declared with `let` further down; that is safe because nothing
      CALLS render() until boot(), which is the last statement in the file. */
   if(MODE==="sale") return renderSale();
+  if(MODE==="kehepo") return renderKehePo();
   paintFilters();
   const v=visible(), m=document.getElementById("main");
   let head="";
@@ -2969,6 +2994,233 @@ let MODE="order", SALE=null, SALE_ID=null, SALE_SAVED={}, SALE_EDIT={},
    two ladders is how a curve and the decisions that fed it stop lining up. */
 const SALE_DEPTHS=[0,0.10,0.15,0.20,0.25,0.30,0.40];
 
+/* ══ KEHE PO (PM-1277, 2026-09-17) ══════════════════════════════════════════
+   ⭐⭐ TWO TAPS, NEVER ONE — collapsing upload+create into a single action was
+   flagged in the spec as the exact mistake Jack's original correction warned
+   against: posting unreviewed numbers straight to Finale. Step 1 uploads the
+   KeHE priced download and shows what `kehe_order.intake()` found; step 2,
+   enabled only once that review exists, is the ONLY control that ever touches
+   Finale — and it does so via the job-kind bridge (`AgentJobs`), never a direct
+   call from this static page (which can never hold a Finale credential).
+   ⛔ Reuses the SAME `#week`/`WEEK` order-Sunday picker as Order mode rather
+   than inventing a second one — checked before assuming this was safe: intake
+   is keyed on order_sunday exactly like the order itself. */
+const AGENTJOBS_LIST="AgentJobs";
+let AGENTJOBS_ID=null,
+    KEHEPO_UPLOAD_STATE="idle",     /* idle | uploading | queued | polling | done | failed */
+    KEHEPO_UPLOAD_NAME="", KEHEPO_UPLOAD_JOB=null, KEHEPO_UPLOAD_MSG="",
+    KEHEPO_REVIEW=null, KEHEPO_REVIEW_ERR="",
+    KEHEPO_CREATE_STATE="idle", KEHEPO_CREATE_JOB=null, KEHEPO_CREATE_MSG="",
+    KEHEPO_CREATE_RESULT=null,
+    KEHEPO_POLL=null;               /* the active setInterval id, so switching away can clear it */
+/* the job states that mean "stop polling" — the same vocabulary jobs.py itself uses */
+const JOB_TERMINAL=new Set(["done","needs_human","refused","failed"]);
+
+async function agentJobsListId(){
+  if(AGENTJOBS_ID) return AGENTJOBS_ID;
+  const j=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  const l=(j.value||[]).find(x=>x.displayName===AGENTJOBS_LIST);
+  if(!l) throw new Error(`the ${AGENTJOBS_LIST} list does not exist — see `+
+    `_shared/USING-THE-SUPERVISOR.md §3 (jobs.py provision)`);
+  return (AGENTJOBS_ID=l.id);
+}
+/* ⭐ POSTS ONLY — an AgentJobs row is never PATCHed by this page after creation
+   (the supervisor owns State/Attempts/ClaimedBy/LeaseUntil from here on).
+   ⛔ Params is a JSON STRING, never an object — `_shared/USING-THE-SUPERVISOR.md`
+   §3's exact required-fields list, and `ClaimedBy`/`LeaseUntil` are left OUT
+   entirely rather than sent empty (a blank LeaseUntil on a claimed row wedges
+   the lease reclaimer permanently). */
+async function postAgentJob(kind, subject, params){
+  const id=await agentJobsListId();
+  const f={Kind:kind, Subject:String(subject), Params:JSON.stringify(params||{}),
+    State:"queued", Attempts:0,
+    RequestedUtc:new Date().toISOString().slice(0,19)+"Z",
+    RequestedBy:account, Title:`${subject}:${kind}`};
+  const j=await graph(`/sites/${CFG.siteId}/lists/${id}/items`,
+    {method:"POST",body:JSON.stringify({fields:f})});
+  return j.id;
+}
+/* ⭐ Polls a single AgentJobs row until it reaches a terminal state.
+   ⛔ NOT recursive setTimeout chains — one setInterval per poll, always cleared
+   before starting a new one, or switching sunday mid-poll would leave two
+   pollers racing to update the same on-screen job. */
+async function pollAgentJob(itemId, onTick){
+  if(KEHEPO_POLL){ clearInterval(KEHEPO_POLL); KEHEPO_POLL=null; }
+  let done=false;
+  const tick=async()=>{
+    try{
+      const id=await agentJobsListId();
+      const j=await graph(`/sites/${CFG.siteId}/lists/${id}/items/${itemId}?expand=fields`);
+      const f=j.fields||{};
+      onTick(f);
+      if(JOB_TERMINAL.has(String(f.State||""))){
+        done=true;
+        if(KEHEPO_POLL){ clearInterval(KEHEPO_POLL); KEHEPO_POLL=null; }
+      }
+    }catch(e){
+      /* ⚠️ a transient Graph error must not silently stop the poll — try again
+         next tick rather than clearing the interval on one failed read. */
+      console.error("kehepo poll",e);
+    }
+  };
+  await tick();
+  /* ⛔ ONLY start the interval if the FIRST read was not already terminal — a
+     job that finished before this page ever polled it (or finished within the
+     first tick) must not get a phantom interval left running underneath it. */
+  if(!done) KEHEPO_POLL=setInterval(tick,4000);
+}
+function kehepoSunday(){
+  /* ⛔ THE SAME WEEK AS ORDER MODE. `WEEK` is set by pickWeek()/the #week
+     select long before a reviewer could ever reach KeHE-PO mode (Order is the
+     default mode), so this is never null in practice — but fail loud rather
+     than upload against an undefined week if it somehow were. */
+  return WEEK;
+}
+function kehepoUploadFileName(sunday, file){
+  const ext=(file.name.match(/\.[^.]+$/)||[""])[0];
+  return `kehe_upload_${sunday}-${Date.now()}${ext}`;
+}
+/* ── step 1: upload the priced file, queue intake, poll, load the review ── */
+async function startKehePoUpload(file){
+  const sunday=kehepoSunday();
+  if(!sunday){ KEHEPO_UPLOAD_MSG="⛔ no order week selected"; renderKehePo(); return; }
+  KEHEPO_UPLOAD_STATE="uploading"; KEHEPO_UPLOAD_MSG="uploading…";
+  KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR=""; renderKehePo();
+  try{
+    const name=kehepoUploadFileName(sunday,file);
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent(name)}:/content`,
+      {method:"PUT",headers:{Authorization:"Bearer "+t},body:file});
+    if(!r.ok) throw new Error(`upload failed (${r.status})`);
+    KEHEPO_UPLOAD_NAME=name;
+    const jobId=await postAgentJob("kehe.intake_from_upload",sunday,{upload_name:name});
+    KEHEPO_UPLOAD_JOB=jobId; KEHEPO_UPLOAD_STATE="polling";
+    KEHEPO_UPLOAD_MSG="reading your file…"; renderKehePo();
+    await pollAgentJob(jobId, f=>{
+      const st=String(f.State||"");
+      if(st==="done"){
+        KEHEPO_UPLOAD_STATE="done"; KEHEPO_UPLOAD_MSG="✓ read — loading the review…";
+        loadKeheReview(sunday).then(renderKehePo);
+      } else if(st==="needs_human"||st==="refused"||st==="failed"){
+        KEHEPO_UPLOAD_STATE="failed";
+        KEHEPO_UPLOAD_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+      } else {
+        KEHEPO_UPLOAD_MSG=`${st||"queued"}…`;
+      }
+      renderKehePo();
+    });
+  }catch(e){
+    KEHEPO_UPLOAD_STATE="failed"; KEHEPO_UPLOAD_MSG="⛔ "+(e.message||String(e));
+    renderKehePo();
+  }
+}
+async function loadKeheReview(sunday){
+  try{
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent("kehe_review_"+sunday+".json")}:/content`,
+      {headers:{Authorization:"Bearer "+t}});
+    if(r.status===404) throw new Error("no review has been published for this week yet");
+    if(!r.ok) throw new Error(`review download failed (${r.status})`);
+    KEHEPO_REVIEW=await r.json(); KEHEPO_REVIEW_ERR="";
+  }catch(e){
+    KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR=e.message||String(e);
+  }
+}
+/* ── step 2: create in finale — the ONLY control that ever touches Finale ── */
+async function startKehePoCreate(){
+  const sunday=kehepoSunday();
+  if(!KEHEPO_REVIEW||String(KEHEPO_REVIEW.order_sunday)!==String(sunday)) return;
+  if(!confirm(`Create a real Finale purchase order for KeHE, week ${sunday}?\n\n`+
+              `This creates and LOCKS a live Finale order. It cannot be undone from `+
+              `here — cancelling a mistaken order is a separate manual step in Finale.`))
+    return;
+  KEHEPO_CREATE_STATE="queued"; KEHEPO_CREATE_MSG="queuing…"; KEHEPO_CREATE_RESULT=null;
+  renderKehePo();
+  try{
+    const jobId=await postAgentJob("kehe.create_finale_po",sunday,{});
+    KEHEPO_CREATE_JOB=jobId; KEHEPO_CREATE_STATE="polling";
+    KEHEPO_CREATE_MSG="creating the order in Finale…"; renderKehePo();
+    await pollAgentJob(jobId, f=>{
+      const st=String(f.State||"");
+      if(st==="done"){
+        KEHEPO_CREATE_STATE="done"; KEHEPO_CREATE_MSG="✓ done";
+        try{ KEHEPO_CREATE_RESULT=JSON.parse(f.Message||"{}"); }
+        catch(_){ KEHEPO_CREATE_RESULT=null; }
+      } else if(st==="needs_human"||st==="refused"||st==="failed"){
+        KEHEPO_CREATE_STATE="failed";
+        KEHEPO_CREATE_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+      } else {
+        KEHEPO_CREATE_MSG=`${st||"queued"}…`;
+      }
+      renderKehePo();
+    });
+  }catch(e){
+    KEHEPO_CREATE_STATE="failed"; KEHEPO_CREATE_MSG="⛔ "+(e.message||String(e));
+    renderKehePo();
+  }
+}
+function renderKehePo(){
+  const sunday=kehepoSunday(), m=document.getElementById("main");
+  if(!sunday){
+    m.innerHTML=`<div class="center">Pick an order week above first — KeHE PO `+
+      `intake is keyed on the same week as the Sunday order.</div>`;
+    return;
+  }
+  const reviewForThisWeek=KEHEPO_REVIEW && String(KEHEPO_REVIEW.order_sunday)===String(sunday);
+  let step1=`
+    <div class="kstep">
+      <h3>Step 1 — Upload KeHE's priced order</h3>
+      <div class="mut small">Order week <b>${sunday}</b>. Upload the file KeHE sent back
+        after pricing (the same file you would otherwise hand to
+        <code>kehe_order.py intake</code>).</div>
+      <div style="margin-top:9px">
+        <input type="file" id="kehefile" accept=".csv,.xlsx,.xls"
+               ${KEHEPO_UPLOAD_STATE==="uploading"||KEHEPO_UPLOAD_STATE==="polling"?"disabled":""}>
+      </div>
+      <div class="mut small" style="margin-top:6px">${KEHEPO_UPLOAD_MSG||""}</div>`;
+  if(reviewForThisWeek){
+    const r=KEHEPO_REVIEW;
+    step1+=`
+      <div class="kstats">
+        <span>lines in download <b>${r.lines_in_download??"—"}</b></span>
+        <span>Finale PO lines <b>${r.finale_po_lines??"—"}</b></span>
+        <span>KeHE shorts <b>${r.kehe_shorted_lines??0}</b> / <b>${r.kehe_shorted_units??0}</b> units</span>
+        <span>unknown items <b>${r.unknown_items??0}</b></span>
+        <span>zero-cost lines <b>${r.zero_cost_lines??0}</b></span>
+        <span>reprice candidates <b>${r.reprice_candidates??0}</b></span>
+      </div>
+      ${(r.alerts||[]).map(a=>`<div class="kalert">${esc(a)}</div>`).join("")}
+      ${!(r.alerts||[]).length?`<div class="mut small">no alerts from intake — looks clean</div>`:""}`;
+  } else if(KEHEPO_REVIEW_ERR){
+    step1+=`<div class="kalert">⛔ ${esc(KEHEPO_REVIEW_ERR)}</div>`;
+  }
+  step1+=`</div>`;
+  const step2Ready=reviewForThisWeek && KEHEPO_UPLOAD_STATE!=="failed";
+  const step2=`
+    <div class="kstep ${step2Ready?"":"wait"}">
+      <h3>Step 2 — Create in Finale</h3>
+      <div class="mut small">${step2Ready
+        ?"This creates and LOCKS a real Finale purchase order from the reviewed numbers above."
+        :"Upload and review step 1 first — this button stays off until a review exists for this week."}</div>
+      <div style="margin-top:9px">
+        <button class="primary" id="kehecreate" ${step2Ready?"":"disabled"}
+          ${KEHEPO_CREATE_STATE==="queued"||KEHEPO_CREATE_STATE==="polling"?"disabled":""}
+          >Create in Finale</button>
+      </div>
+      <div class="mut small" style="margin-top:6px">${KEHEPO_CREATE_MSG||""}</div>
+      ${KEHEPO_CREATE_RESULT?`<div class="kstats"><span>result <b>${esc(String(KEHEPO_CREATE_RESULT.result||""))}</b></span>
+        ${KEHEPO_CREATE_RESULT.order_id?`<span>order <b>${esc(String(KEHEPO_CREATE_RESULT.order_id))}</b></span>`:""}
+        ${KEHEPO_CREATE_RESULT.order_url?`<span><a href="${escAttr(KEHEPO_CREATE_RESULT.order_url)}" target="_blank" rel="noopener">open in Finale</a></span>`:""}</div>`:""}
+    </div>`;
+  m.innerHTML=step1+step2;
+  const fi=document.getElementById("kehefile");
+  if(fi) fi.onchange=()=>{ if(fi.files&&fi.files[0]) startKehePoUpload(fi.files[0]); };
+  const cb=document.getElementById("kehecreate");
+  if(cb) cb.onclick=startKehePoCreate;
+}
+
 const pct=v=>v==null||v===""?"—":(Number(v)*100).toFixed(0)+"%";
 const u1=v=>v==null||v===""?"—":Number(v).toFixed(1);
 
@@ -3461,29 +3713,45 @@ async function setMode(m){
   if(pend&&!confirm(`You have ${pend} unsaved change(s) in the ${MODE} view.\n\n`+
                     `Switching will keep them in memory but they are NOT saved. `+
                     `Switch anyway?`)) return;
+  /* ⛔ kehepo mode has its own poll running against a specific job — leaving
+     mid-poll must not leave it ticking underneath whichever view comes next. */
+  if(KEHEPO_POLL){ clearInterval(KEHEPO_POLL); KEHEPO_POLL=null; }
   MODE=m;
   for(const b of document.querySelectorAll(".modebtn"))
     b.classList.toggle("on", b.dataset.mode===m);
   const t=document.getElementById("apptitle");
-  if(t) t.textContent = m==="sale" ? "Sale review" : "Purchase review";
+  if(t) t.textContent = m==="sale" ? "Sale review" : m==="kehepo" ? "KeHE purchase order" : "Purchase review";
   /* ⛔⛔ HIDE EVERY ORDER-ONLY CONTROL, not just the week picker. The header's
      search box, the sort <select>, "+ Add an item" and the footer's "Finalize
-     order…" all live OUTSIDE #main, so renderSale() never touches them — they sat
-     there fully live over the sale view. "+ Add an item" would have opened the
-     ORDER's add panel from the sale screen and let someone put a line on a
-     purchase order they were not looking at. ⛔ Hidden, not merely disabled: a
-     greyed-out Finalize button still says "this view finalizes orders". */
+     order…" all live OUTSIDE #main, so renderSale()/renderKehePo() never touch
+     them — they sat there fully live over whichever other view was on screen.
+     "+ Add an item" would have opened the ORDER's add panel from another mode
+     and let someone put a line on a purchase order they were not looking at.
+     ⛔ Hidden, not merely disabled: a greyed-out Finalize button still says
+     "this view finalizes orders".
+     ⭐ The week picker itself (`wbar`) is the ONE thing kehepo mode reuses from
+     Order mode — hidden only for Sale, which deliberately has no week switch. */
   const wbar=document.querySelector(".weekbar:not(#modebar)");
   if(wbar) wbar.hidden = m==="sale";
   for(const sel of ["#q","#sort","#addopen","#final","#subtot","#progress",
                     'label[for="sort"]',"#filters"]){
     const el=document.querySelector(sel);
-    if(el) el.hidden = m==="sale";
+    if(el) el.hidden = m!=="order";
+  }
+  /* ⛔ kehepo has no "unsaved decisions" concept at all — nothing to Save or
+     Reset, and the footer note ("nothing is saved until you press Save") is
+     actively WRONG for this mode (its two actions are queued the moment they
+     are tapped). Sale still needs Save/Reset (dispatched below), so this is
+     kehepo-only, unlike the order-only hide list above. */
+  for(const sel of ["#save","#reset","#footnote"]){
+    const el=document.querySelector(sel);
+    if(el) el.hidden = m==="kehepo";
   }
   closeAdd();
   document.getElementById("modenote").textContent =
     m==="sale" ? "markdowns + supplier promo — writes no prices"
-               : "the Sunday order";
+    : m==="kehepo" ? "upload the KeHE priced download, review, then create in Finale"
+    : "the Sunday order";
   if(m==="sale"){
     if(!SALE&&!SALE_ERR){
       document.getElementById("main").innerHTML=`<div class="center">Loading the sale…</div>`;
@@ -3493,6 +3761,8 @@ async function setMode(m){
       }catch(e){ SALE_ERR=e.message; }
     }
     renderSale();
+  } else if(m==="kehepo"){
+    renderKehePo();
   } else if(!ORDER){
     /* ⛔ render() dereferences ORDER.meta unconditionally, so switching back
        after a failed order load would throw a TypeError and blank the page —
