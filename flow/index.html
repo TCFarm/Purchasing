@@ -312,8 +312,37 @@
         <summary>safe to run twice, and the one failure worth reading</summary>
         <ul>
           <li>Runs every night whether or not anything was approved. A quiet night is a clean exit, not a problem.</li>
+          <li><b>You don't have to wait for it.</b> On the <b>Decided</b> tab, <b>Build the purchase orders</b> does the same work immediately for the week you're looking at — see the next step.</li>
           <li>It can't double-queue: a drained decision is skipped for good, and the queue refuses a repeat of the same line.</li>
           <li><b>The one alarm that needs a person</b> is approvals stranded on an order week that has already been sent. Nothing automatic can place those — they have to be decided again for a later week. It emails rather than failing quietly.</li>
+        </ul>
+      </details>
+      </div>
+    </details>
+  </div>
+
+  <div class="step you">
+    <div class="when">Same day<small>after you submit</small></div>
+    <details class="sd">
+      <summary><span class="what">You send a direct vendor their order <span class="tag t-you">you</span></span><span class="who"><a href="https://tcfarm.github.io/newitems/">tcfarm.github.io/newitems/</a> &rarr; <b>Decided</b></span></summary>
+      <div class="sdbody">
+      <div class="desc">Anything from a vendor who isn't KeHE never reaches the Sunday KeHE order &mdash; it gets its own purchase order, one per supplier. Press <b>Build the purchase orders</b> on the week you just decided; a minute later there's a sheet to download and send, and a button to say you sent it.</div>
+      <details>
+        <summary>what the sheet is, and the one irreversible button</summary>
+        <ul>
+          <li>One sheet per supplier, carrying <b>their own re-order codes</b> &mdash; not our barcodes, which most vendors can't act on.</li>
+          <li>The cost is re-read from the file the vendor sent, at the moment the sheet is built. ⛔ A cost captured weeks earlier when the item was approved is exactly the stale number a purchase order must not be built on.</li>
+          <li><b>Nothing is sent for you.</b> Download it and email it yourself &mdash; the address is on the card, from Finale.</li>
+          <li><b>Then press "I placed this order".</b> ⛔ That can't be undone: it closes those lines so they stop coming back, and a line closed by mistake can never be re-proposed. Only press it once the order has really gone.</li>
+          <li>Both buttons are dead while you're signed out &mdash; a tab left open overnight has an expired session, and it says so rather than failing oddly.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>why Finale doesn't show it yet</summary>
+        <ul>
+          <li>The card says how many of the items exist in Finale. For a genuinely new item the answer is <b>none of them</b> until the listing work finishes and someone imports the two Finale files.</li>
+          <li>So a direct vendor's order can be <em>placed</em> before Finale knows about it, and will not show as on-order there. That's expected today &mdash; the Finale purchase order for a direct vendor is still being built.</li>
+          <li>⛔ Don't work around it by keying the order into Finale by hand as well: two records of one order is worse than one late record.</li>
         </ul>
       </details>
       </div>
