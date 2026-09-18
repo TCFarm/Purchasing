@@ -1091,7 +1091,7 @@ async function switchWeek(key, opts){
     KEHEPO_UPLOAD_STATE="idle"; KEHEPO_UPLOAD_NAME=""; KEHEPO_UPLOAD_JOB=null;
     KEHEPO_UPLOAD_MSG=""; KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR="";
     KEHEPO_CREATE_STATE="idle"; KEHEPO_CREATE_JOB=null; KEHEPO_CREATE_MSG="";
-    KEHEPO_CREATE_RESULT=null;
+    KEHEPO_CREATE_RESULT=null; KEHEPO_FORCE_NEW=false;
     FILTER="all"; RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
     LOSS=false; REVW=false;
     /* ⛔ THE ADD PANEL BELONGS TO ONE WEEK. Left loaded across a switch, the next
@@ -3012,6 +3012,11 @@ let AGENTJOBS_ID=null,
     KEHEPO_REVIEW=null, KEHEPO_REVIEW_ERR="",
     KEHEPO_CREATE_STATE="idle", KEHEPO_CREATE_JOB=null, KEHEPO_CREATE_MSG="",
     KEHEPO_CREATE_RESULT=null,
+    /* ⭐ A7, 2026-09-17 (Opus audit): the ONLY way to place a genuine KeHE add-on order for an
+       already-committed week used to be the CLI (`--force-new --live`) — no UI path existed at
+       all. ⛔ Defaults FALSE and is reset with everything else on a week switch (never carried
+       from one week's decision to another's). */
+    KEHEPO_FORCE_NEW=false,
     KEHEPO_POLL=null;               /* the active setInterval id, so switching away can clear it */
 /* the job states that mean "stop polling" — the same vocabulary jobs.py itself uses */
 const JOB_TERMINAL=new Set(["done","needs_human","refused","failed"]);
@@ -3167,21 +3172,33 @@ function _resumeKehepoPolls(){
 async function startKehePoCreate(){
   const sunday=kehepoSunday();
   if(!KEHEPO_REVIEW||String(KEHEPO_REVIEW.order_sunday)!==String(sunday)) return;
-  if(!confirm(`Create a real Finale purchase order for KeHE, week ${sunday}?\n\n`+
-              `This creates and LOCKS a live Finale order. It cannot be undone from `+
-              `here — cancelling a mistaken order is a separate manual step in Finale.`))
-    return;
+  const confirmMsg=KEHEPO_FORCE_NEW
+    ? `Create ANOTHER real Finale purchase order for KeHE, week ${sunday}, even though one is `+
+      `already committed?\n\nOnly do this for a genuine KeHE add-on order. This creates and `+
+      `LOCKS a SECOND live Finale order. It cannot be undone from here — cancelling a mistaken `+
+      `order is a separate manual step in Finale.`
+    : `Create a real Finale purchase order for KeHE, week ${sunday}?\n\n`+
+      `This creates and LOCKS a live Finale order. It cannot be undone from `+
+      `here — cancelling a mistaken order is a separate manual step in Finale.`;
+  if(!confirm(confirmMsg)) return;
   KEHEPO_CREATE_STATE="queued"; KEHEPO_CREATE_MSG="queuing…"; KEHEPO_CREATE_RESULT=null;
   renderKehePo();
   try{
     /* ⛔⛔ `force_new` IS REQUIRED, not optional — found 2026-09-17 by an Opus audit: every
        schema key in job_kinds.json is treated as REQUIRED by jobs.py's own validate(), so an
        empty params object here made every single Create-in-Finale tap get REFUSED before the
-       handler ever ran. This button never worked in production until this line existed. ⭐ The
-       UI has no "add-on order" concept yet, so it always asks for the default (non-force) path;
-       a genuine KeHE add-on order for an already-committed week still needs the CLI fallback
-       (`kehe_finale_po.py --sunday <sunday> --force-new --live`) until this gets its own control. */
-    const jobId=await postAgentJob("kehe.create_finale_po",sunday,{force_new:"false"});
+       handler ever ran. This button never worked in production until this line existed.
+       ⭐ KEHEPO_FORCE_NEW (added same day, A7) is the ONLY UI path to a genuine KeHE add-on
+       order for an already-committed week — until it existed, that needed the CLI directly
+       (`kehe_finale_po.py --sunday <sunday> --force-new --live`), which still works too. */
+    /* ⭐⭐ intake_at BINDS this call to the EXACT intake run the review above came from — added
+       2026-09-17 (A6, Opus audit). Without it, a second upload for the same week that happens
+       to produce the SAME LINE COUNT could silently overwrite the file this POSTs from between
+       "the operator looked at the review" and "the operator tapped Create," and only the row
+       count was ever checked. kehe_finale_po.py refuses if the file on disk no longer matches. */
+    const jobId=await postAgentJob("kehe.create_finale_po",sunday,
+      {force_new:KEHEPO_FORCE_NEW?"true":"false",
+       intake_at:String(KEHEPO_REVIEW.intake_at||"")});
     KEHEPO_CREATE_JOB=jobId; KEHEPO_CREATE_STATE="polling";
     KEHEPO_CREATE_MSG="creating the order in Finale…"; renderKehePo();
     await pollAgentJob(jobId, _kehepoCreateTick());
@@ -3237,10 +3254,16 @@ function renderKehePo(){
       <div class="mut small">${step2Ready
         ?"This creates and LOCKS a real Finale purchase order from the reviewed numbers above."
         :"Upload and review step 1 first — this button stays off until a review exists for this week."}</div>
+      ${step2Ready?`
+      <label class="mut small" style="display:flex;align-items:center;gap:6px;margin-top:9px;cursor:pointer">
+        <input type="checkbox" id="kehforcenew" ${KEHEPO_FORCE_NEW?"checked":""}>
+        This is a deliberate ADDITIONAL order for a week that may already be committed
+        (a real KeHE add-on order) — normally leave this off.
+      </label>`:""}
       <div style="margin-top:9px">
         <button class="primary" id="kehecreate" ${step2Ready?"":"disabled"}
           ${KEHEPO_CREATE_STATE==="queued"||KEHEPO_CREATE_STATE==="polling"?"disabled":""}
-          >Create in Finale</button>
+          >${KEHEPO_FORCE_NEW?"Create ANOTHER order in Finale":"Create in Finale"}</button>
       </div>
       <div class="mut small" style="margin-top:6px">${KEHEPO_CREATE_MSG||""}</div>
       ${KEHEPO_CREATE_RESULT?`<div class="kstats"><span>result <b>${esc(String(KEHEPO_CREATE_RESULT.result||""))}</b></span>
@@ -3252,6 +3275,8 @@ function renderKehePo(){
   if(fi) fi.onchange=()=>{ if(fi.files&&fi.files[0]) startKehePoUpload(fi.files[0]); };
   const cb=document.getElementById("kehecreate");
   if(cb) cb.onclick=startKehePoCreate;
+  const fn=document.getElementById("kehforcenew");
+  if(fn) fn.onchange=()=>{ KEHEPO_FORCE_NEW=fn.checked; renderKehePo(); };
 }
 
 const pct=v=>v==null||v===""?"—":(Number(v)*100).toFixed(0)+"%";
