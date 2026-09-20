@@ -1092,6 +1092,12 @@ async function switchWeek(key, opts){
     KEHEPO_UPLOAD_MSG=""; KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR="";
     KEHEPO_CREATE_STATE="idle"; KEHEPO_CREATE_JOB=null; KEHEPO_CREATE_MSG="";
     KEHEPO_CREATE_RESULT=null; KEHEPO_FORCE_NEW=false;
+    /* ⭐ SAME REASONING AS THE KEHEPO_* RESET ABOVE — the Finalize screen's job/result
+       belongs to whichever week it was built for. ⛔ No separate interval to clear here:
+       `pollAgentJob()` tracks ONE active poll in `KEHEPO_POLL` regardless of which job kind
+       started it (cleared above), so a second poll variable would just be dead weight. */
+    FINALIZE_STATE="idle"; FINALIZE_JOB=null; FINALIZE_MSG=""; FINALIZE_RESULT=null;
+    FINALIZE_VISIBLE=false;
     FILTER="all"; RISK=false; UNK=false; ONLYCH=false; NEWONLY=false;
     LOSS=false; REVW=false;
     /* ⛔ THE ADD PANEL BELONGS TO ONE WEEK. Left loaded across a switch, the next
@@ -2085,6 +2091,13 @@ function render(){
      CALLS render() until boot(), which is the last statement in the file. */
   if(MODE==="sale") return renderSale();
   if(MODE==="kehepo") return renderKehePo();
+  /* ⛔ THE FINALIZE SCREEN'S POLL KEEPS RUNNING IN THE BACKGROUND after "← back to
+     the lines" — `setMode()` only clears the poll on a MODE switch, and this is a
+     sub-screen switch within the SAME mode. Without this flag, a tick 4s later
+     would call paintFinalScreen() and silently overwrite whatever render() just
+     painted here. The job itself keeps running either way; only the repaint target
+     is gated, so returning to Finalize later still shows the real up-to-date state. */
+  FINALIZE_VISIBLE=false;
   paintFilters();
   const v=visible(), m=document.getElementById("main");
   let head="";
@@ -2850,14 +2863,26 @@ document.getElementById("save").onclick=async()=>{
    `kehe_order.py finalize` reads them, and a human runs that step. Ordering is
    real money leaving the building; the Sunday output is a review artifact a
    person approves, never an auto-submitted order (hard boundary 4). */
+/* ⭐⭐ THE FINALIZE SCREEN, rebuilt 2026-09-20 (Jack: "we want ZERO commands to run — it should
+   be 100% app powered", after "what's the point of a download for KeHE import button if it
+   doesn't finalize and download the right file"). Before this, the screen's own "Download"
+   button built an ad-hoc on-screen CSV (sku/upc/description/...) that was never the real KeHE
+   upload shape and had no ItemNumber column — the real generator (kehe_order.py finalize(), the
+   canonical UPC/ItemNumber/Quantity shape, unchanged since 2026-09-06) required someone to run
+   two Python commands by hand. `paintFinalScreen()` is now a re-enterable render function (not
+   a one-shot onclick body) so a job poll's tick can repaint it, same pattern as renderKehePo(). */
 document.getElementById("final").onclick=async()=>{
   const t=totals();
   /* ⛔ It used to print "save first" as prose and then build the artifact from
      whatever was on screen. Following the instruction was worse than ignoring it. */
   if(t.pending && !confirm(`⛔ ${t.pending} change(s) are NOT saved.\n\n`+
-      `Finalize describes what is on screen, but purchase_drain.py reads the SAVED `+
-      `decisions — so unsaved work will NOT reach the order.\n\nContinue anyway?`))
+      `Finalize builds the KeHE upload from your SAVED decisions, not what is on `+
+      `screen — so unsaved work will NOT reach the order.\n\nContinue anyway?`))
     return;
+  paintFinalScreen();
+};
+function paintFinalScreen(){
+  const t=totals();
   const live=LINES.filter(r=>stateOf(r)!=="remove"&&qtyOf(r)>0)
     .map(r=>({sku:r.sku, upc:r.upc, item:r.description, qty:qtyOf(r),
               unit:unitCost(r),          // ⛔ the real unit cost, not cost/qty
@@ -2874,12 +2899,22 @@ document.getElementById("final").onclick=async()=>{
     .concat(live.map(x=>[x.sku,x.upc,`"${String(x.item||"").replace(/"/g,'""')}"`,
       x.qty,x.engine,x.unit.toFixed(2),x.cost.toFixed(2),
       `"${x.source}"`].join(","))).join("\n");
+  const sunday=ORDER.meta.order_sunday;
+  FINALIZE_VISIBLE=true;
+  /* ⭐⭐ RESUME, NEVER ABANDON, A JOB STILL IN FLIGHT — same reasoning as kehepo mode's
+     _resumeKehepoPolls() (an Opus audit found the equivalent gap there 2026-09-17): a MODE switch
+     clears the one shared poll interval (setMode() above), so returning to this screen while
+     FINALIZE_STATE is still "queued"/"polling" would otherwise show a frozen status forever with
+     no button to recover it. pollAgentJob() always replaces whatever poll was active, so it is
+     safe to just re-assert it for whichever screen is actually on screen right now. */
+  if(FINALIZE_JOB && (FINALIZE_STATE==="queued"||FINALIZE_STATE==="polling"))
+    pollAgentJob(FINALIZE_JOB, _finalizeTick());
   const m=document.getElementById("main");
   m.innerHTML=`<div class="banner"><b>Ready to execute — week of
-      ${esc(ORDER.meta.order_sunday)}.</b> Nothing has been sent —
+      ${esc(sunday)}.</b> Nothing has been sent —
       this is the review artifact a human approves.</div>
     <table class="out">
-      <tr><th>order week</th><td><b>${esc(ORDER.meta.order_sunday)}</b></td></tr>
+      <tr><th>order week</th><td><b>${esc(sunday)}</b></td></tr>
       <tr><th>lines</th><td>${t.lines}</td></tr>
       <tr><th>units</th><td>${t.units.toLocaleString()}</td></tr>
       <tr><th>cost</th><td>${money(t.cost)}</td></tr>
@@ -2890,25 +2925,28 @@ document.getElementById("final").onclick=async()=>{
     </table>
     ${addedL.length?`<div class="banner">⭐ <b>Lines you added:</b> ${
       addedL.map(x=>`${esc(x.item||x.sku)} <b>×${x.qty}</b>`).join(" · ")}.
-      ⛔ They reach the KeHE upload only if their decisions are SAVED —
-      <code>purchase_drain.py</code> reads the store, not this screen.</div>`:""}
+      ⛔ They reach the KeHE upload only if their decisions are SAVED.</div>`:""}
     ${live.some(x=>x.notCarried)?`<div class="banner bad">⚠️ <b>${
       live.filter(x=>x.notCarried).length} line(s) are for items we do NOT carry:</b> ${
       live.filter(x=>x.notCarried).map(x=>`${esc(x.item||x.sku)} <b>×${x.qty}</b>`).join(" · ")}.
       ⛔ They go on the KeHE upload keyed by UPC and item number, but the resulting
       PO cannot be imported into Finale until ProductPipeline creates each product —
       so plan receiving for them before the truck arrives.</div>`:""}
-    <p class="mut small" style="margin-top:14px">Save first, then run this to produce the
-      KeHE upload — it honours the approved quantities and a human's edit always wins:</p>
-    <div class="banner"><code>python3 kehe_order.py finalize --sunday ${esc(ORDER.meta.order_sunday)}</code></div>
-    <p class="mut small">Or take the approved lines as CSV:
-      <button class="ghost" id="csvcopy" style="margin-left:8px">Copy</button>
-      <button class="ghost" id="csvdl">Download</button>
-      <span id="csvmsg" class="mut small"></span></p>
-    <textarea id="csvbox" readonly style="width:100%;height:190px;font:12px ui-monospace,Menlo,monospace;
-      border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
-      padding:9px">${esc(csv)}</textarea>
+    <div id="finalbox" style="margin-top:14px">${finalizeSectionHtml()}</div>
+    <details style="margin-top:14px"><summary class="mut small">Internal review copy (not the
+      KeHE file — for pasting into a message or spreadsheet)</summary>
+      <p class="mut small" style="margin-top:8px">
+        <button class="ghost" id="csvcopy">Copy</button>
+        <button class="ghost" id="csvdl" style="margin-left:8px">Download</button>
+        <span id="csvmsg" class="mut small"></span></p>
+      <textarea id="csvbox" readonly style="width:100%;height:190px;font:12px ui-monospace,Menlo,monospace;
+        border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);
+        padding:9px">${esc(csv)}</textarea></details>
     <p style="margin-top:12px"><button class="ghost" onclick="render()">← back to the lines</button></p>`;
+  const df=document.getElementById("dofinal");
+  if(df) df.onclick=()=>startFinalize(sunday);
+  const dl2=document.getElementById("dlkehe");
+  if(dl2) dl2.onclick=()=>downloadKeheUpload((FINALIZE_RESULT||{}).upload_name);
   /* ⛔ Selecting 280 lines out of a textarea by hand is not a way to get data out
      of a page, and it was the ONLY way (PM-527). Wired AFTER innerHTML, because
      these nodes do not exist until the panel is painted. */
@@ -2926,14 +2964,99 @@ document.getElementById("final").onclick=async()=>{
     }};
   const dl=document.getElementById("csvdl");
   if(dl) dl.onclick=()=>{
-    const name=`approved_order_${ORDER.meta.order_sunday}.csv`;
+    const name=`approved_order_${sunday}_review.csv`;
     const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
     const a=document.createElement("a");
     a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1000);
     say("✓ "+name);
   };
-};
+}
+/* ⛔ Pure — no DOM writes — so it can be called both to build innerHTML above and, unchanged,
+   from a poll tick that just repaints this one box (via paintFinalScreen() as a whole, since the
+   button ids live inside #finalbox and must be re-wired after any innerHTML replace anyway). */
+function finalizeSectionHtml(){
+  if(FINALIZE_STATE==="queued"||FINALIZE_STATE==="polling")
+    return `<div class="banner">${esc(FINALIZE_MSG||"working…")}</div>`;
+  if(FINALIZE_STATE==="failed")
+    return `<div class="banner bad">${esc(FINALIZE_MSG||"⛔ failed — see the error board")}</div>
+      <button class="primary" id="dofinal">Try again</button>`;
+  if(FINALIZE_STATE==="done"){
+    const r=FINALIZE_RESULT||{};
+    const warns=r.REVIEW_BEFORE_SENDING||[];
+    return `<div class="banner"><b>✓ Finalized.</b> ${r.lines??"?"} line(s), ${
+        (r.units||0).toLocaleString()} unit(s), ${money(r.value||0)}.</div>
+      ${warns.length?`<div class="banner bad"><b>⚠️ ${warns.length} line(s) need a look before `+
+        `uploading to KeHE:</b><ul style="margin:6px 0 0 18px">${
+        warns.map(w=>`<li>${esc(w.sku||"")} — ${esc(w.issue||"")} ${esc(w.action||"")}</li>`)
+          .join("")}</ul></div>`:""}
+      <button class="primary" id="dlkehe">Download KeHE upload</button>
+      <button class="ghost" id="dofinal" style="margin-left:8px">Re-finalize</button>`;
+  }
+  /* idle */
+  return `<p class="mut small">Builds the real KeHE upload file (UPC / ItemNumber / Quantity)
+      from your SAVED decisions — honours every approved_qty edit, converts bulk/repack lines to
+      KeHE cases, and flags zero-cost or oversized lines before you upload anything.</p>
+    <button class="primary" id="dofinal">Finalize order</button>`;
+}
+/* ── posts kehe.finalize_order and polls it — same job-kind-bridge pattern as KeHE-PO mode ── */
+async function startFinalize(sunday){
+  if(!confirm(`Build the real KeHE upload for ${sunday} from the SAVED decisions?\n\n`+
+      `This also closes out any pre-ordered items that reached this order — that `+
+      `step cannot be undone from here.`))
+    return;
+  FINALIZE_STATE="queued"; FINALIZE_MSG="queuing…"; FINALIZE_RESULT=null;
+  paintFinalScreen();
+  try{
+    const jobId=await postAgentJob("kehe.finalize_order",sunday,{});
+    FINALIZE_JOB=jobId; FINALIZE_STATE="polling";
+    FINALIZE_MSG="finalizing — converting bulk lines, checking order minimums…";
+    paintFinalScreen();
+    await pollAgentJob(jobId, _finalizeTick());
+  }catch(e){
+    FINALIZE_STATE="failed"; FINALIZE_MSG="⛔ "+(e.message||String(e));
+    paintFinalScreen();
+  }
+}
+function _finalizeTick(){
+  return f=>{
+    const st=String(f.State||"");
+    if(st==="done"){
+      FINALIZE_STATE="done"; FINALIZE_MSG="✓ done";
+      try{ FINALIZE_RESULT=JSON.parse(f.Message||"{}"); }
+      catch(_){ FINALIZE_RESULT=null; }
+    } else if(st==="needs_human"||st==="refused"||st==="failed"){
+      FINALIZE_STATE="failed";
+      FINALIZE_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+    } else {
+      FINALIZE_MSG=`${st||"queued"}…`;
+    }
+    /* ⛔ Only repaint if this screen is still the one on screen — see the comment on
+       FINALIZE_VISIBLE in render(). The job itself is unaffected either way. */
+    if(FINALIZE_VISIBLE) paintFinalScreen();
+  };
+}
+/* ⭐ Fetches the REAL bytes of the file kehe_finalize_job.py published to
+   PurchaseReview/ and triggers a browser download — the one piece this app never
+   had before: every other download on this page was built client-side from JSON
+   already in memory, never fetched as raw file content off the Documents library. */
+async function downloadKeheUpload(name){
+  if(!name){ alert("⛔ no KeHE upload file name on the result — try Finalize again"); return; }
+  try{
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent(name)}:/content`,
+      {headers:{Authorization:"Bearer "+t}});
+    if(!r.ok) throw new Error(`download failed (${r.status})`);
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }catch(e){
+    alert("⛔ could not download the KeHE upload: "+(e.message||String(e)));
+  }
+}
 
 /* ── boot ────────────────────────────────────────────────────────────────── */
 async function boot(){
@@ -3017,7 +3140,16 @@ let AGENTJOBS_ID=null,
        all. ⛔ Defaults FALSE and is reset with everything else on a week switch (never carried
        from one week's decision to another's). */
     KEHEPO_FORCE_NEW=false,
-    KEHEPO_POLL=null;               /* the active setInterval id, so switching away can clear it */
+    KEHEPO_POLL=null,               /* the active setInterval id, so switching away can clear it */
+    /* ⭐⭐ ORDER MODE'S FINALIZE SCREEN, built 2026-09-20 (Jack: "we want ZERO commands to run —
+       it should be 100% app powered"). Before this, the screen's own "Download" button was an
+       ad-hoc on-screen review CSV (sku/upc/description/...) that was never the real KeHE upload
+       shape and had no ItemNumber column at all — the real generator (kehe_order.py finalize())
+       required someone to run it by hand. `kehe.finalize_order` makes that generator reachable
+       from a button: same job-kind-bridge pattern as KeHE-PO mode, never re-implemented here. */
+    FINALIZE_STATE="idle",          /* idle | queued | polling | done | failed */
+    FINALIZE_JOB=null, FINALIZE_MSG="", FINALIZE_RESULT=null,
+    FINALIZE_VISIBLE=false;         /* is the Finalize screen the one currently painted? */
 /* the job states that mean "stop polling" — the same vocabulary jobs.py itself uses */
 const JOB_TERMINAL=new Set(["done","needs_human","refused","failed"]);
 
@@ -3774,6 +3906,7 @@ async function setMode(m){
   /* ⛔ kehepo mode has its own poll running against a specific job — leaving
      mid-poll must not leave it ticking underneath whichever view comes next. */
   if(KEHEPO_POLL){ clearInterval(KEHEPO_POLL); KEHEPO_POLL=null; }
+  FINALIZE_VISIBLE=false;
   MODE=m;
   for(const b of document.querySelectorAll(".modebtn"))
     b.classList.toggle("on", b.dataset.mode===m);
