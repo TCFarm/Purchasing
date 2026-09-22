@@ -4274,7 +4274,7 @@ function dScanCard(r,i,off){
      sessionStorage and reassigns the module's token state on every call, and
      calling it per card meant doing that over a hundred times to answer one
      question that cannot change mid-render. */
-  return `<div class="dcard ${r.has_date?"warn":"bad"}" id="dc-${esc(r.id)}">`+
+  return `<div class="dcard ${r.has_date?"warn":"bad"}" id="dc-${esc(r.dom||r.id)}">`+
    `<div class="dscan"><div>`+
     `<div class="drow">`+
       `<span class="dpill ${r.has_date?"w":"b"}">${esc(r.kind)}</span>`+
@@ -4326,7 +4326,10 @@ async function dSubmit(i){
   if(!r) return;
   if(!signedIn()){ alert("You are signed out. Sign in again before saving — "+
     "nothing was sent."); return; }
-  const card=document.getElementById("dc-"+r.id);
+  /* ⛔ `dom`, not `id`: a source_id now carries `@`, which getElementById
+     tolerates but a CSS selector does not — and `card.querySelector(...)`
+     below would throw inside the save handler. */
+  const card=document.getElementById("dc-"+(r.dom||r.id));
   const sku=(card.querySelector(".dsku")||{}).value||"";
   const dateEl=card.querySelector(".ddate");
   const areaEl=card.querySelector(".darea");
@@ -4508,7 +4511,7 @@ document.addEventListener("click",async e=>{
   if(u){
     /* ⛔ FILLS THE BOX, NEVER SUBMITS. One click must not date stock. */
     const r=dF(DATES.unmatched)[+u.dataset.i];
-    const box=document.getElementById("dc-"+r.id).querySelector(".dsku");
+    const box=document.getElementById("dc-"+(r.dom||r.id)).querySelector(".dsku");
     if(box) box.value=r.cands[+u.dataset.ci].sku;
     return;
   }
