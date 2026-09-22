@@ -798,6 +798,13 @@ function fromPayload(it){
     targetMargin:(it.target_margin==null||it.target_margin==='')?null:+it.target_margin,
     taxPayload:it.tax||'',
     owner:it.owner||'', supplier:it.supplier||'', itemType:it.item_type||'',
+    /* ⭐ The KeHE free-fill toggle (2026-09-21). `sourcingType` gates whether
+       the control shows at all — only a 'kehe_distributor' row is ever on the
+       free-fill email in the first place (`kehe_free_fill.collect_kehe_items`).
+       `requestFreeFill` is ON BY DEFAULT: only an explicit `false` from the
+       payload turns it off, matching the same default the Python collector
+       applies. */
+    sourcingType:it.sourcing_type||'', requestFreeFill:it.request_free_fill!==false,
     casepack:+(it.casepack||0), reorder:+(it.reorder||0),
     weightG:it.weight_g===''||it.weight_g==null?null:+it.weight_g,
     /* ⛔ R-A: a field we were not confident enough to fill. The blank is
@@ -1626,6 +1633,14 @@ function renderFields(){
     ${frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`)}
     ${frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" value="${esc(p.supplier)}">`,
       p.supplier==='KEHE'?'A KeHE row must leave Supplier Name blank on the input CSV — that is the whole signal.':'')}
+    ${p.sourcingType==='kehe_distributor'?frow('KeHE free fill','on by default',
+      `<select class="ctl w-md" id="fFF">
+         <option value="1" ${p.requestFreeFill?'selected':''}>Request a free fill</option>
+         <option value="0" ${!p.requestFreeFill?'selected':''}>Skip — do not request</option>
+       </select>`,
+      p.requestFreeFill
+        ? 'Included on the batch free-fill email to our KeHE rep.'
+        : '⚠ Excluded — this item will NOT be on the free-fill request email.'):''}
     ${frow('Item type',null,`<select class="ctl w-lg" id="fIT">${selOpts(ITEM_TYPES,p.itemType)}</select>`)}
     ${frow('Safety stock days','from category',`<input class="ctl w-sm mono" value="14" disabled>`)}
     ${frow('Stores to add','derived','<input class="ctl" value="Bigcommerce, BC - MNFoodClub, Bigcommerce - NGF" disabled>',
@@ -1760,6 +1775,11 @@ function renderFields(){
   $('#fBrand').onchange=()=>{p.brand=$('#fBrand').value;markEdited('identity');};
   $('#fIT').onchange=()=>{p.itemType=$('#fIT').value;markEdited('identity');};
   $('#fVis').onchange=()=>{p.visible=$('#fVis').value==='1';markEdited('identity');};
+  {const e=$('#fFF');if(e)e.onchange=()=>{
+    p.requestFreeFill=e.value==='1';
+    markEdited('identity',p.requestFreeFill
+      ?'Free-fill request re-enabled for this item'
+      :'Excluded from the KeHE free-fill email — off by default now, on for every other item');};}
   /* ⛔ This alone of all the field handlers did not call markEdited, so a
      typed dimension changed the screen and never even flipped the section
      chip. ⚠️ The SAVE is now handled by the snapshot diff, but the chip is
@@ -2780,7 +2800,7 @@ async function saveDecision(batch, sku, patch){
 var EDITABLE_FIELDS=['name','badge','brand','upc','price','salePrice','weightG',
   'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
   'optionName','marginOverride','taxOverride','dims','variants','prose',
-  'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier'];
+  'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier','requestFreeFill'];
 
 function _snapshot(p){
   var o={};
