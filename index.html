@@ -4289,6 +4289,16 @@ function dScanCard(r,i,off){
         `placeholder="Type SKU&hellip;"${off?" disabled":""}></div>`+
       (r.has_date?"":`<div class="drow"><input type="text" class="grow ddate" `+
         `data-i="${i}" placeholder="Best-by (YYYY-MM-DD)"${off?" disabled":""}></div>`)+
+      /* ⛔⛔ UNITS ARE ASKED FOR WHENEVER THE SCAN DID NOT RECORD ANY.
+         `abandoned_scans.csv` has no units column, so these arrived as 0 — and a
+         zero-unit correction is not merely useless, it is HARMFUL: it dates
+         nothing (cohorts filters units>0) while `at_risk.scorable_cohorts` has
+         no units filter at all, so the 0-unit row becomes the SOONEST deadline
+         and displaces the real stock from scoring. A repair that masks a
+         genuine deadline. Found by audit 2026-09-22 across 90 of 110 rows. */
+      (r.units?"":`<div class="drow"><input type="text" class="grow dunits" `+
+        `data-i="${i}" inputmode="numeric" placeholder="How many units?"`+
+        `${off?" disabled":""}></div>`)+
       `<div class="drow"><select class="darea" data-i="${i}"${off?" disabled":""}>`+
         `<option value="">${r.area==="unknown"?"Area: choose…":"Area: "+esc(r.area)}</option>`+
         `<option>Refrigerated</option><option>Frozen</option><option>Dry</option></select>`+
@@ -4313,6 +4323,8 @@ async function dSubmit(i){
   const areaEl=card.querySelector(".darea");
   const bb=r.has_date?r.best_by:((dateEl||{}).value||"").trim();
   const area=((areaEl||{}).value||"")||(r.area==="unknown"?"":r.area);
+  const unitsEl=card.querySelector(".dunits");
+  const units=r.units?String(r.units):((unitsEl||{}).value||"").trim();
 
   if(!sku.trim()){ alert("Type the SKU this barcode belongs to first."); return; }
   /* ⛔ Validated here AND again on the credentialed side against Finale's own
@@ -4322,6 +4334,12 @@ async function dSubmit(i){
     alert("Enter the best-by as YYYY-MM-DD (for example 2027-01-06)."); return; }
   if(!area){ alert("Choose which room this was scanned in — it decides which "+
     "channel hears about it."); return; }
+  /* ⛔ A count, and a positive one. The credentialed side refuses a zero too —
+     this is only so the person is told immediately rather than after a round
+     trip. */
+  if(!(parseFloat(units)>0)){
+    alert("How many units? A correction with no count dates nothing, and can "+
+          "hide the real deadline on this product."); return; }
 
   /* ⛔ DOUBLE-CLICK GUARD. The button is disabled on re-render, but the click
      that starts the write happens before that render — so the flag is set
@@ -4333,7 +4351,7 @@ async function dSubmit(i){
     await graph(`/sites/${CFG.siteId}/lists/${listId}/items`,{method:"POST",
       body:JSON.stringify({fields:{
         Title:String(r.id), source_id:String(r.id), code:String(r.code||""),
-        sku:sku.trim(), best_by:bb, units:String(r.units||""),
+        sku:sku.trim(), best_by:bb, units:String(units),
         area:area, scan_kind:String(r.kind||""), reviewer:account,
         submitted_at:new Date().toISOString().slice(0,19)+"Z", applied:"false"}})});
     /* ⭐ The list row is the record; the job is only what makes it happen now
