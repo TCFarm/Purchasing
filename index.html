@@ -327,6 +327,55 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
 .banner ul{margin:6px 0 0 18px;padding:0}
 .banner li{margin:2px 0}
   .flowlink{font-size:12.5px;color:var(--ink-3,#8a857d);text-decoration:none;border-bottom:1px dotted currentColor;white-space:nowrap}.flowlink:hover{color:var(--accent,#2d5470)}
+
+/* ══ DATES MODE (PM-1423, 2026-09-22) ══════════════════════════════════════
+   ⛔ Every selector is `d`-prefixed. The order and sale views own the generic
+   class names in this file, and a shared `.card`/`.pill` here would restyle
+   Julia's Monday screens from a view she was not even looking at. */
+.dfilter{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 6px}
+.darea-btn{padding:3px 12px;font-size:12.5px;border-radius:14px}
+.darea-btn.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:650}
+.dnav{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.dtab{padding:6px 14px;font-size:13px}
+.dtab.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:650}
+.dn{font-variant-numeric:tabular-nums;opacity:.75;margin-left:5px}
+.dtbl{border-collapse:collapse;width:100%;font-size:12.8px;margin-top:6px}
+.dtbl th{text-align:left;font-size:11px;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink3);border-bottom:1px solid var(--line);padding:5px 8px;white-space:nowrap}
+.dtbl td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.dtbl tr:hover td{background:var(--chip)}
+.dloc{display:block;font-size:10.5px;color:var(--ink3);margin-top:1px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.35}
+.dpill{display:inline-block;border-radius:12px;padding:0 8px;font-size:11px;
+  border:1px solid var(--line);white-space:nowrap;font-weight:600}
+.dpill.R{border-color:var(--accent);color:var(--accent)}
+.dpill.F{border-color:#7a5cd6;color:#7a5cd6}
+.dpill.D{border-color:var(--ink3);color:var(--ink3)}
+.dpill.b{border-color:var(--bad);color:var(--bad)}
+.dpill.w{border-color:var(--warn);color:var(--warn)}
+.dpill.g{border-color:var(--good);color:var(--good)}
+.danch{color:var(--warn);font-weight:700;cursor:help}
+.dbanner{border:1px solid var(--line);border-radius:10px;background:var(--chip);
+  padding:12px 14px;margin:10px 0;font-size:13px}
+.dbanner.bad{border-left:3px solid var(--bad)}
+.dbanner.good{border-left:3px solid var(--good)}
+.dlegend{border:1px solid var(--line);border-radius:10px;background:var(--card);
+  padding:10px 13px;margin:10px 0;font-size:12.5px}
+.dlegend summary{cursor:pointer;font-weight:650}
+.dlegend div{margin:5px 0}
+.dcard{border:1px solid var(--line);border-radius:10px;background:var(--card);
+  padding:11px 13px;margin:9px 0}
+.dcard.bad{border-left:3px solid var(--bad)}
+.dcard.warn{border-left:3px solid var(--warn)}
+.dscan{display:grid;grid-template-columns:1fr 290px;gap:12px}
+@media(max-width:820px){.dscan{grid-template-columns:1fr}}
+.drow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.dnb{font-size:12px;color:var(--ink2);margin-top:6px;border-top:1px dashed var(--line);
+  padding-top:6px}
+.dnb b{color:var(--ink)}
+.dmatch{border:1px dashed var(--line);border-radius:8px;padding:10px}
+.dcand{display:flex;gap:8px;align-items:center;margin:4px 0;font-size:12.5px}
+.dok{color:var(--good);font-weight:650;font-size:12.5px}
 </style>
 <header>
   <h1 id="apptitle">Purchase review</h1>
@@ -350,6 +399,12 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
          into one (posting unreviewed numbers to Finale is the exact mistake this
          flow exists to prevent). Reuses the same #week picker as Order mode. -->
     <button class="ghost modebtn" id="mode-kehepo" data-mode="kehepo">KeHE PO</button>
+    <!-- ⭐ DATES (PM-1423, 2026-09-22): the best-by book Julia and Matt asked
+         for, plus the queue of scans that never reached a product. ⛔ It is a
+         READ view with ONE write (matching a failed scan to a SKU) — it places
+         no order and sets no price, which is why it sits beside the two that
+         do rather than inside either. -->
+    <button class="ghost modebtn" id="mode-dates" data-mode="dates">Dates</button>
     <span class="mut small" id="modenote"></span>
   </div>
   <!-- ⭐⭐ WHICH WEEK AM I EDITING? Until 2026-09-06 the page loaded whichever
@@ -3215,7 +3270,15 @@ function kehepoSunday(){
 }
 function kehepoUploadFileName(sunday, file){
   const ext=(file.name.match(/\.[^.]+$/)||[""])[0];
-  return `kehe_upload_${sunday}-${Date.now()}${ext}`;
+  /* ⛔⛔ NO TIMESTAMP (fixed 2026-09-20, live incident) — the ORIGINAL version included
+     `${Date.now()}`, so every retry of a failed upload created a BRAND NEW file in
+     PurchaseReview/ that nothing ever cleaned up. Julia's real order (2026-09-20) hit the
+     handler-reachability bug and retried several times before the fix landed; each attempt
+     synced a fresh ~15-36KB .xlsx to every machine watching this library, which piled up into
+     dozens of files and a visible OneDrive sync storm on Jack's own Mac. ⭐ A STABLE name, keyed
+     only by the order week — matching `kehe_upload_<sunday>.<ext>` in `lib/kehe_finalize_job.py`
+     — means a retry REPLACES the same file instead of accumulating one per attempt. */
+  return `kehe_upload_${sunday}${ext}`;
 }
 /* ── step 1: upload the priced file, queue intake, poll, load the review ── */
 /* ⭐ Factored out of startKehePoUpload so setMode() can RESUME a poll for a job already in
@@ -3899,7 +3962,12 @@ async function setMode(m){
   if(m===MODE) return;
   /* ⛔ ASK BEFORE DISCARDING. The order view holds unsaved quantities and the sale
      view holds unsaved depths; switching throws away whichever is on screen. */
-  const pend=MODE==="order"?Object.keys(EDIT).length:salePending();
+  /* ⛔ Dates has no unsaved-edit concept: a correction is written the moment
+     Save is pressed (and confirmed on screen), so there is nothing to lose by
+     leaving. Asking "discard 3 changes?" here would be a lie. */
+  const pend=MODE==="dates"||m==="dates"&&MODE==="dates"?0
+            :MODE==="order"?Object.keys(EDIT).length
+            :MODE==="sale"?salePending():0;
   if(pend&&!confirm(`You have ${pend} unsaved change(s) in the ${MODE} view.\n\n`+
                     `Switching will keep them in memory but they are NOT saved. `+
                     `Switch anyway?`)) return;
@@ -3911,7 +3979,8 @@ async function setMode(m){
   for(const b of document.querySelectorAll(".modebtn"))
     b.classList.toggle("on", b.dataset.mode===m);
   const t=document.getElementById("apptitle");
-  if(t) t.textContent = m==="sale" ? "Sale review" : m==="kehepo" ? "KeHE purchase order" : "Purchase review";
+  if(t) t.textContent = m==="sale" ? "Sale review" : m==="kehepo" ? "KeHE purchase order"
+        : m==="dates" ? "Dates" : "Purchase review";
   /* ⛔⛔ HIDE EVERY ORDER-ONLY CONTROL, not just the week picker. The header's
      search box, the sort <select>, "+ Add an item" and the footer's "Finalize
      order…" all live OUTSIDE #main, so renderSale()/renderKehePo() never touch
@@ -3923,7 +3992,9 @@ async function setMode(m){
      ⭐ The week picker itself (`wbar`) is the ONE thing kehepo mode reuses from
      Order mode — hidden only for Sale, which deliberately has no week switch. */
   const wbar=document.querySelector(".weekbar:not(#modebar)");
-  if(wbar) wbar.hidden = m==="sale";
+  /* ⛔ Dates is not a WEEK view — it is everything on the floor right now. A
+     week picker sitting above it would read as though it filtered the dates. */
+  if(wbar) wbar.hidden = m==="sale"||m==="dates";
   for(const sel of ["#q","#sort","#addopen","#final","#subtot","#progress",
                     'label[for="sort"]',"#filters"]){
     const el=document.querySelector(sel);
@@ -3934,14 +4005,20 @@ async function setMode(m){
      actively WRONG for this mode (its two actions are queued the moment they
      are tapped). Sale still needs Save/Reset (dispatched below), so this is
      kehepo-only, unlike the order-only hide list above. */
+  /* ⛔ Same for Dates as for kehepo: there is nothing to Save or Reset at the
+     page level, and the footer note ("nothing is saved until you press Save")
+     is actively WRONG here — a correction is written when its own Save is
+     pressed. A stale Save button would invite someone to press it and believe
+     it did something. */
   for(const sel of ["#save","#reset","#footnote"]){
     const el=document.querySelector(sel);
-    if(el) el.hidden = m==="kehepo";
+    if(el) el.hidden = m==="kehepo"||m==="dates";
   }
   closeAdd();
   document.getElementById("modenote").textContent =
     m==="sale" ? "markdowns + supplier promo — writes no prices"
     : m==="kehepo" ? "upload the KeHE priced download, review, then create in Finale"
+    : m==="dates" ? "best-by dates on everything we hold — reads only, except matching a failed scan"
     : "the Sunday order";
   if(m==="sale"){
     if(!SALE&&!SALE_ERR){
@@ -3955,6 +4032,17 @@ async function setMode(m){
   } else if(m==="kehepo"){
     renderKehePo();
     _resumeKehepoPolls();
+  } else if(m==="dates"){
+    /* ⛔ Loaded ONCE and kept. The book is rebuilt nightly, so re-fetching on
+       every mode switch costs a download for data that cannot have changed —
+       and a failed re-fetch would blank a view that was working. ⭐ A genuine
+       refresh is a page reload, which is what a reviewer does anyway. */
+    if(!DATES&&!DATES_ERR){
+      document.getElementById("main").innerHTML=
+        `<div class="center">Loading the date book…</div>`;
+      try{ DATES=await loadDates(); }catch(e){ DATES_ERR=e.message; }
+    }
+    renderDates();
   } else if(!ORDER){
     /* ⛔ render() dereferences ORDER.meta unconditionally, so switching back
        after a failed order load would throw a TypeError and blank the page —
@@ -4060,5 +4148,348 @@ document.getElementById("reset").onclick=function(...a){
 };
 
 boot();
+
+/* ══════════════════════════════════════════════════════════════════════════════
+   DATES MODE — the best-by book, and the queue of scans that never landed.
+   Built 2026-09-22 (PM-1423 / PM-1426). Julia and Matt, via Jack: *"how can we
+   access a master list of all the dates that are scanned in so we can look ahead
+   and anticipate what needs ordering?"*
+
+   ⛔ APPENDED, NOT WOVEN IN. Everything here is new top-level declarations plus
+   two small hooks in `setMode()`. `_app.js` carries Julia's Monday order and
+   sale flows; a refactor of those to make room for this is a risk with no
+   upside.
+
+   ⛔ THE PAGE HOLDS NO FIGURES. Same contract as every other mode: the repo is
+   public, so the payload arrives from SharePoint after a Microsoft sign-in.
+   ══════════════════════════════════════════════════════════════════════════ */
+let DATES=null, DATES_ERR=null, DTAB="soon", DAREA="all", DQ="",
+    DSENT={}, DBUSY={};
+
+/* ⛔⛔ THIS PAGE DID NOT HAVE A SIGN-IN PREDICATE AND MY FIRST VERSION OF THE
+   DATES CODE CALLED ONE THAT DOES NOT EXIST. Every other mode here reaches for
+   `await getToken()` at the moment it needs a token, which is right for a fetch
+   and useless for RENDERING a button as inert — render is synchronous.
+   ⭐ So this mirrors the same helper the newitems page already ships and that
+   `test_browser_clicks.py` already exercises (`signedIn()` there is
+   `loadToken()===true`) rather than inventing a third spelling.
+   ⛔ It is a COURTESY, never the gate: the real control is Entra + SharePoint
+   refusing the write. `test_dates_clicks.py` §I forces the button enabled and
+   asserts nothing is written anyway. */
+function signedIn(){ try{ return loadToken()===true; }catch(_){ return false; } }
+
+async function loadDates(){
+  const ls=await graph(`/sites/${CFG.siteId}/drive/root:/${DIR}:/children`+
+                       `?$select=name,id&$top=200`);
+  const f=(ls.value||[]).filter(x=>/^dates_\d{4}-\d{2}-\d{2}\.json$/.test(x.name))
+                        .sort((a,b)=>a.name<b.name?1:-1);
+  if(!f.length) throw new Error("no date book has been published yet — run "+
+    "python3 scripts/publish_dates.py on the Mac that runs the routines");
+  const t=await getToken();
+  const r=await fetch(`${GRAPH}/sites/${CFG.siteId}/drive/items/${f[0].id}/content`,
+                      {headers:{Authorization:"Bearer "+t}});
+  if(!r.ok) throw new Error(`date book download failed ${r.status} for ${f[0].name}`);
+  const doc=await r.json();
+  /* ⛔ THE FILE AND ITS CONTENTS MUST AGREE — the same guard the order and sale
+     views carry. A book whose filename and `built` date disagree is a stale
+     publish wearing a fresh name, and every "days left" on screen would be
+     computed from the wrong day. */
+  const inName=/^dates_(\d{4}-\d{2}-\d{2})\.json$/.exec(f[0].name)[1];
+  if(String(doc.built||"")!==inName)
+    throw new Error(`⛔ ${f[0].name} says it was built ${doc.built}. Refusing to `+
+      `load — every deadline on screen would be counted from the wrong day.`);
+  return doc;
+}
+
+/* ⭐ ONE filter, applied by every view AND every count. ⛔ Counting unfiltered
+   while rendering filtered is how a tab says 4 and shows 40. */
+const dZone=z=>z==="Refrigerated"?"R":z==="Frozen"?"F":"D";
+const dInArea=r=>DAREA==="all"||r.area===DAREA||r.zone===DAREA;
+const dInQ=r=>!DQ||[r.sku,r.desc,r.description,r.code,r.all_codes]
+  .filter(Boolean).some(v=>String(v).toLowerCase().includes(DQ));
+const dF=rows=>(rows||[]).filter(r=>dInArea(r)&&dInQ(r));
+
+function dTabs(){
+  const D=DATES;
+  return [["soon","Coming up",dF((D.dated||[]).filter(r=>r.days<=30)).length],
+          ["all","All dates",dF(D.dated).length],
+          ["un","Unmatched scans",dF(D.unmatched).length],
+          ["block","Scanned, still undated",dF(D.blocked).length],
+          ["never","Cannot be dated",dF(D.never).length]];
+}
+
+function dDateTable(rows){
+  return `<table class="dtbl"><thead><tr><th>Best-by</th><th>Off shelf by</th>`+
+    `<th>Days</th><th>Where</th><th>SKU</th><th>Item</th><th class="num">Units</th>`+
+    `<th>Date from</th></tr></thead><tbody>`+
+    rows.map(r=>{
+      const anchored=String(r.basis||"").indexOf("audit")===0;
+      const locs=(r.locs||[]).map(l=>`${esc(l[0])} (${l[1]})`).join("<br>");
+      return `<tr><td class="mono">${esc(r.best_by)}</td>`+
+        `<td class="mono">${esc(r.last)}</td>`+
+        `<td class="num" style="${r.days<0?"color:var(--bad);font-weight:700":
+           r.days<=7?"color:var(--warn);font-weight:700":""}">`+
+        `${r.days<0?r.days:"+"+r.days}</td>`+
+        `<td><span class="dpill ${dZone(r.zone)}">${esc(r.zone)}</span>`+
+        `<span class="dloc">${locs||"no bin recorded"}</span></td>`+
+        `<td class="sku">${esc(r.sku)}</td><td>${esc(r.desc||"")}</td>`+
+        `<td class="num">${r.units.toLocaleString()}</td>`+
+        `<td>${anchored
+          ? `<span class="danch" title="ONE carton was scanned and the whole pile inherited that date. Verify before acting on it.">&#9888; one carton</span>`
+          : `<span class="mut small">receipt scan</span>`}</td></tr>`;
+    }).join("")+`</tbody></table>`;
+}
+
+function dNb(r){
+  const one=(n,w)=>n
+    ? `<b>${w}</b> ${esc(n.sku)} &middot; ${esc(n.desc||"")}`+
+      (n.skipped?` <span class="mut small">(${n.skipped} unresolved in between)</span>`:"")
+    : `<b>${w}</b> <span class="mut small">nothing else in this session</span>`;
+  return `<div class="dnb">${one(r.nb&&r.nb[0],"Just before:")}<br>`+
+         `${one(r.nb&&r.nb[1],"Just after:")}</div>`;
+}
+
+function dScanCard(r,i){
+  const sent=DSENT[r.id];
+  const busy=DBUSY[r.id];
+  /* ⛔ THE SIGN-OUT GUARD IS RE-CHECKED AT RENDER **AND** AT CLICK. A tab left
+     open overnight has an expired token; a button that looks live and then
+     fails silently is worse than one that is plainly disabled. The real gate is
+     Entra + SharePoint — this is a courtesy, never the control. */
+  const off=!signedIn();
+  return `<div class="dcard ${r.has_date?"warn":"bad"}" id="dc-${esc(r.id)}">`+
+   `<div class="dscan"><div>`+
+    `<div class="drow">`+
+      `<span class="dpill ${r.has_date?"w":"b"}">${esc(r.kind)}</span>`+
+      (r.has_date?`<span class="dpill g">date captured: ${esc(r.best_by)}`+
+        (r.units?` &middot; ${r.units}u`:"")+`</span>`:"")+
+      `<span class="dpill ${dZone(r.area)}">`+
+        `${r.area==="unknown"?"area unknown":esc(r.area)}</span>`+
+      `<span class="mono">${esc(r.all_codes||r.code)}</span>`+
+      `<span class="mut small">${esc(String(r.ts).slice(0,10))} &middot; ${esc(r.who)}`+
+      ` &middot; #${esc(r.id)}${r.po_ref?" &middot; "+esc(r.po_ref):""}</span>`+
+    `</div>${dNb(r)}</div>`+
+   `<div class="dmatch">`+
+    (sent
+      ? `<div class="dok">✅ Sent for matching — ${esc(sent)}</div>`
+      :
+      (r.cands||[]).map((c,ci)=>`<div class="dcand">`+
+        `<button class="pri dusecand" data-i="${i}" data-ci="${ci}"${off?" disabled":""}>Use</button>`+
+        `<div><span class="sku">${esc(c.sku)}</span> ${esc(c.desc)}`+
+        `<div class="mut small">${esc(c.how)}</div></div></div>`).join("")+
+      `<div class="drow"><input type="text" class="grow dsku" data-i="${i}" `+
+        `placeholder="Type SKU&hellip;"${off?" disabled":""}></div>`+
+      (r.has_date?"":`<div class="drow"><input type="text" class="grow ddate" `+
+        `data-i="${i}" placeholder="Best-by (YYYY-MM-DD)"${off?" disabled":""}></div>`)+
+      `<div class="drow"><select class="darea" data-i="${i}"${off?" disabled":""}>`+
+        `<option value="">${r.area==="unknown"?"Area: choose…":"Area: "+esc(r.area)}</option>`+
+        `<option>Refrigerated</option><option>Frozen</option><option>Dry</option></select>`+
+        `<button class="pri dsave" data-i="${i}"${off||busy?" disabled":""}>`+
+        `${busy?"Saving…":"Save"}</button></div>`+
+      `<div class="mut small" style="margin-top:6px">Saving writes the date onto `+
+      `that product <b>and</b> teaches the scanner this barcode, so the same case `+
+      `never lands here twice.</div>`)+
+   `</div></div></div>`;
+}
+
+/* ⛔⛔ THE SUBMIT. Everything it refuses, it refuses BEFORE writing anything —
+   a half-written correction is indistinguishable afterwards from a correct one. */
+async function dSubmit(i){
+  const r=dF(DATES.unmatched)[i];
+  if(!r) return;
+  if(!signedIn()){ alert("You are signed out. Sign in again before saving — "+
+    "nothing was sent."); return; }
+  const card=document.getElementById("dc-"+r.id);
+  const sku=(card.querySelector(".dsku")||{}).value||"";
+  const dateEl=card.querySelector(".ddate");
+  const areaEl=card.querySelector(".darea");
+  const bb=r.has_date?r.best_by:((dateEl||{}).value||"").trim();
+  const area=((areaEl||{}).value||"")||(r.area==="unknown"?"":r.area);
+
+  if(!sku.trim()){ alert("Type the SKU this barcode belongs to first."); return; }
+  /* ⛔ Validated here AND again on the credentialed side against Finale's own
+     export. This one is only so the person gets told immediately; the one that
+     protects the data is the server's. */
+  if(!r.has_date&&!/^\d{4}-\d{2}-\d{2}$/.test(bb)){
+    alert("Enter the best-by as YYYY-MM-DD (for example 2027-01-06)."); return; }
+  if(!area){ alert("Choose which room this was scanned in — it decides which "+
+    "channel hears about it."); return; }
+
+  /* ⛔ DOUBLE-CLICK GUARD. The button is disabled on re-render, but the click
+     that starts the write happens before that render — so the flag is set
+     first, synchronously. */
+  if(DBUSY[r.id]) return;
+  DBUSY[r.id]=true; renderDates();
+  try{
+    const listId=await dCorrListId();
+    await graph(`/sites/${CFG.siteId}/lists/${listId}/items`,{method:"POST",
+      body:JSON.stringify({fields:{
+        Title:String(r.id), source_id:String(r.id), code:String(r.code||""),
+        sku:sku.trim(), best_by:bb, units:String(r.units||""),
+        area:area, scan_kind:String(r.kind||""), reviewer:account,
+        submitted_at:new Date().toISOString().slice(0,19)+"Z", applied:"false"}})});
+    /* ⭐ The list row is the record; the job is only what makes it happen now
+       rather than at the next nightly run. ⛔ So a failed job post must NOT lose
+       the correction — it is already safely on the list. */
+    try{ await postAgentJob("bestby.apply_corrections", String(r.id), {}); }
+    catch(e){ console.error("job post",e); }
+    DSENT[r.id]="it will be applied within a few minutes";
+  }catch(e){
+    alert("That could not be saved: "+e.message+"\n\nNothing was recorded — "+
+          "please try again.");
+  }finally{
+    DBUSY[r.id]=false; renderDates();
+  }
+}
+
+let DCORR_ID=null;
+async function dCorrListId(){
+  if(DCORR_ID) return DCORR_ID;
+  const j=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  const l=(j.value||[]).find(x=>x.displayName==="ScanCorrections");
+  if(!l) throw new Error("the ScanCorrections list does not exist yet — it is "+
+    "created once, deliberately; see PLAN-2026-09-22-bestby-capture-repair.md");
+  return (DCORR_ID=l.id);
+}
+
+function dCsv(rows,cols){
+  /* ⛔ Exports exactly what is on screen — the FILTERED rows. An export that
+     quietly includes everything is how somebody acts on a list they never saw. */
+  const esc2=v=>`"${String(v==null?"":v).replace(/"/g,'""')}"`;
+  return cols.join(",")+"\n"+rows.map(r=>cols.map(c=>esc2(r[c])).join(",")).join("\n");
+}
+function dDownload(name,text){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([text],{type:"text/csv"}));
+  a.download=name; a.click(); URL.revokeObjectURL(a.href);
+}
+
+function renderDates(){
+  const m=document.getElementById("main");
+  if(DATES_ERR){ m.innerHTML=`<div class="center">⛔ ${esc(DATES_ERR)}</div>`; return; }
+  if(!DATES){ m.innerHTML=`<div class="center">Loading the date book…</div>`; return; }
+  const D=DATES;
+  const areas=["all","Refrigerated","Frozen","Dry"];
+  let h=`<div class="dfilter"><span class="mut small">SHOWING</span>`+
+    areas.map(a=>`<button class="ghost darea-btn${a===DAREA?" on":""}" `+
+      `data-a="${a}">${a==="all"?"All areas":a}</button>`).join("")+
+    `<input type="search" id="dq" class="grow" placeholder="Search SKU, item or barcode…" `+
+    `value="${escAttr(DQ)}"></div>`+
+    `<div class="dnav">`+dTabs().map(([k,l,n])=>
+      `<button class="ghost dtab${k===DTAB?" on":""}" data-t="${k}">${esc(l)}`+
+      `<span class="dn">${n}</span></button>`).join("")+`</div>`;
+
+  if(DTAB==="soon"||DTAB==="all"){
+    const rows=dF(DTAB==="soon"?D.dated.filter(r=>r.days<=30):D.dated);
+    h+=`<div class="drow"><button class="ghost" id="ddl">Download CSV</button></div>`+
+      `<div class="mut small">${rows.length.toLocaleString()} dated lot(s)`+
+      (DTAB==="soon"?" reaching their best-by in the next 30 days":"")+
+      `. <b>Off shelf by</b> is the last day it can go out on a delivery: `+
+      `best-by minus 5 days refrigerated, 7 frozen and dry.</div>`+
+      dDateTable(rows);
+  } else if(DTAB==="un"){
+    const rows=dF(D.unmatched), wd=rows.filter(r=>r.has_date).length;
+    h+=`<div class="dbanner bad"><b>${rows.length} scan(s) never reached a product.</b> `+
+      `Of those, <b>${wd}</b> already have a good best-by attached — somebody read `+
+      `the package and saved it, and it is sitting here bound to nothing. Those need `+
+      `no trip back to the floor: pick the product and the date lands.</div>`+
+      `<details class="dlegend"><summary>What these mean, and how to stop them happening</summary>`+
+      Object.keys(D.why||{}).map(k=>`<div><span class="dpill">${esc(k)}</span> `+
+        `${esc(D.why[k][0])} ${D.why[k][1]}</div>`).join("")+
+      `<div class="mut small" style="margin-top:7px">Every one of these also posts `+
+      `to the Teams channel for the room it happened in, the day it happens. Where `+
+      `the room cannot be worked out it goes to <b>Fulfillment</b> rather than nowhere.`+
+      `</div></details>`+
+      rows.map((r,i)=>dScanCard(r,i)).join("");
+  } else if(DTAB==="block"){
+    const rows=dF(D.blocked);
+    const ov=(D.overridden||[]).map(o=>esc(o.sku)).join(", ");
+    h+=`<div class="dbanner ${rows.length?"bad":"good"}">`+
+      (rows.length
+        ? `<b>${rows.length} product(s) were scanned and dated by a person, have `+
+          `stock on hand, and still carry no date in the system.</b> Somebody did `+
+          `the work and it produced nothing — that is worth a look.`
+        : `<b>Nothing is stuck.</b> Every SKU that has been scanned and still has `+
+          `stock carries a date today.`)+
+      (ov?`<br><br>Admitted automatically because a scan outranks the cost test: `+
+          `<b>${ov}</b>.`:"")+`</div>`+
+      (rows.length?`<table class="dtbl"><thead><tr><th>Where</th><th>SKU</th>`+
+        `<th>Item</th><th class="num">On hand</th><th>Scanned</th>`+
+        `<th>Best-by read</th><th>Why</th></tr></thead><tbody>`+
+        rows.map(r=>`<tr><td><span class="dpill ${dZone(r.zone)}">${esc(r.zone)}</span></td>`+
+          `<td class="sku">${esc(r.sku)}</td><td>${esc(r.description)}</td>`+
+          `<td class="num">${r.on_hand}</td><td class="mono">${esc(r.scan.ts)}</td>`+
+          `<td class="mono">${esc(r.scan.best_by)}</td>`+
+          `<td><span class="dpill b">${esc(r.reason)}</span></td></tr>`).join("")+
+        `</tbody></table>`:"");
+  } else {
+    const rows=dF(D.never), peri=rows.filter(r=>r.zone!=="Dry");
+    h+=`<div class="dbanner"><b>${rows.length} product(s) have stock on hand but `+
+      `cannot be dated, gated or pulled — ${peri.length} of them refrigerated or `+
+      `frozen.</b> They carry no Finale cost, so the date system does not treat them `+
+      `as physical stock. Most are consigned or farm-owned, where having no cost is `+
+      `correct.<br><br>Nobody has scanned any of these, so this is <b>scanning work, `+
+      `not a bug</b>: scan one and it starts being dated. Smallest counts first, `+
+      `because those are the ones somebody can actually walk to.</div>`+
+      `<div class="drow"><button class="ghost" id="ddl">Download CSV</button></div>`+
+      `<table class="dtbl"><thead><tr><th>Where</th><th>SKU</th><th>Item</th>`+
+      `<th class="num">On hand</th><th>Why it is invisible</th></tr></thead><tbody>`+
+      rows.slice(0,200).map(r=>`<tr>`+
+        `<td><span class="dpill ${dZone(r.zone)}">${esc(r.zone)}</span></td>`+
+        `<td class="sku">${esc(r.sku)}</td><td>${esc(r.description)}</td>`+
+        `<td class="num">${r.on_hand.toLocaleString()}`+
+        (r.on_hand>=1000?` <span class="dpill w">looks like a placeholder count</span>`:"")+
+        `</td><td><span class="dpill">${esc(r.reason)}</span></td></tr>`).join("")+
+      `</tbody></table>`+
+      (rows.length>200?`<div class="mut small">Showing the first 200 of `+
+        `${rows.length}. Narrow with the filter or download the CSV.</div>`:"");
+  }
+  h+=`<div class="mut small" style="margin-top:14px">Date book built ${esc(D.built)}. `+
+     `⚠️ A “one carton” date means ONE case was scanned and the whole pile inherited `+
+     `it — verify before acting on it.</div>`;
+  m.innerHTML=h;
+}
+
+/* ⛔ ONE delegated listener, bound once. Re-binding per render is how a click
+   ends up firing three times after three renders. */
+document.addEventListener("click",async e=>{
+  if(MODE!=="dates") return;
+  const a=e.target.closest(".darea-btn");
+  if(a){ DAREA=a.dataset.a; renderDates(); return; }
+  const t=e.target.closest(".dtab");
+  if(t){ DTAB=t.dataset.t; renderDates(); return; }
+  const dl=e.target.closest("#ddl");
+  if(dl){
+    if(DTAB==="never")
+      dDownload(`cannot_be_dated_${DATES.built}.csv`,
+        dCsv(dF(DATES.never),["sku","description","on_hand","reason","zone"]));
+    else
+      dDownload(`dates_${DTAB}_${DATES.built}.csv`,
+        dCsv(dF(DTAB==="soon"?DATES.dated.filter(r=>r.days<=30):DATES.dated),
+             ["best_by","last","days","zone","sku","desc","units","basis"]));
+    return;
+  }
+  const u=e.target.closest(".dusecand");
+  if(u){
+    /* ⛔ FILLS THE BOX, NEVER SUBMITS. One click must not date stock. */
+    const r=dF(DATES.unmatched)[+u.dataset.i];
+    const box=document.getElementById("dc-"+r.id).querySelector(".dsku");
+    if(box) box.value=r.cands[+u.dataset.ci].sku;
+    return;
+  }
+  const s=e.target.closest(".dsave");
+  if(s){ await dSubmit(+s.dataset.i); return; }
+});
+document.addEventListener("input",e=>{
+  if(MODE!=="dates") return;
+  if(e.target&&e.target.id==="dq"){
+    DQ=String(e.target.value||"").trim().toLowerCase();
+    /* ⛔ Re-render, then put the caret back — a full re-render of the search box
+       would otherwise drop focus on every keystroke. */
+    renderDates();
+    const box=document.getElementById("dq");
+    if(box){ box.focus(); box.setSelectionRange(box.value.length,box.value.length); }
+  }
+});
 
 </script>
