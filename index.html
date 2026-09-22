@@ -3638,9 +3638,14 @@ function lotsHtml(r){
     <span class="mut">${lead} of ${u1(lots.reduce((a,x)=>a+Number(x.units||0),0))} units${
       r.lots_total>lots.length?` (showing ${lots.length} of ${r.lots_total})`:""}</span>
     ${lots.map(x=>{
-      const anchored=String(x.basis||"").indexOf("audit")===0;
+      /* ⛔ `audit_single` only. `audit_multi` means the audit COUNTED several
+         dates and those counts were used as-is — the strongest evidence we
+         hold, and warning on it tells people to re-verify a real count. */
+      const anchored=String(x.basis||"")==="audit_single";
       return `<span title="${escAttr(anchored
         ? "ONE carton was scanned and the whole pile inherited this date — verify before pulling or pricing"
+        : String(x.basis||"")==="audit_multi"
+        ? "an audit counted several dates for this SKU; these counts were used as-is"
         : "from a receipt: this lot's own scanned date")}">${
         x.best_by==="UNKNOWN_DATE"?"no date":esc(x.best_by)} &middot; ${u1(x.units)}u${
         anchored?" ⚠️assumed":""}${x.lower_bound?" ≥":""}</span>`;
@@ -4228,7 +4233,9 @@ function dDateTable(rows){
     `<th>Days</th><th>Where</th><th>SKU</th><th>Item</th><th class="num">Units</th>`+
     `<th>Date from</th></tr></thead><tbody>`+
     rows.map(r=>{
-      const anchored=String(r.basis||"").indexOf("audit")===0;
+      /* ⛔ see the note on the sale view's lot chips — only a SINGLE-date audit
+         is an assumption; `audit_multi` was counted. */
+      const anchored=String(r.basis||"")==="audit_single";
       const locs=(r.locs||[]).map(l=>`${esc(l[0])} (${l[1]})`).join("<br>");
       return `<tr><td class="mono">${esc(r.best_by)}</td>`+
         `<td class="mono">${esc(r.last)}</td>`+
@@ -4241,6 +4248,8 @@ function dDateTable(rows){
         `<td class="num">${r.units.toLocaleString()}</td>`+
         `<td>${anchored
           ? `<span class="danch" title="ONE carton was scanned and the whole pile inherited that date. Verify before acting on it.">&#9888; one carton</span>`
+          : String(r.basis||"")==="audit_multi"
+          ? `<span class="mut small" title="an audit counted several dates for this SKU; these counts were used as-is">counted</span>`
           : `<span class="mut small">receipt scan</span>`}</td></tr>`;
     }).join("")+`</tbody></table>`;
 }
