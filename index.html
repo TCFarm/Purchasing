@@ -3962,12 +3962,17 @@ async function setMode(m){
   if(m===MODE) return;
   /* ⛔ ASK BEFORE DISCARDING. The order view holds unsaved quantities and the sale
      view holds unsaved depths; switching throws away whichever is on screen. */
-  /* ⛔ Dates has no unsaved-edit concept: a correction is written the moment
-     Save is pressed (and confirmed on screen), so there is nothing to lose by
-     leaving. Asking "discard 3 changes?" here would be a lie. */
-  const pend=MODE==="dates"||m==="dates"&&MODE==="dates"?0
+  /* ⛔ Dates has no unsaved-edit concept: a correction is written the moment its
+     own Save is pressed (and confirmed on screen), so there is nothing to lose
+     by leaving. Asking "discard 3 changes?" here would be a lie.
+     ⛔ EVERY OTHER BRANCH IS UNCHANGED, deliberately. My first version added a
+     `MODE==="sale"?…:0` arm, which quietly stopped kehepo→anywhere from warning
+     about unsaved SALE edits — the original fell through to salePending() for
+     any non-order mode. That is a behaviour change nobody asked for, in a flow
+     I was not touching. */
+  const pend=MODE==="dates"?0
             :MODE==="order"?Object.keys(EDIT).length
-            :MODE==="sale"?salePending():0;
+            :salePending();
   if(pend&&!confirm(`You have ${pend} unsaved change(s) in the ${MODE} view.\n\n`+
                     `Switching will keep them in memory but they are NOT saved. `+
                     `Switch anyway?`)) return;
@@ -4249,14 +4254,17 @@ function dNb(r){
          `${one(r.nb&&r.nb[1],"Just after:")}</div>`;
 }
 
-function dScanCard(r,i){
+function dScanCard(r,i,off){
   const sent=DSENT[r.id];
   const busy=DBUSY[r.id];
   /* ⛔ THE SIGN-OUT GUARD IS RE-CHECKED AT RENDER **AND** AT CLICK. A tab left
      open overnight has an expired token; a button that looks live and then
      fails silently is worse than one that is plainly disabled. The real gate is
-     Entra + SharePoint — this is a courtesy, never the control. */
-  const off=!signedIn();
+     Entra + SharePoint — this is a courtesy, never the control.
+     ⭐ `off` is computed ONCE per render and passed in: `signedIn()` re-parses
+     sessionStorage and reassigns the module's token state on every call, and
+     calling it per card meant doing that over a hundred times to answer one
+     question that cannot change mid-render. */
   return `<div class="dcard ${r.has_date?"warn":"bad"}" id="dc-${esc(r.id)}">`+
    `<div class="dscan"><div>`+
     `<div class="drow">`+
@@ -4400,7 +4408,7 @@ function renderDates(){
       `to the Teams channel for the room it happened in, the day it happens. Where `+
       `the room cannot be worked out it goes to <b>Fulfillment</b> rather than nowhere.`+
       `</div></details>`+
-      rows.map((r,i)=>dScanCard(r,i)).join("");
+      (()=>{ const off=!signedIn(); return rows.map((r,i)=>dScanCard(r,i,off)).join(""); })();
   } else if(DTAB==="block"){
     const rows=dF(D.blocked);
     const ov=(D.overridden||[]).map(o=>esc(o.sku)).join(", ");
