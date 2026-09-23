@@ -4179,7 +4179,12 @@ boot();
    public, so the payload arrives from SharePoint after a Microsoft sign-in.
    ══════════════════════════════════════════════════════════════════════════ */
 let DATES=null, DATES_ERR=null, DTAB="soon", DAREA="all", DQ="",
-    DSENT={}, DBUSY={}, DCSTAT={};
+    DSENT={}, DBUSY={}, DCSTAT={},
+    /* ⭐ PM-1488 re-correction state, keyed by source_id: which "Correct again"
+       forms are open, which re-corrections were sent this visit, which are
+       mid-save. ⛔ Kept apart from DSENT so a re-correction can never make an
+       unmatched card read as queued, or the reverse. */
+    DROPEN={}, DRSENT={}, DRBUSY={};
 
 /* ⛔⛔ THIS PAGE DID NOT HAVE A SIGN-IN PREDICATE AND MY FIRST VERSION OF THE
    DATES CODE CALLED ONE THAT DOES NOT EXIST. Every other mode here reaches for
@@ -4432,6 +4437,117 @@ async function dSubmit(i){
   }
 }
 
+/* ══ RECENTLY CORRECTED — PM-1488 (Jack approved 2026-09-23) ══════════════════
+   ⭐ An applied correction leaves the Unmatched queue, so a reviewer who typed
+   the wrong SKU or date had no way back to it. This lists the CURRENT correction
+   per scan for the last 30 days (from the published book's `corrected`), with a
+   "Correct again" form pre-filled from it.
+   ⛔⛔ A RE-CORRECTION NAMES THE CORRECTION IT REPLACES (`supersedes` = its
+   receipt_id). Without it the job ignores the save as "already applied" — and it
+   must, because silently stacking a second cohort on the first is exactly the
+   double-dating a supersede exists to prevent. The job also refuses a
+   `supersedes` that is not this same scan's correction. */
+function dCorrected(){
+  const rows=dF(DATES.corrected||[]);
+  if(!rows.length) return `<h3 style="margin-top:22px">Recently corrected</h3>`+
+    `<div class="mut small">No corrections applied in the last 30 days.</div>`;
+  const off=!signedIn();
+  return `<h3 style="margin-top:22px">Recently corrected</h3>`+
+    `<div class="mut small">Corrections applied in the last 30 days. Got one wrong? `+
+    `<b>Correct again</b> replaces it — the old date is retired, not kept beside `+
+    `the new one.</div>`+
+    rows.map((r,i)=>dCorrRow(r,i,off)).join("");
+}
+
+function dCorrRow(r,i,off){
+  const sid=r.source_id, st=DCSTAT[sid]||null;
+  /* ⭐ DCSTAT holds the NEWEST ScanCorrections row for this scan. If that row
+     carries a supersedes and is still waiting or was refused, say so — the
+     reviewer must never believe a re-correction landed when it did not. */
+  const sent=DRSENT[sid], busy=DRBUSY[sid], open=DROPEN[sid]&&!sent;
+  const pend=!sent&&st&&st.applied==="false";
+  const refused=!sent&&st&&st.applied==="refused";
+  let h=`<div class="dcard drc" id="${esc(r.dom)}"><div class="dscan"><div>`+
+    `<div class="drow"><span class="sku">${esc(r.sku)}</span> ${esc(r.desc||"")}</div>`+
+    `<div class="drow"><span class="dpill g">best-by ${esc(r.best_by)}`+
+      (r.units!=null?` &middot; ${r.units}u`:"")+`</span>`+
+      `<span class="dpill ${dZone(r.area)}">${r.area==="unknown"?"area unknown":esc(r.area)}</span>`+
+      `<span class="mut small">scan #${esc(sid)} &middot; corrected `+
+      `${esc(String(r.applied_at).slice(0,10))} by ${esc(r.by||"?")}`+
+      (r.n_prior>0?` &middot; re-corrected ${r.n_prior}&times;`:"")+`</span></div>`+
+    `</div><div class="dmatch">`;
+  if(sent) h+=`<div class="dok">⏳ Re-correction queued — not applied yet. Reload to `+
+      `see it here once it has been applied.</div>`;
+  else if(pend) h+=`<div class="dok">⏳ A correction for this scan is waiting to be `+
+      `applied. Reload later to see the result.</div>`;
+  else {
+    if(refused) h+=`<div class="dbad">⛔ The last re-correction was refused: `+
+      `${esc(st.result||"no reason recorded")}.</div>`;
+    if(!open) h+=`<button class="ghost dreopen" data-i="${i}"${off?" disabled":""}>`+
+      `Correct again</button>`;
+    else h+=
+      `<div class="drow"><input type="text" class="grow drsku" value="${escAttr(r.sku)}" `+
+        `placeholder="SKU"${off?" disabled":""}></div>`+
+      `<div class="drow"><input type="text" class="grow drdate" value="${escAttr(r.best_by)}" `+
+        `placeholder="Best-by (YYYY-MM-DD)"${off?" disabled":""}></div>`+
+      `<div class="drow"><input type="text" class="grow drunits" inputmode="numeric" `+
+        `value="${r.units!=null?escAttr(String(r.units)):""}" placeholder="How many units?"`+
+        `${off?" disabled":""}></div>`+
+      `<div class="drow"><select class="drarea"${off?" disabled":""}>`+
+        ["","Refrigerated","Frozen","Dry"].map(a=>`<option value="${a}"`+
+          `${(a||"unknown")===r.area?" selected":""}>${a||"Area: choose…"}</option>`).join("")+
+        `</select><button class="pri drsave" data-i="${i}"${off||busy?" disabled":""}>`+
+        `${busy?"Saving…":"Save correction"}</button>`+
+        `<button class="ghost drcancel" data-i="${i}">Cancel</button></div>`+
+      `<div class="mut small" style="margin-top:6px">Saving replaces the correction `+
+      `above. ⚠️ Changing the SKU is refused for now — the old product's date cannot `+
+      `yet be retired automatically.</div>`;
+  }
+  return h+`</div></div></div>`;
+}
+
+async function dReSubmit(i){
+  const r=dF(DATES.corrected||[])[i];
+  if(!r) return;
+  if(!signedIn()){ alert("You are signed out. Sign in again before saving — "+
+    "nothing was sent."); return; }
+  const card=document.getElementById(r.dom);
+  const v=c=>(((card&&card.querySelector(c))||{}).value||"").trim();
+  const sku=v(".drsku"), bb=v(".drdate"), units=v(".drunits"), area=v(".drarea");
+  if(!sku){ alert("Type the SKU this scan belongs to."); return; }
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(bb)){
+    alert("Enter the best-by as YYYY-MM-DD (for example 2027-01-06)."); return; }
+  if(!area){ alert("Choose which room this was scanned in."); return; }
+  if(!(parseFloat(units)>0)){
+    alert("How many units? A correction with no count dates nothing."); return; }
+  if(sku===r.sku&&bb===r.best_by&&parseFloat(units)===Number(r.units)&&area===r.area){
+    alert("Nothing changed — the correction is already exactly this."); return; }
+  /* ⛔ The receipt_id is what makes this a re-correction. Without it the save
+     would be ignored as already applied, so refuse rather than send a no-op. */
+  if(!r.receipt_id){ alert("This correction has no ledger id in the date book, "+
+    "so it cannot be replaced from here. Nothing was sent."); return; }
+  if(DRBUSY[r.source_id]) return;
+  DRBUSY[r.source_id]=true; renderDates();
+  try{
+    const listId=await dCorrListId();
+    await graph(`/sites/${CFG.siteId}/lists/${listId}/items`,{method:"POST",
+      body:JSON.stringify({fields:{
+        Title:String(r.source_id), source_id:String(r.source_id),
+        code:String(r.code||""), sku:sku, best_by:bb, units:String(units),
+        area:area, scan_kind:"", reviewer:account,
+        submitted_at:new Date().toISOString().slice(0,19)+"Z", applied:"false",
+        supersedes:String(r.receipt_id)}})});
+    try{ await postAgentJob("bestby.apply_corrections", String(r.source_id), {}); }
+    catch(e){ console.error("job post",e); }
+    DRSENT[r.source_id]="queued";
+  }catch(e){
+    alert("That could not be saved: "+e.message+"\n\nNothing was recorded — "+
+          "please try again.");
+  }finally{
+    DRBUSY[r.source_id]=false; renderDates();
+  }
+}
+
 let DCORR_ID=null;
 async function dCorrListId(){
   if(DCORR_ID) return DCORR_ID;
@@ -4490,7 +4606,8 @@ function renderDates(){
       `to the Teams channel for the room it happened in, the day it happens. Where `+
       `the room cannot be worked out it goes to <b>Fulfillment</b> rather than nowhere.`+
       `</div></details>`+
-      (()=>{ const off=!signedIn(); return rows.map((r,i)=>dScanCard(r,i,off)).join(""); })();
+      (()=>{ const off=!signedIn(); return rows.map((r,i)=>dScanCard(r,i,off)).join(""); })()+
+      dCorrected();
   } else if(DTAB==="block"){
     const rows=dF(D.blocked);
     const ov=(D.overridden||[]).map(o=>esc(o.sku)).join(", ");
@@ -4573,6 +4690,14 @@ document.addEventListener("click",async e=>{
   }
   const s=e.target.closest(".dsave");
   if(s){ await dSubmit(+s.dataset.i); return; }
+  const ro=e.target.closest(".dreopen");
+  if(ro){ const r=dF(DATES.corrected||[])[+ro.dataset.i];
+          if(r){ DROPEN[r.source_id]=true; renderDates(); } return; }
+  const rc=e.target.closest(".drcancel");
+  if(rc){ const r=dF(DATES.corrected||[])[+rc.dataset.i];
+          if(r){ delete DROPEN[r.source_id]; renderDates(); } return; }
+  const rs=e.target.closest(".drsave");
+  if(rs){ await dReSubmit(+rs.dataset.i); return; }
 });
 document.addEventListener("input",e=>{
   if(MODE!=="dates") return;
