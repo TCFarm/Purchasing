@@ -376,6 +376,7 @@ table.out th{color:var(--ink3);font-weight:600;border-bottom:1px solid var(--lin
 .dmatch{border:1px dashed var(--line);border-radius:8px;padding:10px}
 .dcand{display:flex;gap:8px;align-items:center;margin:4px 0;font-size:12.5px}
 .dok{color:var(--good);font-weight:650;font-size:12.5px}
+.dbad{color:var(--bad);font-weight:650;font-size:12.5px}
 </style>
 <header>
   <h1 id="apptitle">Purchase review</h1>
@@ -4051,6 +4052,10 @@ async function setMode(m){
       document.getElementById("main").innerHTML=
         `<div class="center">Loading the date book…</div>`;
       try{ DATES=await loadDates(); }catch(e){ DATES_ERR=e.message; }
+      /* ⭐ What happened to corrections already saved — read back, never
+         assumed. ⛔ Non-fatal: a failed read leaves the book usable and says
+         nothing rather than showing a wrong status. */
+      if(DATES){ try{ DCSTAT=await dLoadCorrStatus(); }catch(e){ console.error("status",e); } }
     }
     renderDates();
   } else if(!ORDER){
@@ -4174,7 +4179,7 @@ boot();
    public, so the payload arrives from SharePoint after a Microsoft sign-in.
    ══════════════════════════════════════════════════════════════════════════ */
 let DATES=null, DATES_ERR=null, DTAB="soon", DAREA="all", DQ="",
-    DSENT={}, DBUSY={};
+    DSENT={}, DBUSY={}, DCSTAT={};
 
 /* ⛔⛔ THIS PAGE DID NOT HAVE A SIGN-IN PREDICATE AND MY FIRST VERSION OF THE
    DATES CODE CALLED ONE THAT DOES NOT EXIST. Every other mode here reaches for
@@ -4208,7 +4213,39 @@ async function loadDates(){
   if(String(doc.built||"")!==inName)
     throw new Error(`⛔ ${f[0].name} says it was built ${doc.built}. Refusing to `+
       `load — every deadline on screen would be counted from the wrong day.`);
+  /* ⛔⛔ "DAYS LEFT" IS COUNTED FROM TODAY, NOT FROM THE BUILD (2026-09-22
+     review, A12). `days` was computed when the book was built and never again,
+     so a book that missed a nightly publish read one day too generous per day
+     of age — with only a footer line to say so. ⭐ Recomputed here from the
+     best-by, in the reviewer's own calendar day, and the age is shown loudly. */
+  const td=new Date(), today=new Date(td.getFullYear(),td.getMonth(),td.getDate());
+  const dayN=s=>{const [y,m,d]=String(s).split("-").map(Number);
+                 return Math.round((new Date(y,m-1,d)-today)/864e5);};
+  for(const r of (doc.dated||[])) if(r.best_by) r.days=dayN(r.best_by);
+  doc.age_days=-dayN(doc.built);
   return doc;
+}
+
+/* ⭐ The correction queue's own record of each saved row: source_id -> the
+   newest {applied, result}. `applied` is "true" (done), "refused" (the reason is
+   in `result`; the reviewer may fix it and save again) or "false" (waiting). */
+async function dLoadCorrStatus(){
+  const out={}, listId=await dCorrListId();
+  let url=`/sites/${CFG.siteId}/lists/${listId}/items?expand=fields&$top=500`;
+  for(let guard=0; url && guard<20; guard++){
+    const j=await graph(url);
+    for(const it of (j.value||[])){
+      const f=it.fields||{}, k=String(f.source_id||"");
+      if(!k) continue;
+      const prev=out[k];
+      if(!prev || Number(it.id)>Number(prev.id))
+        out[k]={id:it.id, applied:String(f.applied||"false").toLowerCase(),
+                result:String(f.result||"")};
+    }
+    const nx=j["@odata.nextLink"];
+    url=nx?nx.replace(GRAPH,""):null;
+  }
+  return out;
 }
 
 /* ⭐ ONE filter, applied by every view AND every count. ⛔ Counting unfiltered
@@ -4264,7 +4301,12 @@ function dNb(r){
 }
 
 function dScanCard(r,i,off){
-  const sent=DSENT[r.id];
+  /* ⭐ A correction saved THIS visit shows as queued; one saved earlier shows
+     what the queue actually did with it. ⛔ A REFUSAL re-opens the form — the
+     reviewer is told why and can save a fixed one; it is never shown as ✅. */
+  const st=DCSTAT[r.id];
+  const sent=DSENT[r.id] || (st&&st.applied!=="refused" ? st : null);
+  const refused=!DSENT[r.id] && st && st.applied==="refused";
   const busy=DBUSY[r.id];
   /* ⛔ THE SIGN-OUT GUARD IS RE-CHECKED AT RENDER **AND** AT CLICK. A tab left
      open overnight has an expired token; a button that looks live and then
@@ -4288,8 +4330,13 @@ function dScanCard(r,i,off){
     `</div>${dNb(r)}</div>`+
    `<div class="dmatch">`+
     (sent
-      ? `<div class="dok">✅ Sent for matching — ${esc(sent)}</div>`
+      ? (typeof sent==="object" && sent.applied==="true"
+          ? `<div class="dok">✅ Applied${sent.result?" — "+esc(sent.result):""}</div>`
+          : `<div class="dok">⏳ Queued — not applied yet. This page shows ✅ once it `+
+            `has been applied (reload to check).</div>`)
       :
+      (refused?`<div class="dbad">⛔ That correction was refused: `+
+        `${esc(st.result||"no reason recorded")}. Fix it below and save again.</div>`:"")+
       (r.cands||[]).map((c,ci)=>`<div class="dcand">`+
         `<button class="pri dusecand" data-i="${i}" data-ci="${ci}"${off?" disabled":""}>Use</button>`+
         `<div><span class="sku">${esc(c.sku)}</span> ${esc(c.desc)}`+
@@ -4313,9 +4360,11 @@ function dScanCard(r,i,off){
         `<option>Refrigerated</option><option>Frozen</option><option>Dry</option></select>`+
         `<button class="pri dsave" data-i="${i}"${off||busy?" disabled":""}>`+
         `${busy?"Saving…":"Save"}</button></div>`+
-      `<div class="mut small" style="margin-top:6px">Saving writes the date onto `+
-      `that product <b>and</b> teaches the scanner this barcode, so the same case `+
-      `never lands here twice.</div>`)+
+      /* ⛔ It used to promise it "teaches the scanner this barcode". Nothing
+         does that yet (PLAN §3 step 3), so the promise is gone until it is true. */
+      `<div class="mut small" style="margin-top:6px">Saving records this date `+
+      `against that product. ⚠️ It does not yet teach the scanner the barcode — `+
+      `the next carton with this code may land here again.</div>`)+
    `</div></div></div>`;
 }
 
@@ -4371,7 +4420,10 @@ async function dSubmit(i){
        the correction — it is already safely on the list. */
     try{ await postAgentJob("bestby.apply_corrections", String(r.id), {}); }
     catch(e){ console.error("job post",e); }
-    DSENT[r.id]="it will be applied within a few minutes";
+    /* ⛔ Never "applied within minutes": the queue's applier is not always
+       running, and a promise the page cannot keep is how a reviewer believes a
+       date landed that never did. The card reads the real status on reload. */
+    DSENT[r.id]="queued";
   }catch(e){
     alert("That could not be saved: "+e.message+"\n\nNothing was recorded — "+
           "please try again.");
@@ -4482,6 +4534,10 @@ function renderDates(){
       (rows.length>200?`<div class="mut small">Showing the first 200 of `+
         `${rows.length}. Narrow with the filter or download the CSV.</div>`:"");
   }
+  if(D.age_days>=1) h=`<div class="dbad" style="margin-bottom:10px">⚠️ This date book `+
+    `was built ${esc(D.built)} — ${D.age_days} day${D.age_days>1?"s":""} old. The `+
+    `nightly rebuild did not publish. "Days" are counted from today, but stock `+
+    `and scans since then are missing.</div>`+h;
   h+=`<div class="mut small" style="margin-top:14px">Date book built ${esc(D.built)}. `+
      `⚠️ A “one carton” date means ONE case was scanned and the whole pile inherited `+
      `it — verify before acting on it.</div>`;
