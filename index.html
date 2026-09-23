@@ -4500,8 +4500,7 @@ function dCorrRow(r,i,off){
         `${busy?"Saving…":"Save correction"}</button>`+
         `<button class="ghost drcancel" data-i="${i}">Cancel</button></div>`+
       `<div class="mut small" style="margin-top:6px">Saving replaces the correction `+
-      `above. ⚠️ Changing the SKU is refused for now — the old product's date cannot `+
-      `yet be retired automatically.</div>`;
+      `above — including its SKU, if you change it.</div>`;
   }
   return h+`</div></div></div>`;
 }
