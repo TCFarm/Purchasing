@@ -368,7 +368,7 @@ body[data-notes="1"] .note{display:block}
         <div class="gactions">
           <button class="tbtn" id="btnSeq">Show sequence</button>
           <button class="tbtn" id="btnClear">Clear picks</button>
-          <button class="tbtn" id="btnNone">None of these — fetch more</button>
+          <button class="tbtn" id="btnNone">None of these — needs new images</button>
         </div>
       </div>
       <div class="seqstrip" id="seqstrip" hidden></div>
@@ -661,6 +661,11 @@ function mergeState(payload, rows){
       item[field]=edits[field]; item._origin[field]='you';
     });
     item._comments=comments;
+    /* ⛔⛔ AUDIT FIX 2026-09-22: keep the stored edits AS SAVED (page field names).
+       `fromPayload` reads payload names (sale_ends, weight_g, keywords…), so an
+       edit whose page name differs was dropped on reload and the NEXT save wrote
+       the old value back. applyPayload overlays these after mapping. */
+    item._edits=edits;
     /* ⭐ 2026-09-22: `parked` = the drain tried THIS revision and could not apply
        everything; `drain_note` says what and why. Same rule as
        listing_review.is_parked — keep the two identical (test_merge_parity). */
@@ -893,7 +898,7 @@ function fromPayload(it){
     wasPrice:it.was_price==null?null:+it.was_price,
     cloneOf:it.clone_of||'', optionName:it.option_name||'',
     variants:it.variants||[],
-    _origin:it._origin||{}, _comments:it._comments||{},
+    _origin:it._origin||{}, _comments:it._comments||{}, _edits:it._edits||{},
     /* ⛔⛔ SNAPSHOT OF THE VALUES AS LOADED (2026-09-11). `decisionPatch` used
        to build `edits` from `_origin[f]==='you'`, and `_origin` is set in
        exactly ONE place — `mergeState`, when RELOADING an edit already stored
@@ -942,7 +947,14 @@ function applyPayload(payload){
        if(_bd){ _bd.hidden=!DEFERRED.length; } if(_fd){ _fd.textContent=DEFERRED.length?String(DEFERRED.length):''; } }catch(_){}
   adoptSizeUnits(payload&&payload.size_units);
   var mapped=items.map(fromPayload);
-  mapped.forEach(function(x){ x._base=_snapshot(x); });
+  mapped.forEach(function(x){
+    x._base=_snapshot(x);                 /* ⭐ the PAYLOAD's values = "unchanged" */
+    /* ⛔ AUDIT FIX: re-apply the reviewer's stored edits by the page's own names. */
+    var ed=x._edits||{};
+    EDITABLE_FIELDS.forEach(function(f){
+      if(Object.prototype.hasOwnProperty.call(ed,f) && (x._origin||{})[f]==='you') x[f]=ed[f];
+    });
+  });
   P.length=0; mapped.forEach(function(x){P.push(x);});
   st.length=0;
   P.forEach(function(p){
@@ -967,7 +979,7 @@ function applyPayload(payload){
                 until `openFlags`'s local hide is the ONLY thing keeping it
                 hidden and a refresh throws that away. `_flagActions` lives
                 inside `edits_json` (see `decisionPatch`), not a new column. */
-             flagAct:(d.edits&&d.edits._flagActions)||{},
+             flagAct:(p._edits&&p._edits._flagActions)||{},
              cm:p._comments||{}, picks:p.pre.slice(), by:{}});
   });
   cur=0; filter='all'; editing=null;
@@ -1368,7 +1380,11 @@ function commitEdit(k){
   const p=P[cur];
   if(k==='identity'){p.name=$('#edName').value.trim();p.badge=$('#edBadge').value.replace(/[®™©]/g,'').trim();p.brand=$('#edBrand').value;}
   if(k==='price'){p.price=+$('#edPrice').value||0;p.salePrice=+$('#edSale').value||0;
-    const t=(+$('#edTgt').value||0)/100;p.marginOverride=(t!==((catOf(p.cat)||[])[3]??0.3))?t:null;}
+    const t=(+$('#edTgt').value||0)/100;
+    /* ⛔ AUDIT FIX: only a margin the reviewer CHANGED is an override — this
+       used to record one on every price save whose rounded margin differed from
+       the category default, which now reaches Finale. */
+    if(Math.abs(t-targetMargin(p))>0.004) p.marginOverride=(t!==((catOf(p.cat)||[])[3]??0.3))?t:null;}
   if(k==='warranty')p.warranty=$('#edWarr').innerHTML;
   if(k==='description')p.prose=$('#edProse').innerHTML;
   if(k==='questions')readCqFromDom();
@@ -1532,11 +1548,13 @@ function renderFields(){
   const _dd=p._decision||{};
   /* ⭐ 2026-09-22 (plan B6): publish HELD this live product because fields were
      changed in BigCommerce since we published — confirm, or edit and save. */
-  const _heldFields = (String(_dd.drain_note||'').split('[fields] ')[1]||'').trim();
+  /* ⭐ the field list is the note's FIRST line: "[fields] a,b" */
+  const _hn = String(_dd.drain_note||'');
+  const _heldFields = (/^\[fields\] ([^\n]*)/.exec(_hn)||[,''])[1].trim();
   const heldHtml = !_dd.held ? '' : `
   <div class="fgroup" id="heldNote" style="border-left:4px solid var(--bad,#9b2c2c)">
     <h3>⚠ Publishing is waiting for you</h3><div class="body">
-    <div class="cascade">${esc(String(_dd.drain_note||'').split('[fields] ')[0])}</div>
+    <div class="cascade">${esc(_hn.replace(/^\[fields\][^\n]*\n?/,''))}</div>
     <div style="margin-top:8px"><button class="btn primary" id="btnConfirmOverwrite"
       data-fields="${esc(_heldFields)}">Confirm — overwrite these fields in BigCommerce</button></div></div></div>`;
   const drainHtml = heldHtml + (!_dd.parked ? '' : `
@@ -1598,7 +1616,7 @@ function renderFields(){
     ${frow('Sale ends','last delivery date at the sale price',
       `<input class="ctl w-md mono" id="fSaleEnds" type="date" value="${esc(p.saleEnds||'')}">`,
       (p.salePrice>0&&!p.saleEnds)
-        ? '<span class="bad">⛔ A sale needs its end date — it becomes the badge ("for delivery by M/D") and the automatic takedown. The sale will not be saved without it.</span>'
+        ? '<span class="bad">⛔ A sale needs its end date — it becomes the badge ("for delivery by M/D") and the automatic takedown. Without it the sale is not applied — you will see why on this product.</span>'
         : '<span class="derived">Shown to shoppers as "for delivery by M/D"; the sale comes down automatically after this date.</span>')}
     ${frow('Cost','read-only',`<input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled>`,'<span class="derived">KeHE regular cost / Finale average cost</span>')}
     ${frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`)}
@@ -1759,11 +1777,15 @@ function renderFields(){
        the save (like _flagActions); listing_publish checks it covers every field
        it held on. The save bumps the revision, which releases the hold. */
     p._overwriteConfirmed={fields:(_b.dataset.fields||'').split(',').filter(Boolean),
-                           at:new Date().toISOString()};
+                           at:new Date().toISOString(),
+                           /* ⛔ AUDIT FIX: bound to the revision it confirms — the
+                              server accepts it only on the save right after the hold. */
+                           held_revision:+((p._decision||{}).revision||0)};
     p._decision=Object.assign({},p._decision||{},{held:false});
     renderAll();
-    if(IS_BROWSER) persist(cur,'Overwrite confirmed — it publishes on the next run');
-    else toast('Overwrite confirmed');};}
+    /* ⛔ through the normal save chain (no self-inflicted "someone else saved") */
+    scheduleAutosave(cur,'Overwrite confirmed — it publishes on the next run');
+    if(!IS_BROWSER) toast('Overwrite confirmed');};}
   $('#fOwner').onchange=()=>{p.owner=$('#fOwner').value;markEdited('identity','Owner changed — income account re-resolved');};
   $('#fTax').onchange=()=>{p.taxOverride=$('#fTax').value;markEdited('identity','Tax class overridden');};
   $('#addTier').onclick=()=>{
@@ -2456,7 +2478,12 @@ window.undeferProduct=async function(sku){
     var batch=_batchFromUI(), row=await _findRow(batch, sku), f=row.fields||{}, ed={};
     try{ ed=JSON.parse(f.edits_json||'{}')||{}; }catch(_){ ed={}; }
     ed._undefer=new Date().toISOString();
-    var res=await saveDecision(batch, sku, {edits:ed, overall:'pending',
+    /* ⛔ AUDIT FIX: drop the stored Defer itself — saves re-send stored flag
+       actions, so it would re-defer on the next save — and do not re-send
+       comments that were already turned into rework. */
+    if(ed._flagActions){ Object.keys(ed._flagActions).forEach(function(k){
+      if(((ed._flagActions[k]||{}).action||'')==='defer') delete ed._flagActions[k]; }); }
+    var res=await saveDecision(batch, sku, {edits:ed, overall:'pending', comments:{},
                                expect_revision:parseInt(f.revision||0,10)||0});
     if(res&&res.ok){ toast('Bringing it back — it reappears in the queue after the next update (about a minute)'); closeSheet(); }
     else toast('⛔ Could not bring it back: '+((res&&res.message)||(res&&res.reason)||'unknown'));
@@ -2468,9 +2495,12 @@ $('#btnDeferred').onclick=()=>openSheet(`<h2>Deferred from this batch</h2>
   returns it for review; nothing is published without an approval.</div>
   ${DEFERRED.map(d=>`<div class="rwitem"><b>${esc(d.name||d.sku)}</b> · <span class="mono">${esc(d.sku)}</span>
      <p>${esc(d.reason||'(no reason recorded)')}</p>
-     <button class="btn" onclick="undeferProduct('${esc(d.sku)}')">Bring back</button></div>`).join('')
+     <button class="btn" data-undefer="${esc(d.sku)}">Bring back</button></div>`).join('')
    ||'<div class="rwitem"><p>Nothing is deferred.</p></div>'}
   <button class="btn" onclick="closeSheet()">Close</button>`);
+  /* ⭐ AUDIT FIX: no SKU inside an inline onclick string (quote-escaping). */
+  document.querySelectorAll('[data-undefer]').forEach(function(b){
+    b.onclick=function(){ undeferProduct(b.getAttribute('data-undefer')); };});
 $('#btnClone').onclick=()=>toast('Making a similar version from here is not built yet');
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
@@ -3015,7 +3045,11 @@ async function persist(i, label){
         <button class="btn" onclick="closeSheet()">Keep mine on screen</button>`);
       return res;
     }
-    P[i]._decision=Object.assign({}, P[i]._decision||{}, {revision:res.revision});
+    P[i]._decision=Object.assign({}, P[i]._decision||{}, {revision:res.revision,
+      /* ⭐ AUDIT FIX: a successful save supersedes the old refusal/hold banner */
+      parked:false, held:false});
+    /* ⛔ AUDIT FIX: a confirmation is sent ONCE — never re-sent by later saves */
+    if(P[i]._overwriteConfirmed) delete P[i]._overwriteConfirmed;
     toast((label||'Saved')+' · revision '+res.revision);
     return res;
   }catch(e){
