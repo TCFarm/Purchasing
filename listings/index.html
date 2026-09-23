@@ -247,6 +247,20 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .drawer{position:fixed;inset:0;background:rgba(10,16,13,.42);display:none;z-index:60;align-items:flex-start;justify-content:center;padding:56px 20px}
 .drawer[data-open="1"]{display:flex}
 .sheet{background:var(--shop);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);max-width:660px;width:100%;max-height:82vh;overflow:auto;padding:20px 22px}
+.sheet.wide{max-width:1180px}
+.cn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;margin:12px 0}
+.cn-grid label{display:flex;flex-direction:column;font-size:12px;gap:4px;color:var(--ink-2)}
+.cn-grid input,.cn-grid select,.cn-grid textarea{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--shop);color:var(--ink)}
+.cn-drop{border:2px dashed var(--line);border-radius:10px;padding:18px;text-align:center;margin:10px 0;color:var(--ink-2)}
+.cn-drop[data-over="1"]{border-color:var(--ok,#2f7d4f);background:rgba(47,125,79,.06)}
+.cn-files{font-size:12px;margin:6px 0}.cn-files div{display:flex;justify-content:space-between;gap:8px;padding:2px 0}
+.cn-tl{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.cn-tl span{font-size:11px;padding:3px 8px;border-radius:99px;border:1px solid var(--line)}
+.cn-tl span[data-on="1"]{background:var(--ink);color:var(--shop)}
+.cn-tbl{width:100%;border-collapse:collapse;font-size:12px}.cn-tbl th,.cn-tbl td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left;vertical-align:top}
+.cn-tbl input{width:100%;font:inherit;font-size:12px;padding:3px 5px;border:1px solid transparent;border-radius:4px;background:transparent;color:var(--ink)}
+.cn-tbl input:focus{border-color:var(--line);background:var(--shop)}.cn-tbl tr[data-removed="1"]{opacity:.35}
+.cn-tbl td.q{background:rgba(190,60,40,.07)}.cn-src{font-size:10px;color:var(--ink-2)}
+.cn-q{font-size:12px;padding:4px 8px;margin:3px 0;border-left:3px solid var(--line)}.cn-q[data-b="1"]{border-color:#be3c28}
 .sheet h2{margin:0 0 4px;font-size:17px}
 .sheet .sub{font-size:12.5px;color:var(--ink-3);margin-bottom:14px}
 .rwitem{border:1px solid var(--line-soft);border-radius:var(--r);padding:10px 12px;margin-bottom:8px;background:var(--panel)}
@@ -306,6 +320,7 @@ body[data-notes="1"] .note{display:block}
   <button class="tbtn" id="btnNotes">Show design notes</button>
   <button class="tbtn" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
+  <button class="tbtn" id="btnConsign" title="Upload a vendor's files and turn them into listings">Consignment</button>
   <button class="tbtn" id="btnRw">Rework tray <span class="mono" id="rwN">0</span></button>
   <button class="tbtn" id="btnRunNow" title="Save your comments and queue this product for the next run">Run now</button>
   <button class="tbtn" id="btnBulk">Approve all unblocked</button>
@@ -3087,6 +3102,261 @@ async function persist(i, label){
 }
 window.saveDecision=saveDecision; window.decisionPatch=decisionPatch;
 window.persist=persist; window._flat=_flat; window._validateBody=_validateBody;
+
+
+/* ═══ CONSIGNMENT INTAKE (plan Part C, 2026-09-23) ═══════════════════════════
+   Staff upload whatever a vendor sent → the Mac mini ORGANIZES it into a product
+   table (consignment_intake.py) → staff answer its questions → PREPARE writes a
+   normal batch → it appears in this studio like any other.
+   ⛔⛔ THE PAGE ONLY WRITES FILES, A STATE ROW AND A JOB POINTER. It never decides
+   a price, an owner or a product; the server re-derives everything from the row
+   and the folder (consignment_jobs.py). Storage, all on this same site:
+     VendorUploads/<Owner Key>/<intake-id>/files/…   · paste.txt · answers.json
+     ConsignmentIntake (state + pointers)            · AgentJobs (the job queue)
+   ⛔ Owner / supplier / display name are THREE separate values typed here — the
+   organizer never reads them from the vendor's files. */
+var CN={lib:null, drive:null, list:null, jobs:null, cur:null, org:null, edits:[], poll:null};
+var CN_STATES=['uploaded','organizing','needs_answers','organized','preparing','prepared','in_review'];
+function cnSlug(s){return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40)||'vendor';}
+function cnStem(dateIso, vendor){return String(dateIso).slice(0,10)+'_'+cnSlug(vendor)+'_consignment';}
+function cnIntakeId(d){d=d||new Date();
+  return 'I'+d.toISOString().replace(/[-:T]/g,'').slice(0,14)+Math.random().toString(36).slice(2,6).toUpperCase();}
+/* ⭐ Which blocking questions an edit list resolves — the SAME rule as
+   consignment_intake.apply_staff_edits (an edit to that product+field, a UPC/code
+   edit for the identity question, or removing the product). The SERVER decides;
+   this only drives the button. */
+function cnOpenBlocking(org, edits){
+  var ans={}, rm={};
+  (edits||[]).forEach(function(e){
+    if(e.remove) rm[e.product]=1;
+    else if(e.field){ ans[e.product+':'+e.field]=1; if(e.field==='vendor_item_code') ans[e.product+':upc']=1; }
+  });
+  return ((org&&org.questions)||[]).filter(function(q){
+    if(!q.blocking) return false;
+    if(q.product!=null && rm[q.product]) return false;
+    return !(q.product!=null && ans[q.product+':'+q.field]);
+  });
+}
+window.cnSlug=cnSlug; window.cnStem=cnStem; window.cnOpenBlocking=cnOpenBlocking; window.cnIntakeId=cnIntakeId;
+
+async function cnIds(){
+  if(CN.list) return;
+  var ls=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  var by={}; (ls.value||[]).forEach(function(l){by[l.displayName]=l.id;});
+  if(!by.ConsignmentIntake||!by.VendorUploads||!by.AgentJobs)
+    throw new Error('the consignment storage is not set up on this site (ConsignmentIntake / VendorUploads / AgentJobs)');
+  CN.list=by.ConsignmentIntake; CN.lib=by.VendorUploads; CN.jobs=by.AgentJobs;
+  CN.drive=(await graph(`/sites/${CFG.siteId}/lists/${CN.lib}/drive`)).id;
+}
+function cnPath(p){return p.split('/').map(encodeURIComponent).join('/');}
+async function cnPut(path, body, ctype){
+  var t=await _getTok();
+  var r=await fetch(`${GRAPH}/drives/${CN.drive}/root:/${cnPath(path)}:/content`,
+    {method:'PUT', headers:{Authorization:'Bearer '+t,'Content-Type':ctype||'application/octet-stream'}, body:body});
+  if(!r.ok) throw new Error(`upload ${path} failed (${r.status})`);
+}
+/* ⭐ > 4 MB needs an upload session (Graph refuses a simple PUT), sent in 5 MB
+   chunks — a multiple of 320 KiB, as the API requires. */
+async function cnUpload(path, file, onp){
+  if(file.size<=4*1024*1024){ await cnPut(path, file); onp&&onp(1); return; }
+  var s=await graph(`/drives/${CN.drive}/root:/${cnPath(path)}:/createUploadSession`,
+    {method:'POST', body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'replace'}})});
+  var CH=16*320*1024;
+  for(var o=0;o<file.size;o+=CH){
+    var e=Math.min(o+CH,file.size);
+    var r=await fetch(s.uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes ${o}-${e-1}/${file.size}`},
+      body:file.slice(o,e)});
+    if(!(r.ok||r.status===202)) throw new Error(`upload ${file.name} failed at ${o} (${r.status})`);
+    onp&&onp(e/file.size);
+  }
+}
+async function cnGetJson(path){
+  var t=await _getTok();
+  var r=await fetch(`${GRAPH}/drives/${CN.drive}/root:/${cnPath(path)}:/content`,{headers:{Authorization:'Bearer '+t}});
+  if(r.status===404) return null;
+  if(!r.ok) throw new Error(`could not read ${path} (${r.status})`);
+  return r.json();
+}
+async function cnQueue(kind, rowId){
+  var now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  /* ⛔ EXACT fields, or the row is never picked up and nothing says so
+     (_shared/USING-THE-SUPERVISOR.md §3): State exactly `queued`, Params a
+     JSON STRING, ClaimedBy/LeaseUntil left EMPTY. Subject is a POINTER. */
+  await graph(`/sites/${CFG.siteId}/lists/${CN.jobs}/items`,{method:'POST',body:JSON.stringify({fields:{
+    Title:kind+':'+rowId, Kind:kind, Subject:String(rowId), Params:'{}', State:'queued',
+    Attempts:0, RequestedUtc:now, RequestedBy:ACCOUNT||'listing-studio'}})});
+}
+async function cnRow(id){return (await graph(`/sites/${CFG.siteId}/lists/${CN.list}/items/${id}?$expand=fields`)).fields;}
+
+function cnTimeline(state){
+  var i=CN_STATES.indexOf(state);
+  return '<div class="cn-tl">'+CN_STATES.map(function(s,k){
+    return `<span data-on="${k<=i?1:0}">${esc(s.replace('_',' '))}</span>`;}).join('')+
+    (state==='failed'?'<span data-on="1" style="background:#be3c28">failed</span>':'')+'</div>';
+}
+
+async function cnOpen(){
+  if(!IS_BROWSER){ toast('Consignment intake needs the live page (sign in)'); return; }
+  try{ await cnIds(); }catch(e){ toast('⛔ '+e.message); return; }
+  var b=await graph(`/sites/${CFG.siteId}/lists/${CN.list}/items?$expand=fields&$top=200`);
+  var rows=(b.value||[]).map(function(x){return Object.assign({_id:x.id},x.fields);})
+    .sort(function(a,c){return (+c._id)-(+a._id);});      /* newest first (client-side: $orderby is not reliable on list items) */
+  openSheet(`<h2>Consignment intake</h2>
+    <div class="sub">Upload what a vendor sent — price lists, spec sheets, label PDFs, photos, a list of URLs or
+    UPCs. It is organized into a product table for you to check, then built into listings here.</div>
+    <button class="btn primary" onclick="cnNew()">New intake</button>
+    <table class="cn-tbl" style="margin-top:12px"><tr><th>Vendor</th><th>Batch</th><th>State</th><th>Updated</th><th></th></tr>
+    ${rows.map(function(r){return `<tr><td>${esc(r.vendor_name||r.owner_key)}</td><td class="mono">${esc(r.batch_stem||'')}</td>
+      <td>${esc(r.state||'')}</td><td>${esc((r.updated_utc||r.requested_utc||'').slice(0,16))}</td>
+      <td><button class="tbtn" onclick="cnDetail('${esc(r._id)}')">Open</button></td></tr>`;}).join('')
+      ||'<tr><td colspan="5">No intakes yet.</td></tr>'}</table>
+    <div style="margin-top:12px"><button class="btn" onclick="closeSheet()">Close</button></div>`);
+  $('#sheet').classList.add('wide');
+}
+
+function cnNew(){
+  var today=new Date().toISOString().slice(0,10);
+  openSheet(`<h2>New consignment intake</h2>
+    <div class="sub">⛔ Owner key, Finale supplier and display name are three separate things — the owner key
+    decides where the income is booked, so pick it; never type a new one here.</div>
+    <div class="cn-grid">
+      <label>Vendor (owner key)<select id="cnOwner">${OWNERS.filter(function(o){return o!=='TCFarm';})
+        .map(function(o){return `<option>${esc(o)}</option>`;}).join('')}</select></label>
+      <label>Display name (what shoppers see)<input id="cnDisplay" placeholder="Northstar Bison"></label>
+      <label>Finale supplier name<input id="cnFinale" placeholder="as it is (or will be) in Finale"></label>
+      <label>Batch name<input id="cnStem" class="mono" value="${esc(cnStem(today,OWNERS.filter(function(o){return o!=='TCFarm';})[0]||'vendor'))}"></label>
+      <label>How many products do you expect?<input id="cnExpected" type="number" min="1"></label>
+      <label>Notes for the organizer (ours, trusted)<input id="cnNotes" placeholder="e.g. the PDF has last year's prices"></label>
+    </div>
+    <div class="cn-drop" id="cnDrop">Drop files here, or <input type="file" id="cnFile" multiple></div>
+    <div class="cn-files" id="cnFileList"></div>
+    <label style="font-size:12px">Paste URLs, UPCs, item codes or notes from the vendor
+      <textarea id="cnPaste" rows="4" style="width:100%;font:inherit"></textarea></label>
+    <div style="margin-top:10px"><button class="btn primary" id="cnGo">Upload &amp; organize</button>
+      <button class="btn" onclick="cnOpen()">Back</button></div>`);
+  $('#sheet').classList.add('wide');
+  var files=[];
+  function show(){ $('#cnFileList').innerHTML=files.map(function(f,i){
+    return `<div><span>${esc(f.name)} · ${(f.size/1048576).toFixed(1)} MB</span><span id="cnp${i}"></span></div>`;}).join(''); }
+  var own=$('#cnOwner');
+  own.onchange=function(){ $('#cnStem').value=cnStem(today, own.value);
+    if(!$('#cnDisplay').value) $('#cnDisplay').placeholder=own.value; };
+  $('#cnFile').onchange=function(e){ files=files.concat(Array.from(e.target.files||[])); show(); };
+  var d=$('#cnDrop');
+  d.addEventListener('dragover',function(e){e.preventDefault();d.dataset.over='1';});
+  d.addEventListener('dragleave',function(){d.dataset.over='0';});
+  d.addEventListener('drop',function(e){e.preventDefault();d.dataset.over='0';
+    files=files.concat(Array.from(e.dataTransfer.files||[])); show();});
+  $('#cnGo').onclick=async function(){
+    var owner=own.value, display=$('#cnDisplay').value.trim()||owner, fin=$('#cnFinale').value.trim()||display;
+    var stem=$('#cnStem').value.trim(), paste=$('#cnPaste').value;
+    if(!/^\d{4}-\d{2}-\d{2}_[a-z0-9_]+_consignment$/.test(stem)){ toast('Batch name must be <date>_<vendor>_consignment'); return; }
+    if(!files.length && !paste.trim()){ toast('Add at least one file or some pasted text'); return; }
+    var big=files.filter(function(f){return f.size>25*1048576 && !/\.zip$/i.test(f.name);});
+    if(big.length){ toast('⛔ over 25 MB: '+big.map(function(f){return f.name;}).join(', ')); return; }
+    this.disabled=true;
+    try{
+      var iid=cnIntakeId(), folder=owner+'/'+iid;
+      for(var i=0;i<files.length;i++){
+        await cnUpload(folder+'/files/'+files[i].name, files[i], function(p){
+          var el=$('#cnp'+i); if(el) el.textContent=Math.round(p*100)+'%'; });
+      }
+      if(paste.trim()) await cnPut(folder+'/paste.txt', paste, 'text/plain');
+      var now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+      var made=await graph(`/sites/${CFG.siteId}/lists/${CN.list}/items`,{method:'POST',body:JSON.stringify({fields:{
+        Title:iid, intake_id:iid, owner_key:owner, vendor_name:display, batch_stem:stem, state:'uploaded',
+        folder:folder, requested_by:ACCOUNT||'', requested_utc:now, updated_utc:now,
+        vendor_json:JSON.stringify({owner_key:owner, display_name:display, finale_supplier:fin}),
+        expected_count:$('#cnExpected').value||'', notes:$('#cnNotes').value||''}})});
+      await cnQueue('productpipeline.consignment_organize', made.id);
+      toast('Uploaded — organizing now (usually a few minutes)');
+      cnDetail(made.id);
+    }catch(e){ this.disabled=false; toast('NOT SAVED — '+e.message); }
+  };
+}
+
+async function cnDetail(id){
+  clearTimeout(CN.poll);
+  var r=await cnRow(id); CN.cur=Object.assign({_id:id},r);
+  var st=r.state||'';
+  var org=null;
+  if(['needs_answers','organized','prepared','in_review','preparing','failed'].indexOf(st)>=0)
+    org=await cnGetJson(r.folder+'/organized.json');
+  var saved=(await cnGetJson(r.folder+'/answers.json'))||{edits:[]};
+  CN.org=org; CN.edits=saved.edits||[];
+  var html=`<h2>${esc(r.vendor_name||r.owner_key)} · <span class="mono">${esc(r.batch_stem||'')}</span></h2>
+    ${cnTimeline(st)}<div class="sub">${esc(r.state_note||'')}</div>`;
+  if(org){
+    var P=org.products||[];
+    html+=`<div id="cnQs"></div>
+      <table class="cn-tbl"><tr><th></th><th>Name</th><th>Size</th><th>Retail</th><th>Cost</th><th>Storage</th>
+      <th>UPC / code</th><th>Ingr.</th><th>Photos</th></tr>
+      ${P.map(function(p,i){ var F=p.fields||{};
+        function cell(f){ var c=F[f]||{}, v=(c.value==null?'':c.value);
+          var qd=(org.questions||[]).some(function(q){return q.product===i&&q.field===f&&q.blocking;});
+          return `<td class="${qd?'q':''}"><input data-p="${i}" data-f="${f}" value="${esc(v)}">
+            <div class="cn-src">${esc(c.where||'')}</div></td>`; }
+        return `<tr data-row="${i}"><td><input type="checkbox" data-rm="${i}" title="remove from this batch"></td>
+          ${cell('name')}${cell('size')}${cell('retail_price')}${cell('wholesale_cost')}${cell('storage')}
+          ${F.upc?cell('upc'):cell('vendor_item_code')}<td>${F.ingredients?'✓':'—'}</td>
+          <td>${(p.photos||[]).length}</td></tr>`;}).join('')}</table>
+      <div style="margin-top:10px">
+        <button class="btn" id="cnSave">Save answers</button>
+        <button class="btn primary" id="cnPrep">Prepare listings</button>
+        <button class="btn" onclick="cnOpen()">Back</button></div>`;
+  }else{
+    html+=`<div style="margin-top:10px"><button class="btn" onclick="cnOpen()">Back</button></div>`;
+  }
+  openSheet(html); $('#sheet').classList.add('wide');
+  if(org){
+    /* restore saved edits into the table */
+    CN.edits.forEach(function(e){
+      if(e.remove){ var c=document.querySelector(`[data-rm="${e.product}"]`); if(c) c.checked=true; }
+      else { var inp=document.querySelector(`input[data-p="${e.product}"][data-f="${e.field}"]`); if(inp) inp.value=e.value; }
+    });
+    var render=function(){
+      var open=cnOpenBlocking(org, CN.edits);
+      $('#cnQs').innerHTML=(org.questions||[]).map(function(q){
+        var o=open.indexOf(q)>=0;
+        return `<div class="cn-q" data-b="${q.blocking&&o?1:0}">${q.blocking&&o?'⛔ ':(q.blocking?'✓ ':'')}${esc(q.question)}</div>`;}).join('');
+      $('#cnPrep').disabled=open.length>0 || st==='preparing' || st==='prepared' || st==='in_review';
+      $('#cnPrep').title=open.length?open.length+' blocking question(s) still open':'';
+    };
+    document.querySelectorAll('input[data-p]').forEach(function(inp){
+      inp.onchange=function(){
+        var pi=+inp.dataset.p, f=inp.dataset.f;
+        CN.edits=CN.edits.filter(function(e){return !(e.product===pi&&e.field===f);});
+        CN.edits.push({product:pi, field:f, value:inp.value});
+        render(); };
+    });
+    document.querySelectorAll('[data-rm]').forEach(function(c){
+      c.onchange=function(){ var pi=+c.dataset.rm;
+        CN.edits=CN.edits.filter(function(e){return !(e.product===pi&&e.remove);});
+        if(c.checked) CN.edits.push({product:pi, remove:true});
+        render(); };
+    });
+    var save=async function(){ await cnPut(r.folder+'/answers.json',
+      JSON.stringify({by:ACCOUNT||'', at:new Date().toISOString(), edits:CN.edits}), 'application/json'); };
+    $('#cnSave').onclick=async function(){ try{ await save(); toast('Answers saved'); }catch(e){ toast('NOT SAVED — '+e.message); } };
+    $('#cnPrep').onclick=async function(){ this.disabled=true;
+      try{ await save(); await cnQueue('productpipeline.consignment_prepare', id);
+        toast('Preparing — the listings will appear in the batch list when they are built'); cnDetail(id);
+      }catch(e){ this.disabled=false; toast('NOT QUEUED — '+e.message); } };
+    render();
+  }
+  /* ⭐ poll while the server is working, never after */
+  if(['uploaded','organizing','preparing','prepared'].indexOf(st)>=0)
+    CN.poll=setTimeout(function(){ if($('#drawer').dataset.open==='1') cnDetail(id); }, 15000);
+}
+window.cnOpen=cnOpen; window.cnNew=cnNew; window.cnDetail=cnDetail;
+/* ⛔ GATED until the Mac mini runs the two consignment job kinds (install_supervisor.sh
+   there). Before that, "Upload & organize" would upload files and queue a job nothing
+   can claim. `?consign=1` shows it for checking; remove the gate once the mini is live. */
+var CN_ENABLED=(typeof location!=='undefined' && /[?&]consign=1\b/.test(location.search||''));
+if(document.querySelector('#btnConsign')){
+  $('#btnConsign').onclick=function(){ cnOpen(); };
+  if(!CN_ENABLED) $('#btnConsign').style.display='none';
+}
 
 window.fromPayload=fromPayload; window.applyPayload=applyPayload;
 window.bootLive=bootLive;
