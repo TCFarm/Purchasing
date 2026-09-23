@@ -320,6 +320,7 @@ body[data-notes="1"] .note{display:block}
   <span class="lbl" style="margin-right:4px">Source</span>
   <button class="chip-f" data-f="all" aria-pressed="true">All<span class="n" id="fAll"></span></button>
   <button class="chip-f" data-f="newitem" aria-pressed="false">New items<span class="n" id="fNew"></span></button>
+  <button class="chip-f" id="btnDeferred" hidden title="Products deferred from this batch — bring one back">Deferred<span class="n" id="fDef"></span></button>
   <button class="chip-f" data-f="enhance" aria-pressed="false">Enhance<span class="n" id="fEnh"></span></button>
   <button class="chip-f" data-f="clone" aria-pressed="false">Clone<span class="n" id="fCln"></span></button>
   <span class="spacer"></span>
@@ -402,7 +403,7 @@ const CATS=[["Artisan Loaves","Bakery","Bkry",0.4,"NT","Bakery - Artisan Loaves"
 const STORAGES=['Frozen','Refrigerated','Dry','DryBulk','FrozenICE'];
 const STORAGE_LETTER={Frozen:'F',Refrigerated:'R',Dry:'D',DryBulk:'D',FrozenICE:'F'};
 const TAXES=['NT','Taxable Item'];
-const OWNERS=['TCFarm','NGF','MNFC','Raw Bistro','Ben the Baker','Double D BBQ','Pork King Good','TCFeeds'];
+const OWNERS=['TCFarm','NGF','MNFC','Raw Bistro','Ben The Baker','Double D BBQ','Pork King Good','TCFeeds'];
 const ITEM_TYPES=[['A','A — Consignment'],['B','B — Distributor'],['C','C — House Made'],['D','D — Existing']];
 /* ⭐ The known-brand list is FIXTURE DATA. The real vocabulary is whatever the
    loaded batch carries, so offer both — a reviewer retagging one row to a
@@ -660,8 +661,15 @@ function mergeState(payload, rows){
       item[field]=edits[field]; item._origin[field]='you';
     });
     item._comments=comments;
+    /* ⭐ 2026-09-22: `parked` = the drain tried THIS revision and could not apply
+       everything; `drain_note` says what and why. Same rule as
+       listing_review.is_parked — keep the two identical (test_merge_parity). */
+    const drainState=String(row.drain_state||'');
     item._decision={overall:row.overall||'pending', revision:+(row.revision||0),
-                    decided_by:row.decided_by||'', decided_at:decidedAt, sections:sections};
+                    decided_by:row.decided_by||'', decided_at:decidedAt, sections:sections,
+                    drain_state:drainState, drain_note:String(row.drain_note||''),
+                    parked:!!drainState && drainState==='refused@'+String(+(row.revision||0)),
+                    held:!!drainState && drainState==='held@'+String(+(row.revision||0))};
     const order=String(row.image_order||'').split(',').filter(x=>/^\d+$/.test(x.trim())).map(Number);
     if(order.length){ item.preread=order; item._origin.preread='you'; }
   });
@@ -785,6 +793,11 @@ function fromPayload(it){
     catWhy:it.cat_why||'',
     storage:it.storage||'', storageBasis:it.storage_basis||'',
     cost:+(it.cost||0), price:+(it.price||0), salePrice:+(it.sale_price||0),
+    /* ⭐ 2026-09-22 (ruling: Jack): a sale carries its END DATE — the badge and
+       the automatic takedown. */
+    saleEnds:it.sale_ends||'',
+    /* ⭐ 2026-09-22 (plan B6): set when this product is ALREADY live from this batch. */
+    published:it.published||null,
     priceNote:it.price_basis||'',
     /* ⛔⛔ THE PIPELINE'S OWN TARGET MARGIN AND TAX CLASS, WHICH THE ADAPTER
        NEVER MAPPED (2026-09-11). `targetMargin()` documents the precedence
@@ -902,6 +915,7 @@ function fromPayload(it){
    ⛔ `P` and `st` are closed over by every renderer and by `visible()`, so
    REASSIGNING them would leave half the page reading the old array. Mutating
    in place is what keeps one source of truth. */
+var DEFERRED=[];
 function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
@@ -922,6 +936,10 @@ function applyPayload(payload){
   _adopt(CATS,   payload&&payload.cats);
   _adopt(BRANDS, payload&&payload.brands);
   _adopt(OWNERS, payload&&payload.owners);
+  /* ⭐ 2026-09-22 (plan B5): deferred products are listed so they can come back. */
+  DEFERRED.length=0; ((payload&&payload.deferred)||[]).forEach(function(d){DEFERRED.push(d);});
+  try{ var _bd=document.querySelector('#btnDeferred'), _fd=document.querySelector('#fDef');
+       if(_bd){ _bd.hidden=!DEFERRED.length; } if(_fd){ _fd.textContent=DEFERRED.length?String(DEFERRED.length):''; } }catch(_){}
   adoptSizeUnits(payload&&payload.size_units);
   var mapped=items.map(fromPayload);
   mapped.forEach(function(x){ x._base=_snapshot(x); });
@@ -1509,7 +1527,25 @@ function renderFields(){
      looks wrong to a reader, while a blank reads as "there is nothing to
      say". This block is what makes the blank self-correcting: the reviewer
      answers it in a comment and the next run uses the answer. */
-  const notesHtml = !(p.notes||[]).length ? '' : `
+  /* ⛔⛔ 2026-09-22 (plan B0.5): if the drain could NOT apply this product's last
+     save, say so FIRST. Before this, a refused edit was silently marked done. */
+  const _dd=p._decision||{};
+  /* ⭐ 2026-09-22 (plan B6): publish HELD this live product because fields were
+     changed in BigCommerce since we published — confirm, or edit and save. */
+  const _heldFields = (String(_dd.drain_note||'').split('[fields] ')[1]||'').trim();
+  const heldHtml = !_dd.held ? '' : `
+  <div class="fgroup" id="heldNote" style="border-left:4px solid var(--bad,#9b2c2c)">
+    <h3>⚠ Publishing is waiting for you</h3><div class="body">
+    <div class="cascade">${esc(String(_dd.drain_note||'').split('[fields] ')[0])}</div>
+    <div style="margin-top:8px"><button class="btn primary" id="btnConfirmOverwrite"
+      data-fields="${esc(_heldFields)}">Confirm — overwrite these fields in BigCommerce</button></div></div></div>`;
+  const drainHtml = heldHtml + (!_dd.parked ? '' : `
+  <div class="fgroup" id="drainNote" style="border-left:4px solid var(--bad,#9b2c2c)">
+    <h3>⛔ Your last save was NOT fully applied</h3><div class="body">
+    <div class="hint" style="margin-bottom:6px">Nothing below reaches the stores until this is fixed.
+      Change the field it names and save again — the next run picks it up automatically.</div>
+    <div class="cascade">${esc(_dd.drain_note||'(no reason recorded)')}</div></div></div>`);
+  const notesHtml = drainHtml + (!(p.notes||[]).length ? '' : `
   <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
     <div class="hint" style="margin-bottom:8px">
       These were left <b>blank on purpose</b>. We were not confident enough to fill them in,
@@ -1522,7 +1558,7 @@ function renderFields(){
        ${n.detail?`<div style="opacity:.75;margin-top:3px">${esc(n.detail)}</div>`:''}
        ${n.hasGuess?`<div style="opacity:.7;margin-top:3px">We do have a candidate for this one;
           say the word in a comment and we will use it.</div>`:''}</div>`).join('')}
-  </div></div>`;
+  </div></div>`);
 
   $('#fields').innerHTML=notesHtml+`
   <div class="fgroup"><h3>Identity</h3><div class="body">
@@ -1530,7 +1566,8 @@ function renderFields(){
       (function(){const q=nameProblems(p.name,p.brand);
         return q.length?q.map(x=>`<span class="bad">⛔ ${esc(x)}</span>`).join('<br>')
                        :'<span class="okk">✓ no brand, no case quantity, size suffix present</span>';})())}
-    ${frow('SKU','derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`,
+    ${frow('SKU','derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`
+      +((p.skuAfter&&p.skuAfter!==p.sku)?`<div class="hint">⏳ becomes <b class="mono">${esc(p.skuAfter)}</b> once your change is applied</div>`:''),
       `<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`)}
     ${frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.')}
     ${frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`)}
@@ -1558,6 +1595,11 @@ function renderFields(){
     ${frow('Price',null,`<input class="ctl w-sm mono" id="fPrice" type="number" step="0.01" min="0" value="${p.price}">`)}
     ${frow('Sale price','0 = not on sale',`<input class="ctl w-sm mono" id="fSale" type="number" step="0.01" min="0" value="${p.salePrice}">`,
       '⚠ The fortnightly promo flip also writes this field — a hand-set sale is never taken down by that process.')}
+    ${frow('Sale ends','last delivery date at the sale price',
+      `<input class="ctl w-md mono" id="fSaleEnds" type="date" value="${esc(p.saleEnds||'')}">`,
+      (p.salePrice>0&&!p.saleEnds)
+        ? '<span class="bad">⛔ A sale needs its end date — it becomes the badge ("for delivery by M/D") and the automatic takedown. The sale will not be saved without it.</span>'
+        : '<span class="derived">Shown to shoppers as "for delivery by M/D"; the sale comes down automatically after this date.</span>')}
     ${frow('Cost','read-only',`<input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled>`,'<span class="derived">KeHE regular cost / Finale average cost</span>')}
     ${frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`)}
     ${frow('Live maths','derived',`<div class="calc" id="fCalc"></div>`)}
@@ -1687,10 +1729,15 @@ function renderFields(){
       <div style="margin-top:8px"><button class="tbtn go" id="applyCat">Apply category change</button>
       <button class="tbtn" id="cancelCat">Cancel</button></div></div>`;
     $('#applyCat').onclick=()=>{
-      const old=p.sku;
       p.cat=$('#fCat').value;p.taxOverride='';p.marginOverride=null;
-      p.sku=skuOf(p);                                   /* ⛔ A3: actually rebuild it */
-      markEdited('identity',`Category applied — ${old} → ${p.sku}, accounts and margin re-derived`);};
+      /* ⛔⛔ 2026-09-22: the page NO LONGER changes p.sku. It is the key every save
+         is filed under — rewriting it here filed the decision under a SKU the
+         batch does not have, and every edit, image pick and approval on the
+         product was lost (the drain could not find it). ⭐ The server re-mints
+         the SKU when it applies the change (build_sku is the ONE minting rule);
+         this is only a preview of the likely result. */
+      p.skuAfter=skuOf(p);
+      markEdited('identity',`Category change saved — the SKU becomes ${p.skuAfter} once it is applied`);};
     $('#cancelCat').onclick=()=>{$('#fCat').value=p.cat;$('#cascade').innerHTML='';};
   };
   $('#fStorage').onchange=()=>{
@@ -1698,12 +1745,25 @@ function renderFields(){
        never do it — skuOf() was dead code with zero call sites, which is exactly
        the two-halves-disagree failure the rule exists to prevent. */
     const want=$('#fStorage').value, old=p.sku, next=skuOf(Object.assign({},p,{storage:want}));
-    if(!confirm(`Storage → ${want}\n\nThe SKU is rebuilt with it:\n    ${old}\n → ${next}\n\n`
+    if(!confirm(`Storage → ${want}\n\nThe SKU is rebuilt with it when this is applied:\n    ${old}\n → ${next}\n\n`
        +`Both halves must agree or the receiving scanner mis-files it.\n\nApply?`)){
       $('#fStorage').value=p.storage;return;}
-    p.storage=want; p.sku=next;
-    markEdited('identity',`apply_storage_answer() — ${old} → ${next}`);
+    /* ⛔ 2026-09-22: p.sku is NOT changed here (see applyCat above) — the server
+       re-mints it when it applies the storage change. */
+    p.storage=want; p.skuAfter=next;
+    markEdited('identity',`Storage change saved — the SKU becomes ${next} once it is applied`);
   };
+  {const _b=$('#btnConfirmOverwrite'); if(_b) _b.onclick=()=>{
+    /* ⭐ 2026-09-22 (plan B6): the reviewer's explicit consent to overwrite the
+       NAMED fields that were changed in BigCommerce. Travels as a reserved key in
+       the save (like _flagActions); listing_publish checks it covers every field
+       it held on. The save bumps the revision, which releases the hold. */
+    p._overwriteConfirmed={fields:(_b.dataset.fields||'').split(',').filter(Boolean),
+                           at:new Date().toISOString()};
+    p._decision=Object.assign({},p._decision||{},{held:false});
+    renderAll();
+    if(IS_BROWSER) persist(cur,'Overwrite confirmed — it publishes on the next run');
+    else toast('Overwrite confirmed');};}
   $('#fOwner').onchange=()=>{p.owner=$('#fOwner').value;markEdited('identity','Owner changed — income account re-resolved');};
   $('#fTax').onchange=()=>{p.taxOverride=$('#fTax').value;markEdited('identity','Tax class overridden');};
   $('#addTier').onclick=()=>{
@@ -1745,6 +1805,8 @@ function renderFields(){
     p.upc=v;markEdited('identity','UPC saved as 12 digits, leading zeros preserved');};
   [['fPrice','price'],['fSale','salePrice'],['fW','weightG'],['fCP','casepack'],['fRO','reorder']]
     .forEach(([id,key])=>{const e=$('#'+id);if(e)e.onchange=()=>{p[key]=+e.value||0;markEdited('price');};});
+  {const e=$('#fSaleEnds');if(e)e.onchange=()=>{p.saleEnds=e.value||'';markEdited('price',
+    p.saleEnds?`Sale ends ${p.saleEnds} — badge and takedown set`:'Sale end date cleared');};}
   if(p.variants&&p.variants.length){
     const vo=$('#vOpt');if(vo)vo.onchange=()=>{p.optionName=vo.value;markEdited('identity','Option name saved');};
     $('#varBox').querySelectorAll('[data-rmv]').forEach(b=>b.onclick=()=>{
@@ -1903,14 +1965,15 @@ window.togglePick=togglePick;
 /* ⭐ Operator upload — the escape hatch for when no candidate is right.
    Jack, 2026-09-08. It joins the SAME pool as the scraped candidates and is
    tagged so its provenance is never mistaken for a scrape. */
+/* ⛔⛔ 2026-09-22 (plan B5): this was a FAKE — no file picker, nothing uploaded,
+   a placeholder filename pushed into the gallery and a toast saying "Uploaded".
+   The pick then matched no real candidate, so the image could never publish.
+   ⭐ A real upload needs the file stored (SharePoint) and joined to the review
+   package's candidates; it is being built with the consignment upload, which
+   needs exactly the same plumbing. Until then there is NO upload button. */
 function addUpload(){
-  const p=P[cur];
-  const n=p.imgs.filter(x=>x[4]==='upload').length+1;
-  p.imgs.push([`operator-upload-${n}.jpg`,`Your upload ${n}`,2000,2000,'upload']);
-  st[cur].picks.push(p.imgs.length-1);
-  st[cur].sec.gallery='edited';st[cur].by.gallery='edited by jack@tc.farm · just now';
-  renderAll();toast('Uploaded and added to the gallery — it joins the same pool as the scraped candidates');
-  scheduleAutosave(cur,'Image upload saved');
+  toast('Uploading your own image is not available yet — use "None of these" to ask for new images');
+  return false;
 }
 window.addUpload=addUpload;
 
@@ -1936,8 +1999,7 @@ function renderGrid(){
         title="open full size" aria-label="Open ${esc(im[1])} full size">⤢</button>
       <span class="cap"><b>${esc(im[1])}</b><em><span>${im[2]}×${im[3]}</span>
         <span>${im[4]==='upload'?'yours':small?'too small':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
-    +`<button class="cand up" id="upTile"><span class="art"><span>+ upload<br>your own</span></span>
-      <span class="cap"><b>Add an image</b><em><span>from your Mac</span><span></span></em></span></button>`;
+    +'';
   hydrateSp($('#grid'));
   /* ⛔⛔ P-851 item 2 (2026-09-10). The zoom was a <span> INSIDE the tile's
      <button>, so a keyboard user could toggle the pick but could NEVER open
@@ -1957,7 +2019,7 @@ function renderGrid(){
   $('#grid').querySelectorAll('button.zoom[data-zoom]').forEach(z=>{
     z.onclick=e=>{ if(e.stopPropagation)e.stopPropagation();
                    lbOpen(+z.dataset.zoom); };});
-  const ut=$('#upTile'); if(ut) ut.onclick=()=>addUpload();
+  /* ⛔ 2026-09-22: no upload tile until a real upload exists (see addUpload). */
   renderSeq();
 }
 function renderSeq(){
@@ -2380,7 +2442,36 @@ window.cloneSheet=function(){openSheet(`<h2>Make a similar version</h2>
     <option>Variant of the source — same page, new option</option>
     <option>Let the run recommend, I'll decide tomorrow</option></select></label>
   <button class="btn primary" onclick="closeSheet();toast('Queued as a clone — prepared tonight')">Add to tonight's queue</button>`);};
-$('#btnClone').onclick=()=>window.cloneSheet();
+/* ⛔ 2026-09-22 (plan B5): "Make a similar version" was a MOCK — its sheet toasted
+   "Queued as a clone" and queued nothing. Hidden until it is really built (new
+   flavours go through house_products.variantize today). */
+$('#btnClone').hidden=true;
+/* ⭐ 2026-09-22 (plan B5): "bring back" a deferred product. ⛔ Before this a
+   Defer made a product vanish from the app with no way back. It records
+   `_undefer` (a timestamp) on the product's decision; the drain applies the
+   LATER of a Defer and a bring-back, so neither can silently cancel the other. */
+window.undeferProduct=async function(sku){
+  if(!IS_BROWSER){ toast('Bringing a product back needs the live page'); return {ok:false}; }
+  try{
+    var batch=_batchFromUI(), row=await _findRow(batch, sku), f=row.fields||{}, ed={};
+    try{ ed=JSON.parse(f.edits_json||'{}')||{}; }catch(_){ ed={}; }
+    ed._undefer=new Date().toISOString();
+    var res=await saveDecision(batch, sku, {edits:ed, overall:'pending',
+                               expect_revision:parseInt(f.revision||0,10)||0});
+    if(res&&res.ok){ toast('Bringing it back — it reappears in the queue after the next update (about a minute)'); closeSheet(); }
+    else toast('⛔ Could not bring it back: '+((res&&res.message)||(res&&res.reason)||'unknown'));
+    return res;
+  }catch(e){ toast('⛔ Could not bring it back: '+e); return {ok:false,reason:String(e)}; }
+};
+$('#btnDeferred').onclick=()=>openSheet(`<h2>Deferred from this batch</h2>
+  <div class="sub">These were deferred and are hidden from the queue. Bringing one back
+  returns it for review; nothing is published without an approval.</div>
+  ${DEFERRED.map(d=>`<div class="rwitem"><b>${esc(d.name||d.sku)}</b> · <span class="mono">${esc(d.sku)}</span>
+     <p>${esc(d.reason||'(no reason recorded)')}</p>
+     <button class="btn" onclick="undeferProduct('${esc(d.sku)}')">Bring back</button></div>`).join('')
+   ||'<div class="rwitem"><p>Nothing is deferred.</p></div>'}
+  <button class="btn" onclick="closeSheet()">Close</button>`);
+$('#btnClone').onclick=()=>toast('Making a similar version from here is not built yet');
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
   openSheet(`<h2>Queued for the next run</h2><div class="sub">Each re-runs <b>only that section</b>
@@ -2444,16 +2535,24 @@ function undoClearPicks(){
 window.undoClearPicks=undoClearPicks;
 $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
   st[cur].cm.gallery='None of the candidates show this product. Fetch a fresh pool.';
-  renderAll();toast('Queued an image_fetch_agent for tonight');
-  scheduleAutosave(cur,'Rework request saved');};
+  /* ⛔ 2026-09-22: this toast used to say "Queued an image_fetch_agent" — no
+     such thing was ever queued. ⭐ What really happens: the drain raises an
+     IMAGES_NEED_SOURCING flag, which blocks publishing until someone sources
+     images (Open Flags tab). */
+  renderAll();toast('Flagged: this product needs new images — it will not publish until someone adds them (Open Flags)');
+  scheduleAutosave(cur,'Image request saved');};
 $('#btnApprove').onclick=()=>openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
-  <div class="sub">Approving is the publish consent. Tonight's run will
-  ${P[cur].kind==='update'?'update this product on all three stores via <b>bc_publish</b>, snapshot-first'
-  :'create it on all three stores via <b>bc_create</b>, then run <b>product_compliance.gate()</b>'}.</div>
-  ${P[cur].kind==='create'?`<div class="rwitem"><b>Still a human step afterwards</b><p>The two Finale
-   CSVs must be imported by hand — Finale has no API — and the batch stays incomplete until you confirm.</p></div>`:''}
-  <div class="rwitem"><b>Recorded against you</b><p>jack@tc.farm · every section, with what you edited.</p></div>
-  <button class="btn primary" onclick="approveProduct()">Approve and queue</button>`);
+  ${P[cur].published?`<div class="rwitem" style="border-left:4px solid var(--bad,#9b2c2c)">
+   <b>⚠ This product was already pushed live to the BigCommerce stores${P[cur].published.at?' ('+esc(String(P[cur].published.at).slice(0,10))+')':''}.</b>
+   <p>Approving these changes will <b>overwrite what is in the stores</b>. If anyone changed it in
+   BigCommerce since, publishing stops and lists exactly which fields would be overwritten, so you
+   can confirm them first.</p></div>`:''}
+  <div class="sub">Approving is the publish consent. The next publish run will
+  ${P[cur].published?'update the live product on all three stores, snapshot-first (it can be rolled back)'
+  :P[cur].kind==='update'?'update this product on all three stores via <b>bc_publish</b>, snapshot-first'
+  :'create it on all three stores via <b>bc_create</b>, create it in Finale, then run <b>product_compliance.gate()</b>'}.</div>
+  <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||'the signed-in reviewer')} · every section, with what you edited.</p></div>
+  <button class="btn primary" onclick="approveProduct()">${P[cur].published?'Approve — overwrite the live product':'Approve and queue'}</button>`);
 $('#btnSendRw').onclick=async()=>{const n=Object.keys(st[cur].cm).length;
   if(!n){toast('No rework requests on this product');return;}
   await persist(cur, `${n} rework request${n>1?'s':''} submitted`);};
@@ -2693,7 +2792,10 @@ if(IS_BROWSER){
      is the same shape of loss as the 400 above. */
 var FIELDS=['Title','batch','sku','upc','overall','sections_json','edits_json',
             'comments_json','image_order','image_excluded','decided_by',
-            'decided_at','revision','drained'];
+            'decided_at','revision','drained','drain_state','drain_note'];
+/* ⭐ 2026-09-22 (plan B0.5): the drain PARKS a row it could not fully apply
+   instead of marking it drained — drain_state = refused-at-revision, plus a
+   drain_note this page shows. Both are cleared on every save below. */
 var _KEEP={__keep:true};
 
 function _flat(v, max){
@@ -2745,7 +2847,13 @@ async function saveDecision(batch, sku, patch){
 
   function keep(v, col, max, dflt){
     if(v===undefined||v===_KEEP) return cur[col]!==undefined?cur[col]:(dflt||'');
-    return _flat(v, max);
+    /* ⛔⛔ 2026-09-22: a JSON column that does not fit is REFUSED, never cut.
+       `_flat` used to slice it — and truncated JSON parses to {} on the server,
+       which silently lost EVERY edit on the row. */
+    var out=_flat(v, 1e9);
+    if(out.length>max) throw new Error(`this save is too large to store (${col} would be `
+      +`${out.length} characters, over ${max}) — nothing was saved; split the change`);
+    return out;
   }
   var body=_validateBody({
     Title: batch+':'+sku,
@@ -2773,7 +2881,9 @@ async function saveDecision(batch, sku, patch){
        the drain step, permanently, with no error anywhere. ⭐ Every save is
        NEW undrained work by definition — clear it here so the next drain
        tick (or a manual run) actually sees it. */
-    drained: ''
+    drained: '',
+    /* ⭐ A save is new work: the drain's verdict on the OLD revision is void. */
+    drain_state: '', drain_note: ''
   });
 
   if(row.id){
@@ -2797,7 +2907,7 @@ async function saveDecision(batch, sku, patch){
    diff only walks THIS array, so none of the three was ever in `edits` and
    all three saved as if nothing had changed. Exactly the bug this comment
    already warns about, just three fields it had not caught up to yet. */
-var EDITABLE_FIELDS=['name','badge','brand','upc','price','salePrice','weightG',
+var EDITABLE_FIELDS=['name','badge','brand','upc','price','salePrice','saleEnds','weightG',
   'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
   'optionName','marginOverride','taxOverride','dims','variants','prose',
   'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier','requestFreeFill'];
@@ -2836,6 +2946,8 @@ function decisionPatch(i){
      included when non-empty so a product with no flag actions writes exactly
      what it always did. */
   if(s.flagAct && Object.keys(s.flagAct).length) edits._flagActions=s.flagAct;
+  /* ⭐ 2026-09-22 (plan B6): a confirmed overwrite of a live product. */
+  if(p._overwriteConfirmed) edits._overwriteConfirmed=p._overwriteConfirmed;
   return {
     overall: s.approved?'approved':(Object.keys(s.cm||{}).length?'rework':'pending'),
     sections: s.sec, edits: edits, comments: s.cm||{},
