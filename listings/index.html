@@ -752,7 +752,7 @@ async function loadLive(batch){
          other half of that bug and was never fixed.
          ⭐ The comments ARE dropped below — those genuinely have been acted on
          and must not reappear as open requests. */
-      f._drained=(String(f.drained||'').toLowerCase()==='true');
+      f._drained=isDrainedRow(f);
       rows.push(f);
     });
     url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
@@ -3012,6 +3012,18 @@ function decisionPatch(i){
    guarantees each one starts only once the last has updated that revision. */
 var _autosaveTimer={}, _autosaveChain={}, _dirty={};
 function pendingAutosave(){ return Object.keys(_dirty).some(function(k){return _dirty[k];}); }
+/* ⛔⛔ RE-AUDIT #10 (2026-09-23): the SAME rule as listing_review.is_drained —
+   drained means THIS revision was applied (or held after applying). Reading the
+   bare `drained` column hid the comments of a save made AFTER the last drain,
+   so the reviewer saw their own new request vanish. Keep the two identical. */
+function isDrainedRow(row){
+  if(String(row.drained||'').toLowerCase()!=='true') return false;
+  var st=String(row.drain_state||''), rev=String(+(row.revision||0));
+  if(st.indexOf('applied@')===0) return st==='applied@'+rev;
+  if(st.indexOf('held@')===0) return st==='held@'+rev;
+  return st===''||st==='applied';
+}
+window.isDrainedRow=isDrainedRow;
 function scheduleAutosave(i, label){
   if(!IS_BROWSER) return;   /* test harness / no session — persist() would refuse anyway */
   _dirty[i]=true;
@@ -3033,7 +3045,8 @@ async function persist(i, label){
   if(!IS_BROWSER) return {ok:false, reason:'not a browser'};
   var batch=_batchFromUI();
   try{
-    var res=await saveDecision(batch, P[i].sku, decisionPatch(i));
+    var _patch=decisionPatch(i);
+    var res=await saveDecision(batch, P[i].sku, _patch);
     if(!res.ok && res.reason==='stale'){
       /* ⛔ Do NOT overwrite. Say what happened and make reloading the action. */
       openSheet(`<h2>Someone else saved this product</h2>
@@ -3048,8 +3061,12 @@ async function persist(i, label){
     P[i]._decision=Object.assign({}, P[i]._decision||{}, {revision:res.revision,
       /* ⭐ AUDIT FIX: a successful save supersedes the old refusal/hold banner */
       parked:false, held:false});
-    /* ⛔ AUDIT FIX: a confirmation is sent ONCE — never re-sent by later saves */
-    if(P[i]._overwriteConfirmed) delete P[i]._overwriteConfirmed;
+    /* ⛔ AUDIT FIX: a confirmation is sent ONCE — never re-sent by later saves.
+       ⛔ RE-AUDIT #8 (2026-09-23): delete only the confirmation THIS save carried.
+       One made while this save was in flight is a different object, and dropping
+       it lost the reviewer's click — the product stayed held with no sign why. */
+    if(P[i]._overwriteConfirmed && _patch.edits &&
+       P[i]._overwriteConfirmed===_patch.edits._overwriteConfirmed) delete P[i]._overwriteConfirmed;
     toast((label||'Saved')+' · revision '+res.revision);
     return res;
   }catch(e){
