@@ -39,6 +39,7 @@ input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.lands{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid var(--line,#ccc);border-radius:8px;font-size:9.5px;font-weight:600;letter-spacing:.02em;text-transform:none;color:var(--ink-3);vertical-align:1px;cursor:help}
 .lbl{font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
 
 .top{display:flex;align-items:center;gap:13px;flex-wrap:wrap;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
@@ -961,6 +962,7 @@ function applyPayload(payload){
   try{ var _bd=document.querySelector('#btnDeferred'), _fd=document.querySelector('#fDef');
        if(_bd){ _bd.hidden=!DEFERRED.length; } if(_fd){ _fd.textContent=DEFERRED.length?String(DEFERRED.length):''; } }catch(_){}
   adoptSizeUnits(payload&&payload.size_units);
+  WIRING=(payload&&payload.wiring&&typeof payload.wiring==='object')?payload.wiring:{};
   var mapped=items.map(fromPayload);
   mapped.forEach(function(x){
     x._base=_snapshot(x);                 /* ⭐ the PAYLOAD's values = "unchanged" */
@@ -1449,6 +1451,43 @@ function wireSec(el){
 }
 
 /* ═══ ALL BC FIELDS tab ═══ */
+/* ⭐ 2026-09-23 (P-1490, plan B5 #23): a small badge beside each control saying
+   WHERE the value lands — BigCommerce, Finale, or review-only — read from the
+   payload's `wiring` (= `listing_wiring.WIRES`), never typed here. ⛔ A field the
+   table does not know gets NO badge rather than a guessed one. */
+var WIRING=WIRING||{};
+var WIRE_OF_ID={edName:'name',fName:'name',edBadge:'badge',fBadge:'badge',edBrand:'brand',fBrand:'brand',
+  fUpc:'upc',edPrice:'price',fPrice:'price',edSale:'salePrice',fSale:'salePrice',fSaleEnds:'saleEnds',
+  edTgt:'marginOverride',fTgt:'marginOverride',fW:'weightG',fD0:'dims',fCP:'casepack',fRO:'reorder',
+  fCat:'cat',fCat2:'cat2',fIT:'itemType',fOwner:'owner',fStorage:'storage',fVis:'visible',
+  fTax:'taxOverride',fSup:'supplier',fFF:'requestFreeFill',fPT:'pageTitle',fMD:'metaDesc',
+  edProse:'prose',edWarr:'warranty',tierBox:'tiers'};
+function landsBadge(key){
+  var w=WIRING[key]; if(!w) return '';
+  var parts=[]; if(w.bc) parts.push('BC'); if(w.finale) parts.push('Finale');
+  var txt=w.status==='not_editable'?'not editable':(parts.length?parts.join(' + '):'review only');
+  var tip=(w.bc?'BigCommerce: '+w.bc+'. ':'')+(w.finale?'Finale: '+w.finale+'. ':'')+
+          (!w.bc&&!w.finale?'Recorded in the review only — does not reach a store or Finale. ':'')+(w.note||'');
+  return '<span class="lands" data-lands="'+esc(key)+'" title="'+esc(tip)+'">'+esc(txt)+'</span>';
+}
+function applyLandsBadges(root){
+  try{
+    Object.keys(WIRE_OF_ID).forEach(function(id){
+      var el=(root||document).querySelector('#'+id); if(!el) return;
+      var box=el.closest('.frow')||el.closest('.fld')||el.closest('.sec'); if(!box) return;
+      var head=box.querySelector('.frow>.k, .fld>.lbl, .sec-h>.lbl'); if(!head) return;
+      if(head.querySelector('.lands')) return;
+      var b=landsBadge(WIRE_OF_ID[id]); if(b) head.insertAdjacentHTML('beforeend',' '+b);
+    });
+  }catch(_){}
+}
+/* ⭐ Re-badge after EVERY render of either panel, not only the full render —
+   an edit re-renders one panel alone, and its fresh HTML carries no badges. */
+(function(){
+  var _rs=renderShop, _rf=renderFields;   /* ⭐ rebinding the declarations works in the browser AND the harness (which has no real window) */
+  renderShop=function(){ var r=_rs.apply(this,arguments); applyLandsBadges(); return r; };
+  renderFields=function(){ var r=_rf.apply(this,arguments); applyLandsBadges(); return r; };
+})();
 function frow(k,sub,ctl,hint){
   return `<div class="frow"><div class="k">${k}${sub?`<em>${sub}</em>`:''}</div>
     <div class="v">${ctl}${hint?`<div class="hint">${hint}</div>`:''}</div></div>`;
