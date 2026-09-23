@@ -710,14 +710,31 @@ window.mergeState=mergeState;
    a batch id carries a FUTURE order Sunday (`2026-09-13` prepared on the
    11th), so sorting by name would rank a batch prepared weeks ago above
    tonight's if its order Sunday happened to be later. */
+/* ⛔⛔ 2026-09-23 (Jack): sort by when the batch was CREATED, not last modified.
+   Every overnight re-publish and every review save rewrites a payload, so
+   `lastModifiedDateTime` floated an old batch to the top — the TEST batch
+   `2026-09-11_studio_test` sat first for days because each hijacked nightly run
+   republished it. ⭐ `createdDateTime` of the payload file = when the batch first
+   reached the Studio. ⭐ Test batches (`*_test`) always sort last. */
+function sortBatches(rows){
+  const isTest=b=>/(^|_)test$/i.test(b)||/_test_/i.test(b);
+  return rows.slice().sort((a,b)=>{
+    const ta=isTest(a.batch), tb=isTest(b.batch);
+    if(ta!==tb) return ta?1:-1;
+    const ka=a.created||a.mod, kb=b.created||b.mod;
+    return ka<kb?1:ka>kb?-1:0;
+  });
+}
+window.sortBatches=sortBatches;
+
 async function listBatches(){
   const r=await graph(`/sites/${CFG.siteId}/drive/root:/${CFG.payloadDir}:`
-    +`/children?$select=name,lastModifiedDateTime&$top=200`);
-  return (r.value||[])
-    .map(f=>({name:String(f.name||''),mod:String(f.lastModifiedDateTime||'')}))
+    +`/children?$select=name,createdDateTime,lastModifiedDateTime&$top=200`);
+  return sortBatches((r.value||[])
+    .map(f=>({name:String(f.name||''),mod:String(f.lastModifiedDateTime||''),
+              created:String(f.createdDateTime||'')}))
     .filter(f=>/^payload_.+\.json$/.test(f.name))
-    .map(f=>({batch:f.name.replace(/^payload_/,'').replace(/\.json$/,''),mod:f.mod}))
-    .sort((a,b)=>a.mod<b.mod?1:a.mod>b.mod?-1:0);
+    .map(f=>({batch:f.name.replace(/^payload_/,'').replace(/\.json$/,''),mod:f.mod,created:f.created})));
 }
 
 async function populateBatchSel(){
