@@ -383,6 +383,11 @@
           <li><b>Comment a link</b> if we clearly used the wrong page. We trust a link you typed — we don't second-guess it — and we <em>re-read that page</em> before rewriting, rather than rewording the same bad source.</li>
           <li>Comments are picked up <b>every ten minutes between 7am and 10pm</b>, every day. There's no button. Review thirty products and the first ones are done before you reach the last.</li>
           <li><b>Images:</b> tap in the order you want them — the first tap is the main photo. Tap again to remove. Use the magnifier before choosing between two near-identical packs; that's the only way to tell a 12oz from a 16oz on the shelf shot.</li>
+          <li><b>None of the images is right?</b> Press <b>None of these</b>. The product is flagged as needing new images and <b>won't publish until someone adds them</b>. (Uploading your own photo isn't available yet.)</li>
+          <li><b>Every field you can edit now reaches the stores</b> — price, sale price, category, storage, brand, barcode, owner, supplier, tax class, weight, size, visibility, page title and the rest. If a change <em>can't</em> be applied, the product shows a red <b>"Your last save was NOT fully applied"</b> box saying why. Fix that field and save again; nothing publishes until it's cleared.</li>
+          <li><b>A sale needs an end date.</b> Set the sale price and the last delivery date at that price. Shoppers see "for delivery by M/D", and the sale comes off automatically after that date.</li>
+          <li><b>Changing the category, storage area, brand or barcode</b> can change the SKU. The page shows what the SKU will become; it changes once your save is applied.</li>
+          <li><b>Deferred something by mistake?</b> Use <b>Deferred</b> at the top of the queue to bring it back.</li>
         </ul>
       </details>
       <details>
@@ -417,13 +422,21 @@
   </div>
 
   <div class="step">
-    <div class="when">After<small>not yet automatic</small></div>
+    <div class="when">After<small>automatic</small></div>
     <details class="sd">
-      <summary><span class="what">Published to the stores <span class="tag t-off">switched off</span></span><span class="who">Built and proven against a test store · waiting on sign-off</span></summary>
+      <summary><span class="what">Published to the stores</span><span class="who">Automatic, within minutes of approving</span></summary>
       <div class="sdbody">
-      <div class="desc">The automatic publish works and has been tested, but it's deliberately off until we've watched it on real products. <b>For now, tell Jack when a batch is approved and it goes out by hand.</b> The KeHE free-fill request goes with it.</div>
+      <div class="desc">Approving a product publishes it to all three stores automatically, once your edits have been applied. The KeHE free-fill request goes with it.</div>
       <details>
-        <summary>what happens when it is switched on</summary>
+        <summary>already live? editing a published product</summary>
+        <ul>
+          <li>You can edit a product that's already in the stores and approve it again. The page warns you first: <b>approving will overwrite what's in the stores</b>.</li>
+          <li>If someone changed that product <b>in BigCommerce</b> since it was published, publishing stops and the product lists exactly which fields would be overwritten, with their current values. Press <b>Confirm</b> only if you mean to replace them.</li>
+          <li>Every such update is saved first, so it can be undone.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>what happens when you approve</summary>
         <ul>
           <li>Approving is the only go-ahead — the publish takes what you approved and nothing else. Anything not approved is simply left out of that run and stays in your queue.</li>
           <li>It runs the same checks the manual path always did: the export gate, and the compliance check that every product is on the right channel in every store.</li>
@@ -438,9 +451,9 @@
   <div class="step you">
     <div class="when">Same day<small>after publishing</small></div>
     <details class="sd">
-      <summary><span class="what">Finale import <span class="tag t-you">you</span></span><span class="who">Manual today &middot; built to go automatic once publishing does</span></summary>
+      <summary><span class="what">Finale import</span><span class="who">Automatic with publishing &middot; files only as a fallback</span></summary>
       <div class="sdbody">
-      <div class="desc">A direct write that creates the product in Finale itself — no file, no import — is built and proven. But it only runs inside the automatic publish step above, and that's still switched off. Until it's on, every batch is published by hand, and Finale import stays exactly what it's always been: <b>two files come out for someone to import by hand.</b> <b>The batch isn't finished until it's done</b> — a product that's buyable but missing from Finale can't be picked.</div>
+      <div class="desc">When a batch publishes, the same step creates each new product in Finale directly &mdash; no file, no import. Only if it genuinely can't (something missing to build it from) does it fall back to the two files, named so they aren't missed.</div>
       <details>
         <summary>what changes once publishing goes automatic</summary>
         <ul>
