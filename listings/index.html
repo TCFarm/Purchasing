@@ -3117,6 +3117,12 @@ window.persist=persist; window._flat=_flat; window._validateBody=_validateBody;
    organizer never reads them from the vendor's files. */
 var CN={lib:null, drive:null, list:null, jobs:null, cur:null, org:null, edits:[], poll:null};
 var CN_STATES=['uploaded','organizing','needs_answers','organized','preparing','prepared','in_review'];
+/* ⛔ Only CONSIGNMENT vendors: never TCFarm (not consignment), MNFC (internal),
+   TCFeeds (a nonprofit pass-through) or STCroix (dead legacy) — product_compliance's
+   INTERNAL / SPECIAL / LEGACY owners. */
+var CN_NOT_VENDORS=['TCFarm','MNFC','TCFeeds','STCroix'];
+function cnVendorOwners(){ return OWNERS.filter(function(o){return CN_NOT_VENDORS.indexOf(o)<0;}); }
+window.cnVendorOwners=cnVendorOwners;
 function cnSlug(s){return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40)||'vendor';}
 function cnStem(dateIso, vendor){return String(dateIso).slice(0,10)+'_'+cnSlug(vendor)+'_consignment';}
 function cnIntakeId(d){d=d||new Date();
@@ -3220,11 +3226,11 @@ function cnNew(){
     <div class="sub">⛔ Owner key, Finale supplier and display name are three separate things — the owner key
     decides where the income is booked, so pick it; never type a new one here.</div>
     <div class="cn-grid">
-      <label>Vendor (owner key)<select id="cnOwner">${OWNERS.filter(function(o){return o!=='TCFarm';})
+      <label>Vendor (owner key)<select id="cnOwner"><option value="">choose…</option>${cnVendorOwners()
         .map(function(o){return `<option>${esc(o)}</option>`;}).join('')}</select></label>
       <label>Display name (what shoppers see)<input id="cnDisplay" placeholder="Northstar Bison"></label>
       <label>Finale supplier name<input id="cnFinale" placeholder="as it is (or will be) in Finale"></label>
-      <label>Batch name<input id="cnStem" class="mono" value="${esc(cnStem(today,OWNERS.filter(function(o){return o!=='TCFarm';})[0]||'vendor'))}"></label>
+      <label>Batch name<input id="cnStem" class="mono" value="" placeholder="set when you choose the vendor"></label>
       <label>How many products do you expect?<input id="cnExpected" type="number" min="1"></label>
       <label>Notes for the organizer (ours, trusted)<input id="cnNotes" placeholder="e.g. the PDF has last year's prices"></label>
     </div>
@@ -3250,6 +3256,7 @@ function cnNew(){
   $('#cnGo').onclick=async function(){
     var owner=own.value, display=$('#cnDisplay').value.trim()||owner, fin=$('#cnFinale').value.trim()||display;
     var stem=$('#cnStem').value.trim(), paste=$('#cnPaste').value;
+    if(!owner){ toast('Choose the vendor first — the owner key decides where the income is booked'); return; }
     if(!/^\d{4}-\d{2}-\d{2}_[a-z0-9_]+_consignment$/.test(stem)){ toast('Batch name must be <date>_<vendor>_consignment'); return; }
     if(!files.length && !paste.trim()){ toast('Add at least one file or some pasted text'); return; }
     var big=files.filter(function(f){return f.size>25*1048576 && !/\.zip$/i.test(f.name);});
@@ -3283,7 +3290,16 @@ async function cnDetail(id){
   if(['needs_answers','organized','prepared','in_review','preparing','failed'].indexOf(st)>=0)
     org=await cnGetJson(r.folder+'/organized.json');
   var saved=(await cnGetJson(r.folder+'/answers.json'))||{edits:[]};
-  CN.org=org; CN.edits=saved.edits||[];
+  cnRender(id, r, org, saved);
+  /* ⭐ poll while the server is working, never after */
+  if(['uploaded','organizing','preparing','prepared'].indexOf(st)>=0)
+    CN.poll=setTimeout(function(){ if($('#drawer').dataset.open==='1') cnDetail(id); }, 15000);
+}
+/* ⭐ Rendering split from fetching (2026-09-23) so the table can be checked with a
+   real organized.json and no sign-in. */
+function cnRender(id, r, org, saved){
+  var st=r.state||'';
+  CN.org=org; CN.edits=(saved&&saved.edits)||[];
   var html=`<h2>${esc(r.vendor_name||r.owner_key)} · <span class="mono">${esc(r.batch_stem||'')}</span></h2>
     ${cnTimeline(st)}<div class="sub">${esc(r.state_note||'')}</div>`;
   if(org){
@@ -3344,11 +3360,8 @@ async function cnDetail(id){
       }catch(e){ this.disabled=false; toast('NOT QUEUED — '+e.message); } };
     render();
   }
-  /* ⭐ poll while the server is working, never after */
-  if(['uploaded','organizing','preparing','prepared'].indexOf(st)>=0)
-    CN.poll=setTimeout(function(){ if($('#drawer').dataset.open==='1') cnDetail(id); }, 15000);
 }
-window.cnOpen=cnOpen; window.cnNew=cnNew; window.cnDetail=cnDetail;
+window.cnOpen=cnOpen; window.cnNew=cnNew; window.cnDetail=cnDetail; window.cnRender=cnRender;
 /* ⛔ GATED until the Mac mini runs the two consignment job kinds (install_supervisor.sh
    there). Before that, "Upload & organize" would upload files and queue a job nothing
    can claim. `?consign=1` shows it for checking; remove the gate once the mini is live. */
