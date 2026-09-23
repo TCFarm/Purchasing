@@ -980,7 +980,10 @@ function applyPayload(payload){
                 hidden and a refresh throws that away. `_flagActions` lives
                 inside `edits_json` (see `decisionPatch`), not a new column. */
              flagAct:(p._edits&&p._edits._flagActions)||{},
-             cm:p._comments||{}, picks:p.pre.slice(), by:{}});
+             cm:p._comments||{},
+             cmAt:(function(){var a=(p._edits&&p._edits._commentsAt)||{},o={};
+               Object.keys(p._comments||{}).forEach(function(k){if(a[k])o[k]=a[k];});return o;})(),
+             picks:p.pre.slice(), by:{}});
   });
   cur=0; filter='all'; editing=null;
   return P.length;
@@ -1037,7 +1040,7 @@ function markEdited(k,what){
      so the chip flipping and the word 'Saved' above are never the only
      signal that this reached SharePoint. */
   scheduleAutosave(cur, what);}
-function cancelRework(k){delete st[cur].cm[k];
+function cancelRework(k){delete st[cur].cm[k];if(st[cur].cmAt)delete st[cur].cmAt[k];
   if(st[cur].sec[k]==='rework')st[cur].sec[k]='edited';
   renderAll();toast('Rewrite cancelled — your edit stands');}
 window.cancelRework=cancelRework;
@@ -1415,7 +1418,8 @@ function wireSec(el){
       box.querySelector('[data-cancel]').onclick=()=>box.remove();
       box.querySelector('[data-save]').onclick=()=>{const v=box.querySelector('textarea').value.trim();
         if(!v){toast('Add a note first');return;}
-        st[cur].cm[k]=v;st[cur].sec[k]='rework';renderAll();
+        st[cur].cm[k]=v;(st[cur].cmAt=st[cur].cmAt||{})[k]=new Date().toISOString();
+        st[cur].sec[k]='rework';renderAll();
         /* ⛔ Found 2026-09-12 (Jack, after a 3h wait): this used to say "runs
            tonight 21:30" — stale copy from before the poller's cadence
            changed. It now runs on a fixed schedule, 07:00-21:00 every 2h
@@ -2976,6 +2980,12 @@ function decisionPatch(i){
      included when non-empty so a product with no flag actions writes exactly
      what it always did. */
   if(s.flagAct && Object.keys(s.flagAct).length) edits._flagActions=s.flagAct;
+  /* ⭐ VERIFY F9 (2026-09-23): WHEN each queued comment was typed. The server tells
+     a comment this page is merely re-sending (same stamp) from the same words typed
+     again after a rework (new stamp) — without it, one of the two had to be wrong. */
+  var _cmAt={};
+  Object.keys(s.cm||{}).forEach(function(k){ if(s.cmAt&&s.cmAt[k]) _cmAt[k]=s.cmAt[k]; });
+  if(Object.keys(_cmAt).length) edits._commentsAt=_cmAt;
   /* ⭐ 2026-09-22 (plan B6): a confirmed overwrite of a live product. */
   if(p._overwriteConfirmed) edits._overwriteConfirmed=p._overwriteConfirmed;
   return {
