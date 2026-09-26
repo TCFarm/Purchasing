@@ -1632,12 +1632,20 @@ function renderFields(){
     <div class="cascade">${esc(_hn.replace(/^\[fields\][^\n]*\n?/,''))}</div>
     <div style="margin-top:8px"><button class="btn primary" id="btnConfirmOverwrite"
       data-fields="${esc(_heldFields)}">Confirm — overwrite these fields in BigCommerce</button></div></div></div>`;
-  const drainHtml = heldHtml + (!_dd.parked ? '' : `
+  /* ⭐ 2026-09-26 (P-1674): publish_readiness parks/holds an APPROVED product the
+     export would refuse (e.g. a Name with no " - <size>"), with a note starting
+     "⛔ Not published" that already says what to change — so say THAT, not
+     "your save was not applied" (the save WAS applied; the product cannot go live). */
+  const _notPub = /^⛔ Not published/.test(_hn);
+  const heldHtml2 = (_dd.held && _notPub) ? '' : heldHtml;
+  const drainHtml = heldHtml2 + (!(_dd.parked || (_dd.held && _notPub)) ? '' : `
   <div class="fgroup" id="drainNote" style="border-left:4px solid var(--bad,#9b2c2c)">
-    <h3>⛔ Your last save was NOT fully applied</h3><div class="body">
-    <div class="hint" style="margin-bottom:6px">Nothing below reaches the stores until this is fixed.
-      Change the field it names and save again — the next run picks it up automatically.</div>
-    <div class="cascade">${esc(_dd.drain_note||'(no reason recorded)')}</div></div></div>`);
+    <h3>${_notPub ? '⛔ Approved, but this product cannot be published yet'
+                  : '⛔ Your last save was NOT fully applied'}</h3><div class="body">
+    <div class="hint" style="margin-bottom:6px">${_notPub
+      ? 'Nothing else in the batch is waiting on this one. Make the change below, Save, and Approve again — the next run publishes it automatically.'
+      : 'Nothing below reaches the stores until this is fixed. Change the field it names and save again — the next run picks it up automatically.'}</div>
+    <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note||'(no reason recorded)')}</div></div></div>`);
   const notesHtml = drainHtml + (!(p.notes||[]).length ? '' : `
   <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
     <div class="hint" style="margin-bottom:8px">
