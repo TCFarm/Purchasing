@@ -1148,6 +1148,10 @@ async function switchWeek(key, opts){
     KEHEPO_UPLOAD_MSG=""; KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR="";
     KEHEPO_CREATE_STATE="idle"; KEHEPO_CREATE_JOB=null; KEHEPO_CREATE_MSG="";
     KEHEPO_CREATE_RESULT=null; KEHEPO_FORCE_NEW=false;
+    KEHEPO_STATUS=null; KEHEPO_STATUS_ERR="";
+    KEHEPO_CHECK_STATE="idle"; KEHEPO_CHECK_JOB=null; KEHEPO_CHECK_MSG="";
+    KEHEPO_APPEND_STATE="idle"; KEHEPO_APPEND_JOB=null; KEHEPO_APPEND_MSG="";
+    KEHEPO_APPEND_RESULT=null;
     /* ⭐ SAME REASONING AS THE KEHEPO_* RESET ABOVE — the Finalize screen's job/result
        belongs to whichever week it was built for. ⛔ No separate interval to clear here:
        `pollAgentJob()` tracks ONE active poll in `KEHEPO_POLL` regardless of which job kind
@@ -3196,6 +3200,16 @@ let AGENTJOBS_ID=null,
        all. ⛔ Defaults FALSE and is reset with everything else on a week switch (never carried
        from one week's decision to another's). */
     KEHEPO_FORCE_NEW=false,
+    /* ⭐⭐ THE RETRY PATH, 2026-09-27 — items excluded because they weren't yet created in Finale.
+       KEHEPO_STATUS is read-only (kehe_po_status_<sunday>.json — committed lines + Finale link,
+       published by BOTH the create and append handlers). KEHEPO_CHECK_* re-runs intake on the
+       SAME already-uploaded file (kehe.intake_from_upload, upload_name from KEHEPO_REVIEW — no
+       new upload) so KEHEPO_REVIEW.unknown_rows is current. KEHEPO_APPEND_* is the ONE OTHER
+       control that ever touches Finale, same "two taps, never one" discipline as Create. */
+    KEHEPO_STATUS=null, KEHEPO_STATUS_ERR="",
+    KEHEPO_CHECK_STATE="idle", KEHEPO_CHECK_JOB=null, KEHEPO_CHECK_MSG="",
+    KEHEPO_APPEND_STATE="idle", KEHEPO_APPEND_JOB=null, KEHEPO_APPEND_MSG="",
+    KEHEPO_APPEND_RESULT=null,
     KEHEPO_POLL=null,               /* the active setInterval id, so switching away can clear it */
     /* ⭐⭐ ORDER MODE'S FINALIZE SCREEN, built 2026-09-20 (Jack: "we want ZERO commands to run —
        it should be 100% app powered"). Before this, the screen's own "Download" button was an
@@ -3289,7 +3303,9 @@ function _kehepoUploadTick(sunday){
     const st=String(f.State||"");
     if(st==="done"){
       KEHEPO_UPLOAD_STATE="done"; KEHEPO_UPLOAD_MSG="✓ read — loading the review…";
-      loadKeheReview(sunday).then(renderKehePo);
+      /* ⭐ also load status — a retry upload may run against a week that already has a
+         committed order (e.g. re-checking after ProductPipeline finished creating an item). */
+      Promise.all([loadKeheReview(sunday), loadKeheStatus(sunday)]).then(renderKehePo);
     } else if(st==="needs_human"||st==="refused"||st==="failed"){
       KEHEPO_UPLOAD_STATE="failed";
       KEHEPO_UPLOAD_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
@@ -3334,14 +3350,108 @@ async function loadKeheReview(sunday){
     KEHEPO_REVIEW=null; KEHEPO_REVIEW_ERR=e.message||String(e);
   }
 }
+/* ⭐⭐ THE RETRY PATH's status read (2026-09-27) — kehe_po_status_<sunday>.json, published by
+   BOTH the create and append handlers after a successful write. Read-only, no Finale credential
+   involved (same site/pattern as loadKeheReview). ⛔ A 404 here is NORMAL, not an error — it just
+   means no Finale write has happened for this week yet (e.g. before Create in Finale is ever
+   tapped); never surfaced as KEHEPO_STATUS_ERR in that case. */
+async function loadKeheStatus(sunday){
+  try{
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent("kehe_po_status_"+sunday+".json")}:/content`,
+      {headers:{Authorization:"Bearer "+t}});
+    if(r.status===404){ KEHEPO_STATUS=null; KEHEPO_STATUS_ERR=""; return; }
+    if(!r.ok) throw new Error(`status download failed (${r.status})`);
+    KEHEPO_STATUS=await r.json(); KEHEPO_STATUS_ERR="";
+  }catch(e){
+    KEHEPO_STATUS=null; KEHEPO_STATUS_ERR=e.message||String(e);
+  }
+}
+/* ── step 3a: "Check for missing items" — NO Finale write, just re-runs intake on the SAME
+   already-uploaded file (KEHEPO_REVIEW.upload_name — Jack, chat, 2026-09-27: "there isn't a
+   reason necessarily to upload a new invoice"). Reuses the identical kehe.intake_from_upload job
+   kind step 1 already uses; idempotent:true, so re-running it is exactly as safe as the first
+   upload was. ── */
+function _kehepoCheckTick(sunday){
+  return f=>{
+    const st=String(f.State||"");
+    if(st==="done"){
+      KEHEPO_CHECK_STATE="done"; KEHEPO_CHECK_MSG="✓ re-checked — loading the review…";
+      loadKeheReview(sunday).then(renderKehePo);
+    } else if(st==="needs_human"||st==="refused"||st==="failed"){
+      KEHEPO_CHECK_STATE="failed";
+      KEHEPO_CHECK_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+    } else {
+      KEHEPO_CHECK_MSG=`${st||"queued"}…`;
+    }
+    renderKehePo();
+  };
+}
+async function startKehePoCheck(){
+  const sunday=kehepoSunday();
+  if(!KEHEPO_REVIEW||String(KEHEPO_REVIEW.order_sunday)!==String(sunday)||!KEHEPO_REVIEW.upload_name)
+    return;
+  KEHEPO_CHECK_STATE="queued"; KEHEPO_CHECK_MSG="queuing…"; renderKehePo();
+  try{
+    const jobId=await postAgentJob("kehe.intake_from_upload",sunday,
+      {upload_name:KEHEPO_REVIEW.upload_name});
+    KEHEPO_CHECK_JOB=jobId; KEHEPO_CHECK_STATE="polling";
+    KEHEPO_CHECK_MSG="re-checking what's resolvable now…"; renderKehePo();
+    await pollAgentJob(jobId, _kehepoCheckTick(sunday));
+  }catch(e){
+    KEHEPO_CHECK_STATE="failed"; KEHEPO_CHECK_MSG="⛔ "+(e.message||String(e));
+    renderKehePo();
+  }
+}
+/* ── step 3b: "Add to Finale PO" — the ONE OTHER control that ever touches Finale (same "two
+   taps, never one" discipline as Create in Finale, step 2). Never creates a new order — appends
+   newly-resolvable lines onto the ALREADY-COMMITTED order for this week via
+   kehe_finale_po.append_new_items()'s live-verified edit -> append -> re-lock cycle. ── */
+function _kehepoAppendTick(sunday){
+  return f=>{
+    const st=String(f.State||"");
+    if(st==="done"){
+      KEHEPO_APPEND_STATE="done"; KEHEPO_APPEND_MSG="✓ done";
+      try{ KEHEPO_APPEND_RESULT=JSON.parse(f.Message||"{}"); }
+      catch(_){ KEHEPO_APPEND_RESULT=null; }
+      Promise.all([loadKeheReview(sunday), loadKeheStatus(sunday)]).then(renderKehePo);
+    } else if(st==="needs_human"||st==="refused"||st==="failed"){
+      KEHEPO_APPEND_STATE="failed";
+      KEHEPO_APPEND_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
+    } else {
+      KEHEPO_APPEND_MSG=`${st||"queued"}…`;
+    }
+    renderKehePo();
+  };
+}
+async function startKehePoAppend(){
+  const sunday=kehepoSunday();
+  if(!confirm(
+    `Append the newly-resolvable item(s) onto the Finale purchase order already committed for `+
+    `week ${sunday}?\n\nThis reopens, edits and RE-LOCKS a live Finale order. It cannot be undone `+
+    `from here — cancelling a mistake afterward is a separate manual step in Finale.`)) return;
+  KEHEPO_APPEND_STATE="queued"; KEHEPO_APPEND_MSG="queuing…"; KEHEPO_APPEND_RESULT=null;
+  renderKehePo();
+  try{
+    const jobId=await postAgentJob("kehe.append_finale_po",sunday,{});
+    KEHEPO_APPEND_JOB=jobId; KEHEPO_APPEND_STATE="polling";
+    KEHEPO_APPEND_MSG="appending to the order in Finale…"; renderKehePo();
+    await pollAgentJob(jobId, _kehepoAppendTick(sunday));
+  }catch(e){
+    KEHEPO_APPEND_STATE="failed"; KEHEPO_APPEND_MSG="⛔ "+(e.message||String(e));
+    renderKehePo();
+  }
+}
 /* ⭐ Factored out for the same reason as _kehepoUploadTick — resumability. */
-function _kehepoCreateTick(){
+function _kehepoCreateTick(sunday){
   return f=>{
     const st=String(f.State||"");
     if(st==="done"){
       KEHEPO_CREATE_STATE="done"; KEHEPO_CREATE_MSG="✓ done";
       try{ KEHEPO_CREATE_RESULT=JSON.parse(f.Message||"{}"); }
       catch(_){ KEHEPO_CREATE_RESULT=null; }
+      if(sunday) loadKeheStatus(sunday).then(renderKehePo);
     } else if(st==="needs_human"||st==="refused"||st==="failed"){
       KEHEPO_CREATE_STATE="failed";
       KEHEPO_CREATE_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
@@ -3362,7 +3472,11 @@ function _resumeKehepoPolls(){
   if(KEHEPO_UPLOAD_JOB && (KEHEPO_UPLOAD_STATE==="queued"||KEHEPO_UPLOAD_STATE==="polling"))
     pollAgentJob(KEHEPO_UPLOAD_JOB, _kehepoUploadTick(kehepoSunday()));
   if(KEHEPO_CREATE_JOB && (KEHEPO_CREATE_STATE==="queued"||KEHEPO_CREATE_STATE==="polling"))
-    pollAgentJob(KEHEPO_CREATE_JOB, _kehepoCreateTick());
+    pollAgentJob(KEHEPO_CREATE_JOB, _kehepoCreateTick(kehepoSunday()));
+  if(KEHEPO_CHECK_JOB && (KEHEPO_CHECK_STATE==="queued"||KEHEPO_CHECK_STATE==="polling"))
+    pollAgentJob(KEHEPO_CHECK_JOB, _kehepoCheckTick(kehepoSunday()));
+  if(KEHEPO_APPEND_JOB && (KEHEPO_APPEND_STATE==="queued"||KEHEPO_APPEND_STATE==="polling"))
+    pollAgentJob(KEHEPO_APPEND_JOB, _kehepoAppendTick(kehepoSunday()));
 }
 /* ── step 2: create in finale — the ONLY control that ever touches Finale ── */
 async function startKehePoCreate(){
@@ -3397,7 +3511,7 @@ async function startKehePoCreate(){
        intake_at:String(KEHEPO_REVIEW.intake_at||"")});
     KEHEPO_CREATE_JOB=jobId; KEHEPO_CREATE_STATE="polling";
     KEHEPO_CREATE_MSG="creating the order in Finale…"; renderKehePo();
-    await pollAgentJob(jobId, _kehepoCreateTick());
+    await pollAgentJob(jobId, _kehepoCreateTick(sunday));
   }catch(e){
     KEHEPO_CREATE_STATE="failed"; KEHEPO_CREATE_MSG="⛔ "+(e.message||String(e));
     renderKehePo();
@@ -3466,13 +3580,71 @@ function renderKehePo(){
         ${KEHEPO_CREATE_RESULT.order_id?`<span>order <b>${esc(String(KEHEPO_CREATE_RESULT.order_id))}</b></span>`:""}
         ${KEHEPO_CREATE_RESULT.order_url?`<span><a href="${escAttr(KEHEPO_CREATE_RESULT.order_url)}" target="_blank" rel="noopener">open in Finale</a></span>`:""}</div>`:""}
     </div>`;
-  m.innerHTML=step1+step2;
+  /* ── step 3: status + retry — items excluded because they weren't yet created in Finale ──
+     ⭐⭐ "TWO TAPS, NEVER ONE" applies here exactly as it does to Create in Finale: Check-for-
+     missing-items NEVER touches Finale (it only re-runs intake); Add-to-Finale-PO is the ONE
+     OTHER control that does, and it has its own confirm(). Shown once an order is committed for
+     this week (KEHEPO_STATUS has a real order_id) OR the review shows excluded lines worth
+     explaining even before a first Create. */
+  const unknownRows=(reviewForThisWeek && KEHEPO_REVIEW.unknown_rows) || [];
+  const committedLines=(KEHEPO_STATUS && String(KEHEPO_STATUS.order_id||"")) ?
+    (KEHEPO_STATUS.committed||[]) : [];
+  const hasOrder=!!(KEHEPO_STATUS && KEHEPO_STATUS.order_id);
+  let step3="";
+  if(hasOrder || unknownRows.length){
+    const checkReady=reviewForThisWeek && hasOrder &&
+      KEHEPO_CHECK_STATE!=="queued" && KEHEPO_CHECK_STATE!=="polling";
+    /* ⭐ A heuristic gate, not the real check — `append_new_items()` itself always does the
+       authoritative SKU-level diff when tapped; this only decides whether the button LOOKS
+       worth tapping. Never a false NEGATIVE that would hide a real retry: it compares against
+       the review's OWN resolvable-line count, which only grows as items get created. */
+    const looksLikeSomethingNew=hasOrder && reviewForThisWeek &&
+      Number(KEHEPO_REVIEW.finale_po_lines||0) > committedLines.length;
+    const appendReady=hasOrder && looksLikeSomethingNew &&
+      KEHEPO_APPEND_STATE!=="queued" && KEHEPO_APPEND_STATE!=="polling";
+    step3=`
+    <div class="kstep">
+      <h3>Step 3 — items excluded because they weren't yet in Finale</h3>
+      ${hasOrder?`
+      <div class="kstats">
+        <span>Finale order <b>${esc(String(KEHEPO_STATUS.order_id))}</b></span>
+        ${KEHEPO_STATUS.order_url?`<span><a href="${escAttr(KEHEPO_STATUS.order_url)}" target="_blank" rel="noopener">open in Finale</a></span>`:""}
+        <span>committed lines <b>${committedLines.length}</b></span>
+      </div>`:`<div class="mut small">No Finale PO committed yet for this week — this section
+        will track excluded items once you tap Create in Finale above.</div>`}
+      ${unknownRows.length?`
+      <div class="mut small" style="margin-top:9px">
+        <b>${unknownRows.length}</b> item(s) currently excluded:</div>
+      <div class="kstats">${unknownRows.slice(0,12).map(r=>
+        `<span>${esc(r.description||r.item_number||"?")} <b>${esc(r.reason||"")}</b></span>`
+        ).join("")}${unknownRows.length>12?`<span>… and ${unknownRows.length-12} more</span>`:""}</div>`
+      :`<div class="mut small" style="margin-top:9px">no excluded items on the last check</div>`}
+      ${hasOrder?`
+      <div style="margin-top:9px;display:flex;gap:9px;flex-wrap:wrap">
+        <button id="kehecheck" ${checkReady?"":"disabled"}>Check for missing items</button>
+        <button class="primary" id="kehappend" ${appendReady?"":"disabled"}
+          >Add to Finale PO</button>
+      </div>
+      <div class="mut small" style="margin-top:6px">${KEHEPO_CHECK_MSG||""}</div>
+      <div class="mut small" style="margin-top:2px">${KEHEPO_APPEND_MSG||""}</div>
+      ${KEHEPO_APPEND_RESULT?`<div class="kstats"><span>result <b>${esc(String(KEHEPO_APPEND_RESULT.result||""))}</b></span>
+        ${(KEHEPO_APPEND_RESULT.appended_skus||[]).length?`<span>appended <b>${KEHEPO_APPEND_RESULT.appended_skus.length}</b> SKU(s)</span>`:""}
+        ${KEHEPO_APPEND_RESULT.detail?`<span>${esc(String(KEHEPO_APPEND_RESULT.detail))}</span>`:""}</div>`:""}
+      `:""}
+      ${KEHEPO_STATUS_ERR?`<div class="kalert">⛔ ${esc(KEHEPO_STATUS_ERR)}</div>`:""}
+    </div>`;
+  }
+  m.innerHTML=step1+step2+step3;
   const fi=document.getElementById("kehefile");
   if(fi) fi.onchange=()=>{ if(fi.files&&fi.files[0]) startKehePoUpload(fi.files[0]); };
   const cb=document.getElementById("kehecreate");
   if(cb) cb.onclick=startKehePoCreate;
   const fn=document.getElementById("kehforcenew");
   if(fn) fn.onchange=()=>{ KEHEPO_FORCE_NEW=fn.checked; renderKehePo(); };
+  const kc=document.getElementById("kehecheck");
+  if(kc) kc.onclick=startKehePoCheck;
+  const ka=document.getElementById("kehappend");
+  if(ka) ka.onclick=startKehePoAppend;
 }
 
 const pct=v=>v==null||v===""?"—":(Number(v)*100).toFixed(0)+"%";
