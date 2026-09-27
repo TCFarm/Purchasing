@@ -53,6 +53,15 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .who{font-size:12px;color:var(--ink-3)}.who b{color:var(--ink-2)}
 .gate{padding:7px 14px;border-radius:var(--r);font-weight:600;font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink-3)}
 .gate[data-open="1"]{background:var(--accent);border-color:var(--accent);color:#fff}
+/* ⭐ 2026-09-27 (P-1716): a STATUS BAR, not a button — approving publishes on its own. */
+.pubbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12px}
+.pubbar .ps{padding:3px 8px;border-radius:99px;border:1px solid var(--line);background:var(--panel);color:var(--ink-3);white-space:nowrap}
+.pubbar .ps b{font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.pubbar .ps.pub{border-color:var(--ok);color:var(--ok)}.pubbar .ps.pub b{color:var(--ok)}
+.pubbar .ps.wait{border-color:var(--accent);color:var(--accent)}
+.pubbar .ps.park{border-color:var(--stop);color:var(--stop)}
+.pubbar .ps.ask{border-color:var(--warn);color:var(--warn);cursor:pointer}
+.pubbar .ps.zero{opacity:.55}
 .tbtn{border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:3px 9px;font-size:11.5px;font-weight:600;color:var(--ink-2)}
 .tbtn:hover{border-color:var(--accent);color:var(--accent)}
 .tbtn.go{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -329,7 +338,7 @@ body[data-notes="1"] .note{display:block}
   <div class="bar"><i id="progBar"></i></div>
   <span class="who" id="who">not signed in</span>
   <button class="tbtn" id="btnSignIn">Sign in</button>
-  <button class="gate" id="gate" data-open="0" disabled>Publish 0</button>
+  <div class="pubbar" id="pubBar" role="status" aria-live="polite" title="Approving a product publishes it to all three stores within a few minutes — this bar shows where each product is"></div>
 </div>
 
 <div class="filters">
@@ -644,6 +653,8 @@ function mergeState(payload, rows){
   /* rows: [{sku, overall, edits_json, comments_json, sections_json,
              image_order, revision, decided_at, decided_by}] */
   const by={}; (rows||[]).forEach(r=>{ by[r.sku]=r; });
+  /* ⭐ 2026-09-27 (P-1717): answers to "Needs your answer" live on rows keyed `ask:<key>`. */
+  payload._ask={}; (rows||[]).forEach(r=>{ if(String(r.sku||'').indexOf('ask:')===0) payload._ask[String(r.sku).slice(4)]=r; });
   const genAt=String(payload.generated_at||'');
   (payload.items||[]).forEach(item=>{
     item._decision={overall:'pending',revision:0,decided_by:'',decided_at:'',sections:{}};
@@ -689,6 +700,7 @@ function mergeState(payload, rows){
     item._decision={overall:row.overall||'pending', revision:+(row.revision||0),
                     decided_by:row.decided_by||'', decided_at:decidedAt, sections:sections,
                     drain_state:drainState, drain_note:String(row.drain_note||''),
+                    drained:isDrainedRow(row),
                     parked:!!drainState && drainState==='refused@'+String(+(row.revision||0)),
                     held:!!drainState && drainState==='held@'+String(+(row.revision||0))};
     const order=String(row.image_order||'').split(',').filter(x=>/^\d+$/.test(x.trim())).map(Number);
@@ -954,6 +966,13 @@ function fromPayload(it){
    REASSIGNING them would leave half the page reading the old array. Mutating
    in place is what keeps one source of truth. */
 var DEFERRED=[];
+/* ⭐⭐ 2026-09-27 (P-1717, operator: "a user interface … in Listing Studio for the items that it can't
+   identify … asks questions … restart the process"). Products with NO copy that wait on a person,
+   from the payload's `needs_input` (listing_answers.needs_input). An answer is saved as a
+   ListingReview row `sku='ask:<key>'`, `overall='answered'`, `edits_json._answers`; the drain
+   applies it (listing_answers.apply_answers) and puts the product at the front of the queue.
+   ⛔ Keyed by the record's key, never the SKU — the SKU changes when a category is answered. */
+var NEEDS=[];
 function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
@@ -978,6 +997,12 @@ function applyPayload(payload){
   DEFERRED.length=0; ((payload&&payload.deferred)||[]).forEach(function(d){DEFERRED.push(d);});
   try{ var _bd=document.querySelector('#btnDeferred'), _fd=document.querySelector('#fDef');
        if(_bd){ _bd.hidden=!DEFERRED.length; } if(_fd){ _fd.textContent=DEFERRED.length?String(DEFERRED.length):''; } }catch(_){}
+  NEEDS.length=0; ((payload&&payload.needs_input)||[]).forEach(function(n){
+    var r=(payload._ask||{})[n.key];
+    if(r){ n._state=String(r.drain_state||'').indexOf('refused@')===0&&r.drain_state==='refused@'+String(+(r.revision||0))
+             ?'refused':(isDrainedRow(r)?'applied':'saved');
+           n._note=String(r.drain_note||''); }
+    NEEDS.push(n);});
   adoptSizeUnits(payload&&payload.size_units);
   WIRING=(payload&&payload.wiring&&typeof payload.wiring==='object')?payload.wiring:{};
   var mapped=items.map(fromPayload);
@@ -1137,7 +1162,10 @@ function renderQueue(){
   $('#queue').innerHTML=vis.map(i=>{const p=P[i],s=st[i].sec;
     const dots=SEC.map(k=>`<i class="${s[k]==='edited'||_reworkedAt(s[k])!==null?'ed':s[k]==='rework'?'rw':''}"></i>`).join('');
     const g=productBlocked(i);
-    const tick=st[i].approved?'<span class="chip ok" style="padding:1px 5px">✓ approved</span>'
+    const ps=pubState(i);
+    const tick=ps==='published'?'<span class="chip ok" style="padding:1px 5px">✓ published</span>'
+      :ps==='parked'||ps==='held'?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">'+(ps==='held'?'held':'parked')+'</span>'
+      :st[i].approved?'<span class="chip ok" style="padding:1px 5px">⏳ approved</span>'
       :g.blk?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">blocked</span>'
       :g.rw?'<span class="chip rw" style="padding:1px 5px">rework</span>'
       :g.noImgs?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">no images</span>'
@@ -2296,6 +2324,100 @@ function openFlags(i){
   return (P[i].flags||[]).filter(f=>!acted[f.k]);
 }
 function productApproved(i){return !!st[i].approved;}
+/* ⭐⭐ 2026-09-27 (P-1716, operator: "a check mark that says published with the quantity … more of a
+   status indicator"). ONE state per product, the same rules the publish trigger uses
+   (listing_review.is_publishable + meta.listing_publish_done):
+     published — stamped live at (or after) the current saved revision
+     parked / held — the drain refused this revision / is holding it for an overwrite confirmation
+     waiting — approved; the publish trigger picks it up (drain first, then the stores)
+     review — not approved yet
+   ⛔ An edit saved AFTER publishing bumps the revision, so the product reads "review" again until it
+   is re-approved — which is exactly when a re-publish would happen. */
+function pubState(i){
+  const p=P[i]||{}, d=p._decision||{}, pub=p.published;
+  const rev=+(d.revision||0);
+  if(pub && (pub.revision==null || rev<=+pub.revision)) return 'published';
+  if(d.parked) return 'parked';
+  if(d.held) return 'held';
+  if(st[i]&&st[i].approved) return 'waiting';
+  return 'review';
+}
+window.pubState=pubState;
+function pubCounts(){
+  const c={published:0,waiting:0,parked:0,held:0,review:0};
+  P.forEach((p,i)=>{c[pubState(i)]++;});
+  c.needs=(typeof NEEDS!=='undefined'&&NEEDS)?NEEDS.length:0;
+  return c;
+}
+window.pubCounts=pubCounts;
+function renderPubBar(){
+  const el=document.querySelector('#pubBar'); if(!el) return;
+  const c=pubCounts();
+  const chip=(cls,icon,n,label,extra)=>`<span class="ps ${cls}${n?'':' zero'}"${extra||''}>${icon} ${label} <b>${n}</b></span>`;
+  el.innerHTML=chip('pub','✓',c.published,'Published')
+    +chip('wait','⏳',c.waiting,'Waiting to publish')
+    +chip('park','⛔',c.parked+c.held,'Parked')
+    +chip('ask','❓',c.needs,'Needs your answer',c.needs?' onclick="showNeeds()" title="Products that could not be identified or categorised — answer to restart them"':'')
+    +chip('','✎',c.review,'To review');
+}
+window.renderPubBar=renderPubBar;
+
+function _naVal(i,q){ var el=document.querySelector('#na_'+i+'_'+q); return el?String(el.value||'').trim():''; }
+function needsCard(n,i){
+  const st_=n._state==='refused'?`<div class="rwitem" style="border-left:4px solid var(--stop)"><b>Not applied:</b> ${esc(n._note||'')}</div>`
+    :n._state==='saved'?`<div class="rwitem" style="border-left:4px solid var(--accent)">✓ Answer saved — the pipeline picks it up within a minute and restarts this product.</div>`:'';
+  const qs=(n.questions||[]).map(q=>{
+    const id='na_'+i+'_'+q.id;
+    let ctl='';
+    if(q.kind==='url') ctl=`<input class="ctl w-lg" id="${id}" type="url" placeholder="https://…">`;
+    else if(q.kind==='text') ctl=`<input class="ctl w-lg" id="${id}" placeholder="optional">`;
+    else if(q.kind==='category'){
+      const top=(q.options||[]).map(o=>`<option value="${esc(o.value)}">${esc(o.label)}${o.conf?' ('+Math.round(o.conf*100)+'%)':''}</option>`).join('');
+      const all=CATS.map(c=>`<option value="${esc(c[0])}">${esc(c[0])}</option>`).join('');
+      ctl=`<select class="ctl w-lg" id="${id}"><option value="">— choose —</option>${top?`<optgroup label="Suggested">${top}</optgroup>`:''}<optgroup label="All categories">${all}</optgroup></select>`;
+    } else ctl=`<select class="ctl w-lg" id="${id}"><option value="">— choose —</option>${(q.options||[]).map(o=>`<option value="${esc(o.value)}">${esc(o.label)}${o.gtin?' · '+esc(o.gtin):''}</option>`).join('')}</select>`;
+    return `<div class="frow"><label class="lbl">${esc(q.ask)}</label>${ctl}${q.why?`<div class="note">${esc(q.why)}</div>`:''}</div>`;
+  }).join('');
+  return `<div class="fgroup" id="needs_${i}"><div><b>${esc(n.brand||'')}</b> — ${esc(n.description||'')}
+    <span class="mono" style="font-size:11px">UPC ${esc(n.upc||'')}${n.size?' · '+esc(n.size):''}</span></div>
+    ${(n.images||[]).map(u=>`<img src="${esc(u)}" alt="" style="height:64px;margin:4px 4px 0 0">`).join('')}
+    ${st_}${qs}
+    <button class="btn primary" onclick="saveAnswer(${i})">Save answer</button>
+    <button class="btn" onclick="saveAnswer(${i},true)">Skip this product</button></div>`;
+}
+window.needsCard=needsCard;
+function showNeeds(){
+  if(!NEEDS.length){ toast('Nothing needs an answer right now'); return; }
+  openSheet(`<h2>❓ ${NEEDS.length} product${NEEDS.length===1?'':'s'} need your answer</h2>
+    <div class="sub">The pipeline could not identify or categorise these on its own, so they have no copy yet.
+    Answer what you can — each product restarts automatically after you save.</div>
+    ${NEEDS.map(needsCard).join('')}
+    <button class="btn" onclick="closeSheet()">Close</button>`);
+}
+window.showNeeds=showNeeds;
+/* What saveAnswer will send — separated so the harness can check it without a network. */
+function answerPatch(i, skip){
+  const n=NEEDS[i]; if(!n) return null;
+  const a={};
+  if(skip) a.skip='true';
+  else (n.questions||[]).forEach(q=>{ const v=_naVal(i,q.id); if(v) a[q.id]=v; });
+  if(!Object.keys(a).length) return null;
+  if(a.url && !/^https?:\/\/\S+$/.test(a.url)) return {error:'That is not a web address — it must start with http:// or https://'};
+  return {sku:'ask:'+n.key, patch:{overall:'answered', edits:{_answers:a}, upc:n.upc||''}};
+}
+window.answerPatch=answerPatch;
+async function saveAnswer(i, skip){
+  const ap=answerPatch(i, skip);
+  if(!ap){ toast('Type or choose an answer first'); return; }
+  if(ap.error){ toast(ap.error); return; }
+  if(!IS_BROWSER){ toast('not signed in'); return; }
+  try{
+    const res=await saveDecision(_batchFromUI(), ap.sku, ap.patch);
+    if(res&&res.ok){ NEEDS[i]._state='saved'; toast(skip?'Skipped — it leaves this batch':'Answer saved — the product restarts shortly'); showNeeds(); renderPubBar(); }
+    else toast('Not saved — '+((res&&res.message)||'unknown error'));
+  }catch(e){ toast('Not saved — '+(e&&e.message?e.message:e)); }
+}
+window.saveAnswer=saveAnswer;
 function productBlocked(i){
   /* ⛔ Derived from the QUEUED JOB (cm), not the section chip — the chip is
      cosmetic and an edit used to clear it while the rewrite stayed scheduled. */
@@ -2322,7 +2444,8 @@ function renderDecide(){
   const s=st[cur].sec;
   const ed=SEC.filter(k=>s[k]==='edited').length;
   const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
-  $('#decStatus').innerHTML=(st[cur].approved?'<b style="color:var(--ok)">✓ Approved</b> — in tonight\'s publish queue'
+  $('#decStatus').innerHTML=(pubState(cur)==='published'?'<b style="color:var(--ok)">✓ Published</b> — live on the stores'
+      :st[cur].approved?'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes'
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
@@ -2341,8 +2464,7 @@ function renderDecide(){
     :noImgs?'No images chosen':nameBad?'Name breaks a rule':'Approve product';
   const readyN=P.filter((p,i)=>productApproved(i)).length;
   $('#progText').textContent=readyN+' / '+P.length;$('#progBar').style.width=(readyN/P.length*100)+'%';
-  const g=$('#gate');g.textContent=readyN?`Publish ${readyN} approved`:'Publish 0';
-  g.dataset.open=readyN?'1':'0';g.disabled=!readyN;
+  renderPubBar();
   $('#rwN').textContent=st.reduce((a,x)=>a+Object.keys(x.cm).length,0);
 }
 
@@ -2681,7 +2803,7 @@ $('#btnDefer').onclick=async()=>{
     else toast('NOT SAVED — '+((r&&(r.message||r.reason))||'unknown'));
   } else toast('Deferred — stays in the queue, flag open for next time');
   renderAll();};
-$('#gate').onclick=()=>toast('Publishes every fully-approved product in tonight\'s run');
+/* ⭐ 2026-09-27 (P-1716): the old "Publish N" button did nothing but toast — approving IS publishing. */
 
 /* ⭐ C4: the drawer closes on its backdrop; the lightbox did not. */
 $('#lightbox').onclick=e=>{ if(e.target && e.target.id==='lightbox') lbClose(); };
@@ -2778,7 +2900,8 @@ async function bootLive(){
     _setWho('signed in <b>'+(ACCOUNT||'?')+'</b>', true);
     renderAll();
     toast(n+' product'+(n===1?'':'s')+' loaded'
-          +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':''));
+          +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':'')
+          +(NEEDS.length?' · ❓ '+NEEDS.length+' need your answer':''));
   }catch(e){
     /* ⛔ SAY WHAT FAILED AND LEAVE THE FIXTURES UP. A silent fall-back to
        fixtures would be the worst outcome available: the page would look
