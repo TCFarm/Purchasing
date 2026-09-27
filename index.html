@@ -2968,7 +2968,18 @@ function paintFinalScreen(){
      no button to recover it. pollAgentJob() always replaces whatever poll was active, so it is
      safe to just re-assert it for whichever screen is actually on screen right now. */
   if(FINALIZE_JOB && (FINALIZE_STATE==="queued"||FINALIZE_STATE==="polling"))
-    pollAgentJob(FINALIZE_JOB, _finalizeTick());
+    pollAgentJob(FINALIZE_JOB, _finalizeTick(sunday));
+  /* ⭐⭐ A PAGE RELOAD LOSES FINALIZE_JOB/FINALIZE_STATE ENTIRELY (plain JS memory, nothing
+     persisted) — so without this, reloading after a REAL, already-completed finalize would show
+     the idle "Finalize order" button as if nothing had ever happened, hiding a real result that
+     is sitting on SharePoint right now. Check for it once per landing on this screen, EXCEPT
+     while a job is actually in flight (that poll above already owns the repaint). */
+  else if(FINALIZE_STATE==="idle")
+    loadFinalizeReview(sunday).then(rev=>{
+      if(!rev || FINALIZE_STATE!=="idle") return;   // a real finalize started meanwhile — don't clobber it
+      FINALIZE_STATE="done"; FINALIZE_MSG="✓ done"; FINALIZE_RESULT=rev;
+      if(FINALIZE_VISIBLE) paintFinalScreen();
+    });
   const m=document.getElementById("main");
   m.innerHTML=`<div class="banner"><b>Ready to execute — week of
       ${esc(sunday)}.</b> Nothing has been sent —
@@ -3072,19 +3083,52 @@ async function startFinalize(sunday){
     FINALIZE_JOB=jobId; FINALIZE_STATE="polling";
     FINALIZE_MSG="finalizing — converting bulk lines, checking order minimums…";
     paintFinalScreen();
-    await pollAgentJob(jobId, _finalizeTick());
+    await pollAgentJob(jobId, _finalizeTick(sunday));
   }catch(e){
     FINALIZE_STATE="failed"; FINALIZE_MSG="⛔ "+(e.message||String(e));
     paintFinalScreen();
   }
 }
-function _finalizeTick(){
+/* ⭐⭐ FIXED 2026-09-27 — a REAL live incident: a genuine 178-line order finalized correctly
+   end to end (both SharePoint PUTs succeeded, the real KeHE upload file was published), but the
+   screen showed "Finalized. ? line(s), 0 unit(s), $0.00" and "Download KeHE upload" did nothing.
+   ⛔⛔ ROOT CAUSE: `f.Message` is the supervisor's own combined stdout+stderr for the handler
+   process, TRUNCATED to the trailing 4000 characters (`_shared/jobs.py`) — and
+   `purchase_drain.drain()` (called by the job body BEFORE its own final `print(json.dumps(...))`
+   line) prints several lines of plain-text diagnostics of its own. On an order with enough
+   changed/orphan/added lines, that prose sits ahead of the JSON inside the same string, so
+   `JSON.parse(f.Message)` throws on the WHOLE string (leading non-JSON text is fatal to
+   JSON.parse, even though the string legitimately ENDS with valid JSON) — caught, and
+   FINALIZE_RESULT silently becomes `null` → renders as "?"/0/$0.00 with no error shown at all.
+   ⭐ THE FIX: never trust `f.Message` for the real numbers — fetch
+   `kehe_finalize_review_<sunday>.json`, the SAME file the job body publishes to PurchaseReview/
+   with no truncation risk (a full SharePoint PUT, not a constrained job-row field), exactly the
+   pattern KeHE-PO mode's `loadKeheReview()`/`loadKeheStatus()` already use. `f.Message` is kept
+   only as an instant first paint while the real fetch is in flight. */
+async function loadFinalizeReview(sunday){
+  try{
+    const t=await getToken();
+    const r=await fetch(
+      `${GRAPH}/sites/${CFG.siteId}/drive/root:/${DIR}/${encodeURIComponent("kehe_finalize_review_"+sunday+".json")}:/content`,
+      {headers:{Authorization:"Bearer "+t}});
+    if(!r.ok) return null;               // 404 or any other failure — the Message-derived
+    return await r.json();               // guess (if any) stands; never worse than before
+  }catch(_){
+    return null;
+  }
+}
+function _finalizeTick(sunday){
   return f=>{
     const st=String(f.State||"");
     if(st==="done"){
       FINALIZE_STATE="done"; FINALIZE_MSG="✓ done";
       try{ FINALIZE_RESULT=JSON.parse(f.Message||"{}"); }
       catch(_){ FINALIZE_RESULT=null; }
+      if(sunday) loadFinalizeReview(sunday).then(rev=>{
+        if(!rev) return;
+        FINALIZE_RESULT=rev;             // the AUTHORITATIVE numbers, always wins once loaded
+        if(FINALIZE_VISIBLE) paintFinalScreen();
+      });
     } else if(st==="needs_human"||st==="refused"||st==="failed"){
       FINALIZE_STATE="failed";
       FINALIZE_MSG=`⛔ ${st}: ${f.Message||"see the error board"}`;
