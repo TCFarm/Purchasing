@@ -2023,7 +2023,8 @@ const VERIFY_MIN=800;
    in opposite directions and one floss SKU aborted a 39-product export. */
 let SIZE_UNITS_SRC='oz|ounces?|fl\\s*oz|lb|lbs?|pounds?|g|grams?|kg|ml|l|liters?|ct|count|each|ea|pk|packs?|bars?|yd|yards?|ft|feet|inch|inches|cm|mm';
 function _buildSizeRe(units){
-  return new RegExp('\\s-\\s(?:avg\\.?|approx\\.?|about|~)?\\s*\\d+(?:\\.\\d+|(?:\\s+\\d+)?\\/\\d+)?(?:\\s*x\\s*\\d+(?:\\.\\d+)?)?\\s*('+units+')\\b','i');
+  /* ⭐ 2026-09-27: an optional range prefix ("18-19 oz") — same as pass1_normalizer.SIZE_RANGE_PREFIX */
+  return new RegExp('\\s-\\s(?:\\d+(?:\\.\\d+)?-)?(?:avg\\.?|approx\\.?|about|~)?\\s*\\d+(?:\\.\\d+|(?:\\s+\\d+)?\\/\\d+)?(?:\\s*x\\s*\\d+(?:\\.\\d+)?)?\\s*('+units+')\\b','i');
 }
 let SIZE_RE=_buildSizeRe(SIZE_UNITS_SRC);
 function adoptSizeUnits(units){
