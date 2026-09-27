@@ -2976,7 +2976,16 @@ function paintFinalScreen(){
      while a job is actually in flight (that poll above already owns the repaint). */
   else if(FINALIZE_STATE==="idle")
     loadFinalizeReview(sunday).then(rev=>{
-      if(!rev || FINALIZE_STATE!=="idle") return;   // a real finalize started meanwhile — don't clobber it
+      /* ⛔⛔ THE WEEK MAY HAVE CHANGED WHILE THIS FETCH WAS IN FLIGHT (Opus adversarial
+         review, 2026-09-27): switching weeks resets FINALIZE_STATE to "idle" too (see the
+         reset block above), so checking ONLY `FINALIZE_STATE==="idle"` does not tell you
+         this response still belongs to the week it was fetched for — it also passes for a
+         DIFFERENT week that just landed on idle by being switched to. Without the sunday
+         check below, week B could show week A's finalize result (and its download button
+         would fetch week A's file). Compare against the LIVE current week, never the
+         closed-over `sunday` alone. */
+      const live=(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK||"";
+      if(!rev || FINALIZE_STATE!=="idle" || String(live)!==String(sunday)) return;
       FINALIZE_STATE="done"; FINALIZE_MSG="✓ done"; FINALIZE_RESULT=rev;
       if(FINALIZE_VISIBLE) paintFinalScreen();
     });
@@ -3125,7 +3134,13 @@ function _finalizeTick(sunday){
       try{ FINALIZE_RESULT=JSON.parse(f.Message||"{}"); }
       catch(_){ FINALIZE_RESULT=null; }
       if(sunday) loadFinalizeReview(sunday).then(rev=>{
-        if(!rev) return;
+        /* ⛔⛔ SAME STALE-WEEK RISK AS THE RELOAD-RECOVERY PATH ABOVE (Opus adversarial
+           review, 2026-09-27): this poll's OWN interval is cleared on a week switch, but a
+           fetch already in flight when that happens still resolves and lands here. Applying
+           it unconditionally would show this (now-abandoned) week's result on whatever week
+           the operator has since switched to. */
+        const live=(ORDER&&ORDER.meta&&ORDER.meta.order_sunday)||WEEK||"";
+        if(!rev || String(live)!==String(sunday)) return;
         FINALIZE_RESULT=rev;             // the AUTHORITATIVE numbers, always wins once loaded
         if(FINALIZE_VISIBLE) paintFinalScreen();
       });
