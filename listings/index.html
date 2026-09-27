@@ -3602,7 +3602,9 @@ window.cnOpen=cnOpen; window.cnNew=cnNew; window.cnDetail=cnDetail; window.cnRen
 /* ⛔ GATED until the Mac mini runs the two consignment job kinds (install_supervisor.sh
    there). Before that, "Upload & organize" would upload files and queue a job nothing
    can claim. `?consign=1` shows it for checking; remove the gate once the mini is live. */
-var CN_ENABLED=(typeof location!=='undefined' && /[?&]consign=1\b/.test(location.search||''));
+/* ⭐ 2026-09-27 (operator): the Consignment button is SHOWN — the lane is installed and healthy on the mini.
+   `?consign=0` hides it again if ever needed. */
+var CN_ENABLED=!(typeof location!=='undefined' && /[?&]consign=0\b/.test(location.search||''));
 if(document.querySelector('#btnConsign')){
   $('#btnConsign').onclick=function(){ cnOpen(); };
   if(!CN_ENABLED) $('#btnConsign').style.display='none';
