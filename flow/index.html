@@ -202,7 +202,7 @@
   <span class="slot"><b>Thu 09:00</b> last order scored</span>
   <span class="slot"><b>daily 07:30</b> pull list</span>
   <span class="slot"><b>daily 19:00</b> approvals become work</span>
-  <span class="slot"><b>nightly 21:00 + 01–05</b> listings prepared</span>
+  <span class="slot">listings prepared continuously (7 at a time, whenever there's work)</span>
   <span class="slot"><b>every 10 min, 7am–10pm</b> your comments actioned</span>
 </div>
 
@@ -350,19 +350,19 @@
   </div>
 
   <div class="step">
-    <div class="when">Every night<small>21:00, then 01–05</small></div>
+    <div class="when">Continuously<small>all day and night</small></div>
     <details class="sd">
-      <summary><span class="what">Each product is prepared <span class="tag t-live">running</span></span><span class="who">Automatic · ten an hour, nobody involved</span></summary>
+      <summary><span class="what">Each product is prepared <span class="tag t-live">running</span></span><span class="who">Automatic · 7 at a time, whenever there's work, nobody involved</span></summary>
       <div class="sdbody">
-      <div class="desc">Finds the manufacturer's page, checks it really shows <em>that</em> product, sorts out category and storage, prices it against Target and Lakewinds, writes the copy, gathers the images. Ten at a time so the queue builds through the night.</div>
+      <div class="desc">Finds the manufacturer's page, checks it really shows <em>that</em> product, sorts out category and storage, prices it against Target and Lakewinds, writes the copy, gathers the images. Runs in 7-product chunks whenever there's work waiting, instead of on a nightly schedule.</div>
       <details>
-        <summary>why ten at a time, and what "prepared" means</summary>
+        <summary>why continuous, and what "prepared" means</summary>
         <ul>
-          <li>It runs at <b>21:00 and then hourly from 01:00 to 05:00</b>, every day. Ten products per run. A batch of forty is ready by morning; a batch of four is ready before midnight.</li>
-          <li><b>Ten is deliberate.</b> One long run would use up the night's capacity in one go and leave the whole batch unreviewable in the morning. Ten an hour means the queue <em>grows</em> while you sleep, and a partly-built queue is still a usable queue.</li>
+          <li>It's a continuous worker, not a scheduled run: it picks up a chunk of 7 products whenever there is work, any time of day or night. It stays within half the day's capacity during the day (06:00–20:00) and most of the night's capacity overnight, and it never starts a chunk 22:45–23:30 or 05:30–06:00.</li>
+          <li>The Listing Studio no longer has a "Publish N" button — a status bar shows Published / Waiting to publish / Parked / Needs your answer / To review, updating as chunks finish.</li>
+          <li>A product the worker can't identify or categorise lands in a <b>Needs your answer</b> section instead of stalling silently; answering it restarts that product automatically.</li>
           <li>It works on <b>whatever isn't finished yet</b>, so nothing is done twice and nothing is skipped if a run is interrupted.</li>
           <li>It checks the page it found genuinely shows <em>that</em> product — a brand's homepage is not a product page, and copy written from one describes whatever the brand happened to be promoting that day.</li>
-          <li>A product it can't confirm still reaches you. It arrives with a note asking for a link rather than a confident guess.</li>
         </ul>
       </details>
       </div>
