@@ -973,6 +973,9 @@ var DEFERRED=[];
    applies it (listing_answers.apply_answers) and puts the product at the front of the queue.
    ⛔ Keyed by the record's key, never the SKU — the SKU changes when a category is answered. */
 var NEEDS=[];
+/* ⭐ 2026-09-27: {vendors:{owner:{display_name, finale_supplier, finale_basis}}, finale_suppliers:[…]} — so
+   picking an existing vendor fills the two names it ALREADY has (listing_payload._vendor_directory). */
+var VDIR={vendors:{}, finale_suppliers:[]};
 function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
@@ -1003,6 +1006,7 @@ function applyPayload(payload){
              ?'refused':(isDrainedRow(r)?'applied':'saved');
            n._note=String(r.drain_note||''); }
     NEEDS.push(n);});
+  if(payload&&payload.vendor_directory&&payload.vendor_directory.vendors) VDIR=payload.vendor_directory;
   adoptSizeUnits(payload&&payload.size_units);
   WIRING=(payload&&payload.wiring&&typeof payload.wiring==='object')?payload.wiring:{};
   var mapped=items.map(fromPayload);
@@ -3308,6 +3312,20 @@ var CN_STATES=['uploaded','organizing','needs_answers','organized','preparing','
    TCFeeds (a nonprofit pass-through) or STCroix (dead legacy) — product_compliance's
    INTERNAL / SPECIAL / LEGACY owners. */
 var CN_NOT_VENDORS=['TCFarm','MNFC','TCFeeds','STCroix'];
+/* What an EXISTING vendor already is: its display name (Vendor Master) and the Finale supplier on its products. */
+function cnVendorDefaults(owner){
+  var v=(VDIR.vendors||{})[owner]||{};
+  return {display_name:v.display_name||owner, finale_supplier:v.finale_supplier||'',
+          note:v.finale_supplier?('✓ from Finale — '+(v.finale_basis||'')):'⚠ not found in Finale yet — pick from the list or type it exactly as it will be'};
+}
+window.cnVendorDefaults=cnVendorDefaults;
+function cnFinaleNote(name){
+  var n=String(name||'').trim().toLowerCase();
+  if(!n) return '';
+  var hit=(VDIR.finale_suppliers||[]).some(function(x){return String(x).toLowerCase()===n;});
+  return hit?'✓ an existing Finale supplier':'⚠ not an existing Finale supplier — check the spelling, or it is new';
+}
+window.cnFinaleNote=cnFinaleNote;
 function cnVendorOwners(){ return OWNERS.filter(function(o){return CN_NOT_VENDORS.indexOf(o)<0;}); }
 window.cnVendorOwners=cnVendorOwners;
 /* ⛔ A new owner key: safe characters (it becomes a folder), and NOT an existing key in
@@ -3428,7 +3446,9 @@ function cnNew(){
       <label>Vendor (owner key)<select id="cnOwner"><option value="">choose…</option>${cnVendorOwners()
         .map(function(o){return `<option>${esc(o)}</option>`;}).join('')}<option value="__new">＋ New vendor…</option></select></label>
       <label>Display name (what shoppers see)<input id="cnDisplay" placeholder="Northstar Bison"></label>
-      <label>Finale supplier name<input id="cnFinale" placeholder="as it is (or will be) in Finale"></label>
+      <label>Finale supplier name<input id="cnFinale" list="cnFinaleList" placeholder="pick the vendor first — it fills in">
+        <datalist id="cnFinaleList">${(VDIR.finale_suppliers||[]).map(function(n){return `<option value="${esc(n)}">`;}).join('')}</datalist>
+        <span class="note" id="cnFinaleNote"></span></label>
       <label>Batch name<input id="cnStem" class="mono" value="" placeholder="set when you choose the vendor"></label>
       <label>How many products do you expect?<input id="cnExpected" type="number" min="1"></label>
       <label>Notes for the organizer (ours, trusted)<input id="cnNotes" placeholder="e.g. the PDF has last year's prices"></label>
@@ -3466,7 +3486,10 @@ function cnNew(){
     var isNew=own.value==='__new';
     $('#cnNewVendor').style.display=isNew?'block':'none';
     if(!isNew && own.value){ $('#cnStem').value=cnStem(today, own.value);
-      if(!$('#cnDisplay').value) $('#cnDisplay').placeholder=own.value; } };
+      var v=cnVendorDefaults(own.value);
+      $('#cnDisplay').value=v.display_name; $('#cnFinale').value=v.finale_supplier;
+      $('#cnFinaleNote').textContent=v.note; } };
+  $('#cnFinale').oninput=function(){ $('#cnFinaleNote').textContent=cnFinaleNote(this.value); };
   $('#nvOwner').oninput=function(){ var v=this.value.trim(); if(v) $('#cnStem').value=cnStem(today, v); };
   $('#cnFile').onchange=function(e){ files=files.concat(Array.from(e.target.files||[])); show(); };
   var d=$('#cnDrop');
