@@ -559,7 +559,7 @@
         <ul>
           <li><b>Finale PO lines</b> is what will actually go on the order &mdash; not the same as lines in the download, since a hand-added line or an unmatched item can differ.</li>
           <li><b>KeHE shorts</b> are KeHE failing to fill, <em>not</em> us under-ordering &mdash; tracked separately so the order model isn&rsquo;t blamed for a supplier&rsquo;s stockout.</li>
-          <li><b>Unknown items</b> have no matching Finale SKU and will be MISSING from the PO until the product lookup is fixed and the file re-run.</li>
+          <li><b>Unknown items</b> have no matching Finale SKU and will be MISSING from the PO. Once the product exists in Finale, use <b>Step 3 &mdash; Check for missing items</b> (no re-upload needed) and then <b>Add to Finale PO</b> to append it onto the same already-committed order.</li>
           <li><b>Reprice candidates</b> fell below Target Margin on the new cost &mdash; a price-only prompt is written for ProductPipeline; this side of the business never sets a retail price itself.</li>
         </ul>
       </details>
