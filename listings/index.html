@@ -3306,7 +3306,7 @@ window.persist=persist; window._flat=_flat; window._validateBody=_validateBody;
      ConsignmentIntake (state + pointers)            · AgentJobs (the job queue)
    ⛔ Owner / supplier / display name are THREE separate values typed here — the
    organizer never reads them from the vendor's files. */
-var CN={lib:null, drive:null, list:null, jobs:null, cur:null, org:null, edits:[], poll:null};
+var CN={lib:null, drive:null, list:null, jobs:null, cur:null, org:null, edits:[], poll:null, pending:null};
 var CN_STATES=['uploaded','organizing','needs_answers','organized','preparing','prepared','in_review'];
 /* ⛔ Only CONSIGNMENT vendors: never TCFarm (not consignment), MNFC (internal),
    TCFeeds (a nonprofit pass-through) or STCroix (dead legacy) — product_compliance's
@@ -3548,11 +3548,28 @@ async function cnDetail(id){
   if(['needs_answers','organized','prepared','in_review','preparing','failed'].indexOf(st)>=0)
     org=await cnGetJson(r.folder+'/organized.json');
   var saved=(await cnGetJson(r.folder+'/answers.json'))||{edits:[]};
+  /* ⭐ 2026-09-27 (operator): after a click that queues work, the row does not change until the Mac mini
+     claims the job — so keep checking (every 5 s, up to 10 min) until the state MOVES, with a banner. */
+  var pend=cnPendingFor(id, st);
   cnRender(id, r, org, saved);
+  if(pend){
+    var sheet=document.querySelector('#sheet');
+    if(sheet && sheet.insertAdjacentHTML) sheet.insertAdjacentHTML('afterbegin',
+      `<div class="rwitem" style="border-left:4px solid var(--accent)">⏳ ${esc(pend.label)} — waiting for the Mac mini
+       to pick it up (usually under a minute). This page updates by itself.</div>`);
+  }
   /* ⭐ poll while the server is working, never after */
-  if(['uploaded','organizing','preparing','prepared'].indexOf(st)>=0)
-    CN.poll=setTimeout(function(){ if($('#drawer').dataset.open==='1') cnDetail(id); }, 15000);
+  if(pend || ['uploaded','organizing','preparing','prepared'].indexOf(st)>=0)
+    CN.poll=setTimeout(function(){ if($('#drawer').dataset.open==='1') cnDetail(id); }, pend?5000:15000);
 }
+/* A click queued work on intake `id` while it read `from`: pending until the state changes or 10 min pass. */
+function cnPendingFor(id, state, now){
+  var p=CN.pending; now=now||Date.now();
+  if(!p || String(p.id)!==String(id)) return null;
+  if(state!==p.from || now-p.at>600000){ CN.pending=null; return null; }
+  return p;
+}
+window.cnPendingFor=cnPendingFor;
 /* ⭐ Rendering split from fetching (2026-09-23) so the table can be checked with a
    real organized.json and no sign-in. */
 function cnRender(id, r, org, saved){
@@ -3616,6 +3633,7 @@ function cnRender(id, r, org, saved){
     $('#cnSave').onclick=async function(){ try{ await save(); toast('Answers saved'); }catch(e){ toast('NOT SAVED — '+e.message); } };
     $('#cnPrep').onclick=async function(){ this.disabled=true;
       try{ await save(); await cnQueue('productpipeline.consignment_prepare', id);
+        CN.pending={id:id, from:st, at:Date.now(), label:'Preparing the listings'};
         toast('Preparing — the listings will appear in the batch list when they are built'); cnDetail(id);
       }catch(e){ this.disabled=false; toast('NOT QUEUED — '+e.message); } };
     render();
