@@ -952,6 +952,13 @@ function detectMode(env){
            +', which is not the vendor portal. Nothing was loaded.'};
     return {mode:'vendor', asOwner:'', parentOrigin:env.parentOrigin, error:''};
   }
+  /* ⛔ P-1785 (2026-09-29). GitHub Pages sends no frame-blocking header, so ANY site could frame the
+     STAFF page and, with a cached Microsoft token, show real batches under its own UI (clickjacking a
+     reviewer's Approve). Only the vendor view is ever framed, and only by the portal (above) — so staff
+     and as-vendor refuse to load inside any frame at all. */
+  if(env.framed) return {mode:'staff', asOwner:'', parentOrigin:'',
+    error:'The staff Listing Studio does not open inside another page'
+         +(env.parentOrigin?' ('+env.parentOrigin+')':'')+'. Open it directly in its own tab. Nothing was loaded.'};
   if(as) return {mode:'as-vendor', asOwner:String(as), parentOrigin:'', error:''};
   return {mode:'staff', asOwner:'', parentOrigin:'', error:''};
 }
@@ -1397,10 +1404,13 @@ var NEEDS=[];
 /* ⭐ 2026-09-27: {vendors:{owner:{display_name, finale_supplier, finale_basis}}, finale_suppliers:[…]} — so
    picking an existing vendor fills the two names it ALREADY has (listing_payload._vendor_directory). */
 var VDIR={vendors:{}, finale_suppliers:[]};
+/* ⭐ 2026-09-29 test lane: a test batch publishes to the Dev store ONLY — say so, never "Live". */
+var IS_TEST=false;
 function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
     +'blank the page (an empty queue and a failed load look identical)');
+  IS_TEST=!!(payload&&payload.test_batch===true);
   /* ⭐⭐ ADOPT THE REAL VOCABULARIES (2026-09-11). CATS/BRANDS/OWNERS shipped
      as FIXTURES — 45 invented category leaves against a real 156, nine brands
      that never included a real one, and a hand-typed owner list. ⛔ A value
@@ -2267,7 +2277,7 @@ function renderFields(){
       +((p.skuAfter&&p.skuAfter!==p.sku)?`<div class="hint">⏳ becomes <b class="mono">${esc(p.skuAfter)}</b> once your change is applied</div>`:''),
       isVendorView()?'<span class="derived">set by us from the storage area and the category</span>':`<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`))}
     ${isVendorView()?vrow('published',null,frow('On our stores',null,p.published
-        ?`<div class="hint okk" style="margin-top:6px">✓ Live${p.published.at?' since '+esc(String(p.published.at).slice(0,10)):''}</div>`
+        ?`<div class="hint okk" style="margin-top:6px">${IS_TEST?'✓ Published to the Dev store only (test item)':'✓ Live'}${p.published.at?' since '+esc(String(p.published.at).slice(0,10)):''}</div>`
         :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>')):''}
     ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.'))}
     ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
@@ -3113,7 +3123,7 @@ function renderPubBar(){
   const el=document.querySelector('#pubBar'); if(!el) return;
   const c=pubCounts();
   const chip=(cls,icon,n,label,extra)=>`<span class="ps ${cls}${n?'':' zero'}"${extra||''}>${icon} ${label} <b>${n}</b></span>`;
-  el.innerHTML=chip('pub','✓',c.published,'Published')
+  el.innerHTML=chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published')
     +chip('wait','⏳',c.waiting,'Waiting to publish')
     +chip('park','⛔',c.parked+c.held,'Parked')
     +chip('ask','❓',c.needs,'Needs your answer',c.needs?' onclick="showNeeds()" title="Products that could not be identified or categorised — answer to restart them"':'')
@@ -3203,7 +3213,7 @@ function renderDecide(){
   const s=st[cur].sec;
   const ed=SEC.filter(k=>s[k]==='edited').length;
   const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
-  $('#decStatus').innerHTML=(pubState(cur)==='published'?'<b style="color:var(--ok)">✓ Published</b> — live on the stores'
+  $('#decStatus').innerHTML=(pubState(cur)==='published'?(IS_TEST?'<b style="color:var(--ok)">✓ Published</b> — on the Dev store only (test item)':'<b style="color:var(--ok)">✓ Published</b> — live on the stores')
       :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — it will be published to our stores within a few minutes'
         :'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes')
       :'<b>Not yet approved</b>')
@@ -3953,6 +3963,18 @@ async function _findRow(batch, sku){
 
 /* `patch` may carry: overall, sections, edits, comments, image_order,
    image_excluded, upc. ⭐ Anything ABSENT is left exactly as stored. */
+/* ⭐ P-1784 (2026-09-29) — mirrors listing_review._flat_idx. `_flat` cut an index
+   list mid-number (`…,88` → `…,8`, a DIFFERENT image). Picks that do not fit are
+   REFUSED; the excluded list is cut back to the last WHOLE index. */
+function _flatIdx(arr, col, max){
+  max=max||255;
+  var out=(arr||[]).map(function(x){return String(parseInt(x,10));}).join(',');
+  if(out.length<=max) return out;
+  if(col==='image_order') throw new Error('too many image picks to store ('
+    +out.length+' characters, over '+max+') — nothing was saved');
+  var cut=out.slice(0,max+1), i=cut.lastIndexOf(',');
+  return i<0 ? '' : cut.slice(0,i);
+}
 async function saveDecision(batch, sku, patch){
   patch=patch||{};
   var row=await _findRow(batch, sku);
@@ -3985,10 +4007,10 @@ async function saveDecision(batch, sku, patch){
     comments_json:  keep(patch.comments,'comments_json',8000,'{}'),
     image_order:    patch.image_order===undefined||patch.image_order===_KEEP
                       ? (cur.image_order||'')
-                      : _flat((patch.image_order||[]).join(',')),
+                      : _flatIdx(patch.image_order,'image_order'),
     image_excluded: patch.image_excluded===undefined||patch.image_excluded===_KEEP
                       ? (cur.image_excluded||'')
-                      : _flat((patch.image_excluded||[]).join(',')),
+                      : _flatIdx(patch.image_excluded,'image_excluded'),
     decided_by: _flat(ACCOUNT||patch.decided_by||''),
     decided_at: new Date().toISOString().slice(0,19),
     revision: String(curRev+1),
