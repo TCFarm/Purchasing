@@ -895,7 +895,7 @@ window.loadLive=loadLive;
    owner and supplier data before a vendor payload leaves it. The page is only
    required not to DEPEND on that — and a test proves it renders none of it. */
 var PORTAL_ORIGINS=['https://vendors.mnfood.club','https://main.do89570fqs33f.amplifyapp.com'];
-var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos'];
+var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest'];
 var PORTAL_TIMEOUT_MS=30000;
 /* ⛔ An EMBEDDED COPY of config vendor_field_policy.json — used ONLY when the
    payload carries no `vendor_policy`. The harness compares it to the file, so
@@ -1184,7 +1184,9 @@ function makePortalHost(parentWin, parentOrigin, opts){
                                duration_s:meta.duration_s||0, data:data}, [data]);
       });
     },
-    listMemos:function(sku){ return request('memos',{sku:sku}).then(function(r){ return (r&&r.memos)||[]; }); }
+    listMemos:function(sku){ return request('memos',{sku:sku}).then(function(r){ return (r&&r.memos)||[]; }); },
+    /* the vendor's choice after recording: rewrite this description with the story once it is transcribed? */
+    storyRequest:function(batch, sku, session, rewrite){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true}); }
   };
 }
 var HOST=GraphHost;
@@ -1803,7 +1805,8 @@ function sec(k,body,extra){
   const note=st[cur].cm[k]?`<div class="cnote"><b>${isVendorView()?'You asked us to rewrite this':'Queued for the next run'}</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
   /* ⭐ vendor view: Edit only on a section with at least one field the policy lets them edit */
-  const canEdit=k==='gallery'||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit');
+  const _lock=vRewriting(cur);            /* ⭐ Jack 2026-09-29: no changes while a rewrite is in progress */
+  const canEdit=!_lock&&(k==='gallery'||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit'));
   /* ⭐ RULING (Jack, 2026-09-08): APPROVAL IS WHOLE-PRODUCT, not per section.
      Sections still track CHANGE (edited / rework queued) because the rework
      comments must attach somewhere — but there is no per-section Approve.
@@ -1813,7 +1816,7 @@ function sec(k,body,extra){
     <div class="sec-h"><span class="lbl">${LBL[k]}</span>${extra||''}${chip}${by}
       <span class="sec-tools">
         ${canEdit?`<button class="tbtn ${isEd?'go':''}" data-act="edit">${isEd?'Save':'Edit'}</button>`:''}
-        ${isEd?'<button class="tbtn" data-act="cancel">Cancel</button>':'<button class="tbtn" data-act="comment">Comment</button>'}
+        ${isEd?'<button class="tbtn" data-act="cancel">Cancel</button>':_lock?'':'<button class="tbtn" data-act="comment">Comment</button>'}
       </span></div>
     <div class="sec-body">${body}</div>${note}</div>`;
 }
@@ -3695,7 +3698,41 @@ function renderVendorExtras(){
    transcribed, the mini asks for a rewrite of this description with it (vendor_portal_hooks.process_story_rewrites).
    No approval step: the story is used as heard. */
 var STORY_MAX_S=300;
-var STORY={phase:'idle', stream:null, rec:null, sess:'', n:1, t0:0, timer:null, sku:'', batch:'', parts:[], memos:{}, open:false, err:'', fetched:{}};
+function _vsClear(t){ if(t && typeof clearInterval==='function') clearInterval(t); }
+var STORY={phase:'idle', stream:null, rec:null, sess:'', n:1, t0:0, timer:null, sku:'', batch:'', parts:[], memos:{}, open:false, err:'', fetched:{},
+           pending:{}, poll:null};
+/* ⭐ Jack 2026-09-29: while a rewrite of this listing is in progress (the vendor said "rewrite it when ready", or a
+   rework is queued), the vendor view LOCKS editing and checks every 30 s; the new description appears on its own. */
+function vRewriting(i){
+  if(!isVendorView() || !P[i]) return false;
+  if(STORY.pending[P[i].sku]) return true;
+  var s=(st[i]&&st[i].sec)||{}, d=P[i]._decision||{};
+  /* ⛔ a PARKED (the drain refused it) or HELD listing is never locked — the vendor may need to fix it */
+  if(d.parked || d.held) return false;
+  return Object.keys(s).some(function(k){ return s[k]==='rework'; }) && !!(+d.revision);
+}
+window.vRewriting=vRewriting;
+function storyPollTick(){
+  if(!isVendorView() || !P.some(function(_,i){ return vRewriting(i); })){ _vsClear(STORY.poll); STORY.poll=null; return; }
+  storyRefresh(true);
+  var batch=_batchFromUI(), keep=P[cur]&&P[cur].sku, was={};
+  P.forEach(function(p,i){ if(vRewriting(i)) was[p.sku]=1; });
+  if(!batch || !HOST || typeof HOST.loadBatch!=='function') return;
+  HOST.loadBatch(batch).then(function(payload){
+    var handed=false, landed=false;
+    (payload.items||[]).forEach(function(it){
+      var d=it._decision||{}, secs=d.sections||{};
+      var rw=Object.keys(secs).some(function(k){ return secs[k]==='rework'; });
+      if(STORY.pending[it.sku] && rw){ delete STORY.pending[it.sku]; handed=true; }   /* the server has it: the rework holds the lock */
+      else if(was[it.sku] && !rw && !STORY.pending[it.sku]) landed=true;              /* the rewrite landed */
+    });
+    if(!handed && !landed) return;
+    applyPayload(payload);                   /* ⛔ also on a hand-over, or the lock would drop for a moment */
+    var j=P.findIndex(function(p){ return p.sku===keep; }); if(j>=0) cur=j;
+    renderAll();
+    if(landed) toast('✍️ Your new description is ready — take a look.');
+  }).catch(function(){});
+}
 function storyCanRecord(){
   return typeof MediaRecorder!=='undefined' && typeof navigator!=='undefined' && !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
 }
@@ -3735,7 +3772,7 @@ function _storyPart(){
     if(blob.size) _storySend(blob, type, Math.min(STORY_MAX_S,(Date.now()-started)/1000), sess, n, batch, sku);
   };
   STORY.rec=r; STORY.t0=started; r.start(1000); STORY.phase='recording';
-  clearInterval(STORY.timer);
+  _vsClear(STORY.timer);
   STORY.timer=setInterval(function(){
     var el=(Date.now()-STORY.t0)/1000, t=document.querySelector('#vsTime');
     if(t) t.textContent=_storyMmss(el);
@@ -3743,7 +3780,7 @@ function _storyPart(){
   },250);
   renderStory();
 }
-function storyStopMic(){ clearInterval(STORY.timer); if(STORY.stream) STORY.stream.getTracks().forEach(function(t){t.stop();}); STORY.stream=null; }
+function storyStopMic(){ _vsClear(STORY.timer); if(STORY.stream) STORY.stream.getTracks().forEach(function(t){t.stop();}); STORY.stream=null; }
 window.storyStart=function(){
   STORY.err='';
   if(!storyCanRecord()){ STORY.err='This browser cannot record audio here. You can record on the Upload tab instead.'; renderStory(); return; }
@@ -3757,11 +3794,36 @@ window.storyStart=function(){
   }).catch(function(){ STORY.err='We could not use your microphone. Allow microphone access for this page and try again.'; renderStory(); });
 };
 window.storyPause=function(){
-  clearInterval(STORY.timer);
+  _vsClear(STORY.timer);
   if(STORY.rec && STORY.rec.state!=='inactive') STORY.rec.stop();
   STORY.rec=null; storyStopMic(); STORY.phase='paused'; renderStory();
 };
-window.storyFinish=function(){ window.storyPause(); STORY.sess=''; STORY.phase='idle'; renderStory(); };
+window.storyFinish=function(){
+  var sess=STORY.sess, sku=STORY.sku, batch=STORY.batch;
+  window.storyPause(); STORY.sess=''; STORY.phase='idle'; STORY.open=true; renderStory();
+  if(!sess) return;
+  STORY._ask={sess:sess, sku:sku, batch:batch};
+  openSheet(`<h2>Thanks — we have your story</h2>
+    <div class="sub">We're sending your recording and turning it into text now (usually a few minutes).</div>
+    <p>Would you like us to <b>rewrite this product's description with your story</b> as soon as it's ready? While we rewrite it,
+      editing this product is paused, and the new description shows up here by itself.</p>
+    <button class="btn primary" onclick="storyAnswer(true)">Yes — rewrite it when it's ready</button>
+    <button class="btn" onclick="storyAnswer(false)">Not now — just save my story</button>`);
+};
+window.storyAnswer=function(yes){
+  var a=STORY._ask; STORY._ask=null; closeSheet();
+  if(!a) return;
+  if(yes){ STORY.pending[a.sku]={sess:a.sess, at:Date.now()}; }
+  Promise.resolve(HOST.storyRequest(a.batch, a.sku, a.sess, !!yes)).then(function(){
+    toast(yes?'Got it — we will rewrite this description as soon as your story is ready.':'Your story is saved.');
+  }).catch(function(e){
+    if(yes) delete STORY.pending[a.sku];
+    STORY.err='We could not send your choice — '+(e&&e.message?e.message:e)+'. Please try again.';
+    renderStory();
+  });
+  if(yes && !STORY.poll) STORY.poll=(typeof setInterval==='function'?setInterval(storyPollTick, 30000):1);
+  renderAll();
+};
 function renderStory(){
   var el=document.querySelector('#vStory'); if(!el) return;
   if(!isVendorView() || !P[cur]){ el.innerHTML=''; return; }
@@ -3770,16 +3832,26 @@ function renderStory(){
   var recHere=STORY.phase!=='idle' && STORY.sku===sku;
   var ctl;
   if(STORY.phase==='recording' && recHere)
-    ctl=`<span class="vs-rec" aria-hidden="true"></span><b>Recording part ${STORY.n-1} · <span id="vsTime">0:00</span></b>
-      <span class="note">a new part starts at 5:00</span>
-      <button class="btn" onclick="storyPause()">Pause</button><button class="btn" onclick="storyFinish()">Finish</button>`;
+    ctl=`<span class="vs-rec" aria-hidden="true"></span><b>Recording — tell us about this product · <span id="vsTime">0:00</span></b>
+      <span class="note">(we save it every 5 minutes and keep recording)</span>
+      <button class="btn" onclick="storyPause()">Pause</button><button class="btn primary" onclick="storyFinish()">I'm done — send it</button>`;
   else if(STORY.phase==='paused' && recHere)
     ctl=`<b>Paused</b> <span class="note">— what you said so far is saved.</span>
-      <button class="btn primary" onclick="storyStart()">Continue recording</button><button class="btn" onclick="storyFinish()">Done</button>`;
+      <button class="btn" onclick="storyStart()">Continue recording</button><button class="btn primary" onclick="storyFinish()">I'm done — send it</button>`;
   else if(STORY.phase!=='idle')
     ctl=`<span class="note">You are recording a story for another product — finish that one first.</span>`;
   else ctl=`<button class="btn primary" onclick="storyStart()">Start recording</button>`;
-  el.innerHTML=`<details class="vstory" ${STORY.open||recHere?'open':''} ontoggle="STORY.open=this.open;if(this.open)storyRefresh()">
+  var locked=vRewriting(cur), pend=STORY.pending[sku];
+  if(locked && !STORY.poll) STORY.poll=(typeof setInterval==='function'?setInterval(storyPollTick, 30000):1);
+  var prog='';
+  if(locked){
+    var parts=pend?mine.filter(function(m){ return String(m.id||'').indexOf(pend.sess+'-')===0; }):[];
+    var txt=parts.length && parts.every(function(m){ return m.status==='done'||m.status==='failed'; });
+    prog=`<div class="vs-memo" role="status"><b>✍️ We're rewriting this description with your story.</b>
+      <div class="note">Editing this product is paused until it's ready — this page updates by itself.</div>
+      <div class="note">${pend?'✓ recording sent':'✓ rewrite requested'} · ${pend?(txt?'✓ turned into text':'⏳ turning it into text…'):'✓ turned into text'} · ⏳ rewriting the description…</div></div>`;
+  }
+  el.innerHTML=`<details class="vstory" ${STORY.open||recHere||locked?'open':''} ontoggle="STORY.open=this.open;if(this.open)storyRefresh()">
     <summary>🎙 Enhance this description — tell us its story${mine.length?` <span class="chip ok">${mine.length} recording${mine.length===1?'':'s'}</span>`:''}</summary>
     <div class="vs-body">
       <div>Tell us about <b>${esc(P[cur].name||'this product')}</b> in your own words, and we will rewrite its description with it:</div>
@@ -3788,7 +3860,8 @@ function renderStory(){
         <li>What it's used for, and what you love about using it</li></ul>
       <div class="note">Talk as long as you like: every 5 minutes we save that part and keep recording. Nothing needs our approval —
         we use what you tell us, then show you the new description.</div>
-      <div class="vs-row">${ctl}</div>
+      ${prog}
+      <div class="vs-row">${locked&&!recHere?'':ctl}</div>
       ${here.map(function(x){return `<div class="note">Part ${x.n}${x.seconds?' · '+_storyMmss(x.seconds):''} · ${x.state==='sending'?'sending…':x.state==='sent'?'sent ✓':'did not send'}</div>`;}).join('')}
       ${STORY.err?`<div class="note" style="color:var(--stop)">${esc(STORY.err)}</div>`:''}
       ${mine.map(function(m){ return `<div class="vs-memo"><span class="note">${esc(m.at?fmtWhen(m.at):'')}${m.duration_s?' · '+_storyMmss(m.duration_s):''} ·
