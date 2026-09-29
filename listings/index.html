@@ -302,6 +302,27 @@ body[data-notes="1"] .note{display:block}
 .toast.on{opacity:1}
 .legend{margin:16px 22px 0;max-width:680px;padding:12px 14px;border-radius:var(--r);background:var(--panel);border:1px solid var(--line-soft);font-size:11.5px;color:var(--ink-3)}
 .legend b{color:var(--ink-2)}
+/* ═══ VENDOR VIEW (plan §2, 2026-09-28) ═══════════════════════════════════════
+   ⭐ ONE rule hides every static element the policy's `hide_ui` names:
+   applyModeChrome() sets data-vh-on="1" on it, and this only bites when the body
+   is in a vendor view — so in staff mode the attribute is inert.
+   ⛔ Hiding is NOT the protection for text: render templates skip sensitive
+   rows entirely in a vendor view (vrow/vh), so the words never reach the DOM. */
+body[data-mode="vendor"] [data-vh-on="1"],body[data-mode="as-vendor"] [data-vh-on="1"]{display:none!important}
+body[data-mode="vendor"] .note,body[data-mode="as-vendor"] .note{display:none!important}
+body[data-ops-hidden="1"] .shell{grid-template-columns:250px minmax(0,1fr)}
+@media (max-width:1240px){body[data-ops-hidden="1"] .shell{grid-template-columns:220px minmax(0,1fr)}}
+@media (max-width:880px){body[data-ops-hidden="1"] .shell{grid-template-columns:1fr}}
+.modetag{display:none;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--edit);background:var(--edit-soft);padding:2px 7px;border-radius:99px}
+body[data-mode="vendor"] .modetag,body[data-mode="as-vendor"] .modetag{display:inline-block}
+fieldset.vro{border:0;padding:0;margin:0;min-width:0}
+.vwait{display:none;padding:40px 22px;font-size:14px;color:var(--ink-2)}
+body[data-mode="vendor"]:not([data-loaded="1"]) .vwait{display:block}
+body[data-mode="vendor"]:not([data-loaded="1"]) .shell,body[data-mode="vendor"]:not([data-loaded="1"]) .filters,
+body[data-mode="vendor"]:not([data-loaded="1"]) .pubbar,body[data-mode="vendor"]:not([data-loaded="1"]) .top .lbl,
+body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor"]:not([data-loaded="1"]) #progText{display:none}
+.taxr{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:5px}
+.taxr label{display:inline-flex;gap:6px;align-items:center;font-size:13px}
 </style>
 
 <div class="top">
@@ -326,14 +347,15 @@ body[data-notes="1"] .note{display:block}
     <option value="../flow/">How the whole flow works</option>
   </select>
   <span class="mocktag" id="mockTag">Wireframe</span>
+  <span class="modetag" id="modeTag"></span>
   <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
   <button class="tbtn" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
-  <button class="tbtn" id="btnConsign" title="Upload a vendor's files and turn them into listings">Consignment</button>
-  <button class="tbtn" id="btnPortal" title="Invite a vendor to the vendor portal, or turn their login off">Vendor portal</button>
-  <button class="tbtn" id="btnRw">Rework tray <span class="mono" id="rwN">0</span></button>
-  <button class="tbtn" id="btnRunNow" title="Save your comments and queue this product for the next run">Run now</button>
+  <button class="tbtn" id="btnConsign" data-vhide="btnConsign" title="Upload a vendor's files and turn them into listings">Consignment</button>
+  <button class="tbtn" id="btnPortal" data-vhide="btnPortal" title="Invite a vendor to the vendor portal, or turn their login off">Vendor portal</button>
+  <button class="tbtn" id="btnRw" data-vhide="btnRw">Rework tray <span class="mono" id="rwN">0</span></button>
+  <button class="tbtn" id="btnRunNow" data-vhide="btnRunNow" title="Save your comments and queue this product for the next run">Run now</button>
   <button class="tbtn" id="btnBulk">Approve all unblocked</button>
   <span class="lbl">Ready</span><span class="mono" id="progText" style="font-size:12px">0 / 4</span>
   <div class="bar"><i id="progBar"></i></div>
@@ -346,25 +368,26 @@ body[data-notes="1"] .note{display:block}
   <span class="lbl" style="margin-right:4px">Source</span>
   <button class="chip-f" data-f="all" aria-pressed="true">All<span class="n" id="fAll"></span></button>
   <button class="chip-f" data-f="newitem" aria-pressed="false">New items<span class="n" id="fNew"></span></button>
-  <button class="chip-f" id="btnDeferred" hidden title="Products deferred from this batch — bring one back">Deferred<span class="n" id="fDef"></span></button>
+  <button class="chip-f" id="btnDeferred" data-vhide="btnDeferred" hidden title="Products deferred from this batch — bring one back">Deferred<span class="n" id="fDef"></span></button>
   <button class="chip-f" data-f="enhance" aria-pressed="false">Enhance<span class="n" id="fEnh"></span></button>
   <button class="chip-f" data-f="clone" aria-pressed="false">Clone<span class="n" id="fCln"></span></button>
   <span class="spacer"></span>
-  <button class="tbtn" id="btnClone">+ Make a similar version</button>
+  <button class="tbtn" id="btnClone" data-vhide="btnClone">+ Make a similar version</button>
 </div>
 
+<div class="vwait" id="vendorWait" role="status">Loading your products…</div>
 <div class="shell">
   <nav class="queue"><div class="queue-h"><span class="lbl">Prepared overnight</span><span class="lbl" id="qLeft"></span></div>
     <div id="queue"></div>
-    <div class="queue-h" style="padding-top:14px"><span class="lbl">this wireframe carries 4 of the queue's items</span></div></nav>
+    <div class="queue-h" id="qFoot" style="padding-top:14px"><span class="lbl">this wireframe carries 4 of the queue's items</span></div></nav>
 
   <main class="centre">
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-pane="listing">Listing</button>
-      <button class="tab" role="tab" aria-selected="false" data-pane="fields">All BC fields</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="fields" id="tabFields">All BC fields</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="images">Images<span class="n" id="tabImgN"></span></button>
-      <button class="tab" role="tab" aria-selected="false" data-pane="flags">Open flags<span class="n" id="tabFlagN"></span></button>
-      <button class="tab" role="tab" aria-selected="false" data-pane="log">Overnight log</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="flags" id="tabFlags" data-vhide="tabFlags">Open flags<span class="n" id="tabFlagN"></span></button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="log" id="tabLog" data-vhide="tabLog">Overnight log</button>
     </div>
 
     <div class="pane" id="pane-listing" role="tabpanel">
@@ -373,7 +396,7 @@ body[data-notes="1"] .note{display:block}
         prose, number inputs with live margin for price, a picker for category. <b>Comment</b> queues
         a rewrite for tonight instead.</div>
       <div class="shopfront">
-        <div class="shop-rail"><span class="lbl">Storefront preview</span><span class="lbl" id="railKind" style="margin-left:auto"></span></div>
+        <div class="shop-rail"><span class="lbl">Storefront preview</span><span class="lbl" id="railKind" data-vhide="rail" style="margin-left:auto"></span></div>
         <div class="shop-body" id="shopBody"></div>
       </div>
       <div class="legend" id="listLegend"></div>
@@ -395,6 +418,9 @@ body[data-notes="1"] .note{display:block}
           <button class="tbtn" id="btnSeq">Show sequence</button>
           <button class="tbtn" id="btnClear">Clear picks</button>
           <button class="tbtn" id="btnNone">None of these — needs new images</button>
+          <!-- ⭐ 2026-09-28 (vendor mode §3): shown only when the HOST can store an upload (the vendor portal today). -->
+          <button class="tbtn go" id="btnUpload" hidden>Upload photo</button>
+          <input type="file" id="upFile" multiple hidden accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif">
         </div>
       </div>
       <div class="seqstrip" id="seqstrip" hidden></div>
@@ -412,7 +438,7 @@ body[data-notes="1"] .note{display:block}
     </div>
   </main>
 
-  <aside class="ops" id="ops"></aside>
+  <aside class="ops" id="ops" data-vhide="ops"></aside>
 </div>
 <div class="drawer" id="drawer"><div class="sheet" id="sheet"></div></div>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
@@ -630,18 +656,23 @@ async function spSrc(spUrl){
   const u=URL.createObjectURL(await r.blob());
   SPBLOB[rel]=u; return u;
 }
-function isSp(u){return typeof u==='string'&&u.indexOf('sp:')===0;}
-/* Resolve every `sp:` image inside `root` after it is in the DOM.
+/* ⭐ 2026-09-28 (vendor mode): a HOST-RESOLVED image ref — `sp:` (behind the
+   tenant login, fetched by GraphHost with the user's token) or `vp:` (held by
+   the vendor portal, fetched by PortalHost from the parent). Both render as
+   <img data-sp> and are resolved by hydrateSp() through HOST.imageSrc. */
+function isSp(u){return typeof u==='string'&&(u.indexOf('sp:')===0||u.indexOf('vp:')===0);}
+/* Resolve every host-resolved image inside `root` after it is in the DOM.
    ⛔ A failure is SHOWN, never swallowed — an image that quietly does not
    appear is indistinguishable from a product that has fewer candidates. */
+async function hydrateOne(img){
+  const u=img.getAttribute('data-sp'); img.removeAttribute('data-sp');
+  try{ img.src=await HOST.imageSrc(u); }
+  catch(e){ const host=img.parentNode;
+    if(host)host.innerHTML='<span>could not load this candidate<br>'+
+      esc(String(e.message||e).slice(0,60))+'</span>'; }
+}
 function hydrateSp(root){
-  (root||document).querySelectorAll('img[data-sp]').forEach(async img=>{
-    const u=img.getAttribute('data-sp'); img.removeAttribute('data-sp');
-    try{ img.src=await spSrc(u); }
-    catch(e){ const host=img.parentNode;
-      if(host)host.innerHTML='<span>could not load this candidate<br>'+
-        String(e.message||e).slice(0,60)+'</span>'; }
-  });
+  (root||document).querySelectorAll('img[data-sp]').forEach(hydrateOne);
 }
 window.spSrc=spSrc; window.hydrateSp=hydrateSp; window.isSp=isSp;
 
@@ -754,7 +785,7 @@ async function populateBatchSel(){
   const sel=document.querySelector('#batchSel');
   if(!sel) return '';
   let rows=[];
-  try{ rows=await listBatches(); }
+  try{ rows=await HOST.listBatches(); }
   catch(e){
     /* ⛔ Do NOT leave the fictional options standing if this fails — an
        option that names a batch with no payload is a guaranteed dead click. */
@@ -762,6 +793,9 @@ async function populateBatchSel(){
     return _batchFromUI();
   }
   if(!rows.length) return _batchFromUI();
+  return _fillBatchSel(sel, rows);
+}
+function _fillBatchSel(sel, rows){
   let want='';
   try{ want=new URLSearchParams(location.search).get('batch')||''; }catch(_){}
   sel.innerHTML=rows.map(r=>
@@ -806,6 +840,298 @@ async function loadLive(batch){
   return mergeState(payload, rows);
 }
 window.loadLive=loadLive;
+
+/* ═══ MODES AND HOSTS (vendor mode, plan §1/§2/§7, 2026-09-28) ══════════════
+   ONE code path renders three ways:
+     staff      default — exactly the page as it was.
+     vendor     `?vendor=1` AND framed by an allowed parent origin. Data comes
+                from the PARENT (the vendor portal) by postMessage — PortalHost.
+                ⛔ It never signs in to Microsoft and never calls graph().
+     as-vendor  `?as=<OwnerKey>` for a signed-in staff member: Graph data as
+                today, filtered to that owner, shown through the vendor view.
+   ⭐ Every data touchpoint goes through HOST. GraphHost DELEGATES to the
+   original functions (listBatches / loadLive / saveDecision / spSrc), which
+   stay where they are and are called by name at call time — so staff makes the
+   same network calls, in the same order, as before, and the harness hooks that
+   rebind `saveDecision` still see every save.
+   ⛔ The vendor view HIDES; it does not protect. The backend strips cost,
+   owner and supplier data before a vendor payload leaves it. The page is only
+   required not to DEPEND on that — and a test proves it renders none of it. */
+var PORTAL_ORIGINS=['https://vendors.mnfood.club','https://main.do89570fqs33f.amplifyapp.com'];
+var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload'];
+var PORTAL_TIMEOUT_MS=30000;
+/* ⛔ An EMBEDDED COPY of config vendor_field_policy.json — used ONLY when the
+   payload carries no `vendor_policy`. The harness compares it to the file, so
+   editing one without the other fails the suite. A key in no list is HIDDEN. */
+var VENDOR_POLICY_FALLBACK={
+  version:1,
+  edit:['name','badge','prose','warranty','cq','kws','upc','storage','cat','cat2','taxOverride',
+        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack'],
+  view:['sku','brand','published','taxAssessment','flags'],
+  hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred','btnClone',
+           'costRow','marginRow','finaleRows','ownerRow','supplierRow','itemTypeRow','freeFillRow','visibleRow',
+           'variantsBlock','notesBlock','heldBanner','rail'],
+  overall_allowed:['approved','pending','rework'],
+  vendor_flag_types:['NO_CATEGORY_MATCH','CATEGORY_LOW_CONFIDENCE','SIZE_NEEDED','INGREDIENTS_UNVERIFIED',
+                     'IMAGES_NEED_SOURCING','VENDOR_CHANGE_REQUEST','TAX_CLASS_UNVERIFIED','TAX_CLASS_DISAGREES']
+};
+var VPOLICY=null;          /* payload.vendor_policy, set by applyPayload */
+/* the static elements a hide_ui name refers to (render-template names are
+   handled where they render, by vrow()/vh()) */
+var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:'#btnConsign',
+  btnPortal:'#btnPortal',btnRw:'#btnRw',btnRunNow:'#btnRunNow',btnDeferred:'#btnDeferred',
+  btnClone:'#btnClone',rail:'#railKind'};
+/* staff-only chrome that has no policy name: navigation to staff apps, design
+   notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
+   ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
+var VENDOR_ALWAYS_HIDE=['#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag'];
+
+function _qp(search, name){
+  var s=String(search||'').replace(/^\?/,''); if(!s) return null;
+  var parts=s.split('&');
+  for(var i=0;i<parts.length;i++){
+    var kv=parts[i].split('='), k='';
+    try{ k=decodeURIComponent(kv[0].replace(/\+/g,' ')); }catch(_){ continue; }
+    if(k!==name) continue;
+    var v=kv.slice(1).join('=');
+    try{ return decodeURIComponent(v.replace(/\+/g,' ')); }catch(_){ return v; }
+  }
+  return null;
+}
+/* What the browser says about where we are. ⭐ The parent origin is only a
+   HINT for choosing a postMessage target: the browser refuses to deliver a
+   message to a parent at any other origin, so a wrong hint loses nothing. */
+function _modeEnv(){
+  var env={search:'', framed:false, parentOrigin:''};
+  try{ if(typeof location!=='undefined') env.search=String(location.search||''); }catch(_){}
+  try{ env.framed=(typeof window!=='undefined' && !!window.parent && window.parent!==window); }catch(_){ env.framed=true; }
+  try{ var ao=(typeof location!=='undefined' && location.ancestorOrigins)||null;
+       if(ao && ao.length) env.parentOrigin=String(ao[0]); }catch(_){}
+  if(!env.parentOrigin){ try{ var r=(typeof document!=='undefined' && document.referrer)||'';
+       var m=/^(https?:\/\/[^\/?#]+)/i.exec(r); if(m) env.parentOrigin=m[1].toLowerCase(); }catch(_){} }
+  if(!env.parentOrigin){ var h=_qp(env.search,'parent'); if(h) env.parentOrigin=h; }
+  return env;
+}
+/* ⛔ Pure: env in, mode out. `?vendor=1` that is NOT framed by an allowed
+   origin falls back to STAFF with an error — it never becomes a vendor view and
+   never talks to a parent it cannot vouch for. */
+function detectMode(env){
+  env=env||{};
+  var v=_qp(env.search,'vendor'), as=_qp(env.search,'as');
+  if(v==='1'){
+    if(!env.framed) return {mode:'staff', asOwner:'', parentOrigin:'',
+      error:'The vendor view only opens inside the vendor portal ('+PORTAL_ORIGINS[0]+'). Nothing was loaded.'};
+    if(PORTAL_ORIGINS.indexOf(env.parentOrigin)<0) return {mode:'staff', asOwner:'', parentOrigin:'',
+      error:'This page was opened inside '+(env.parentOrigin||'an unknown site')
+           +', which is not the vendor portal. Nothing was loaded.'};
+    return {mode:'vendor', asOwner:'', parentOrigin:env.parentOrigin, error:''};
+  }
+  if(as) return {mode:'as-vendor', asOwner:String(as), parentOrigin:'', error:''};
+  return {mode:'staff', asOwner:'', parentOrigin:'', error:''};
+}
+var VIEW=(function(){ var m=detectMode(_modeEnv()); m.vendorName=''; return m; })();
+function isVendorView(){ return VIEW.mode==='vendor' || VIEW.mode==='as-vendor'; }
+function activePolicy(){
+  var p=VPOLICY;
+  if(p && Array.isArray(p.edit) && Array.isArray(p.view) && Array.isArray(p.hide_ui)) return p;
+  return VENDOR_POLICY_FALLBACK;
+}
+/* 'edit' | 'view' | 'hide' for a PAGE field key. Staff edits everything. */
+function vpAccess(key){
+  if(!isVendorView()) return 'edit';
+  var p=activePolicy();
+  if(p.edit.indexOf(key)>=0) return 'edit';
+  if(p.view.indexOf(key)>=0) return 'view';
+  return 'hide';
+}
+function vpHides(name){ return isVendorView() && activePolicy().hide_ui.indexOf(name)>=0; }
+function vpOverallOk(o){
+  var a=activePolicy().overall_allowed;
+  return !Array.isArray(a) || a.indexOf(String(o))>=0;
+}
+function vpFlagTypes(){
+  var p=activePolicy();
+  return Array.isArray(p.vendor_flag_types)?p.vendor_flag_types:VENDOR_POLICY_FALLBACK.vendor_flag_types;
+}
+/* Put a data-vhide marker on the first tag of a template fragment. */
+function _markVh(name, html){
+  return String(html).replace(/^(\s*<[a-zA-Z][\w-]*)/, '$1 data-vhide="'+name+'"');
+}
+/* A block named in hide_ui: gone in a vendor view, marked always. */
+function vh(name, html){
+  if(vpHides(name)) return '';
+  return _markVh(name, html);
+}
+/* A field row. `key` is its page field key (or null for a derived/staff-only
+   row), `ui` its hide_ui name (or null). In a vendor view: hidden → not
+   rendered at all; view → read-only (a disabled <fieldset> disables every
+   control inside it); edit → exactly as staff sees it. ⛔ Fail closed: a row
+   with no key is hidden in a vendor view. */
+function vrow(key, ui, html){
+  if(ui) html=_markVh(ui, html);
+  if(!isVendorView()) return html;
+  if(ui && vpHides(ui)) return '';
+  var acc=key?vpAccess(key):'hide';
+  if(acc==='hide') return '';
+  if(acc==='view') return '<fieldset disabled class="vro">'+html+'</fieldset>';
+  return html;
+}
+/* A field GROUP left with no rows in a vendor view is dropped, heading and all. */
+function vgrp(html){
+  if(!isVendorView()) return html;
+  return /class="frow"/.test(html)?html:'';
+}
+
+/* what a vendor-type flag is called in a vendor view */
+var VFLAG_LABEL={NO_CATEGORY_MATCH:'We could not place this in a category',
+  CATEGORY_LOW_CONFIDENCE:'Please check the category', SIZE_NEEDED:'We need the size',
+  INGREDIENTS_UNVERIFIED:'Please confirm the ingredients', IMAGES_NEED_SOURCING:'We need photos of this item',
+  VENDOR_CHANGE_REQUEST:'Your change request', TAX_CLASS_UNVERIFIED:'Please confirm whether it is taxable',
+  TAX_CLASS_DISAGREES:'Please check whether it is taxable'};
+/* flag text is HTML from the pipeline; a vendor view shows it as plain text */
+function _plain(h){
+  return String(h==null?'':h).replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+}
+
+/* ── GraphHost: today's code, reached by name ─────────────────────────────── */
+var GraphHost={
+  name:'graph', canUpload:false,
+  hello:function(){ return Promise.resolve({who:ACCOUNT}); },
+  listBatches:function(){ return listBatches(); },
+  loadBatch:function(batch){ return loadLive(batch); },
+  saveDecision:function(batch, sku, patch){ return saveDecision(batch, sku, patch); },
+  /* ⭐ an answer row is keyed `ask:<key>` — exactly what saveAnswer sent before */
+  saveAnswer:function(batch, key, body){ return saveDecision(batch, 'ask:'+key, body); },
+  imageSrc:function(ref){
+    if(String(ref||'').indexOf('vp:')===0)
+      return Promise.reject(new Error('this photo opens only in the vendor portal'));
+    return spSrc(ref);
+  },
+  /* ⛔ staff upload is phase 2 — say so, never pretend */
+  uploadImage:function(){ return Promise.resolve({ok:false, reason:'not_available',
+    message:'Uploading your own image is not available yet'}); }
+};
+
+/* ── PortalHost: postMessage to the vendor portal that frames this page ──────
+   Request  (page → parent): {channel:'tcf-studio', id, type, args}
+   Reply    (parent → page): {channel:'tcf-studio', id, type, result}
+                          or {channel:'tcf-studio', id, type, error:'text'}
+   ⛔ A reply is accepted ONLY when event.source is the parent window, its
+   origin is in PORTAL_ORIGINS AND equals the origin we post to, its type is a
+   known type, and its id matches a request still waiting for that type.
+   Anything else is ignored — never an error, never a partial answer. */
+function makePortalHost(parentWin, parentOrigin, opts){
+  opts=opts||{};
+  if(PORTAL_ORIGINS.indexOf(parentOrigin)<0)
+    throw new Error('refusing to talk to '+(parentOrigin||'an unknown parent')+' — not the vendor portal');
+  var _st=opts.setTimeout||setTimeout, _ct=opts.clearTimeout||clearTimeout;
+  var ms=opts.timeoutMs||PORTAL_TIMEOUT_MS, seq=0, waiting={}, imgs={};
+  function request(type, args, transfer){
+    return new Promise(function(resolve, reject){
+      var id='tcfs-'+(++seq)+'-'+Date.now().toString(36);
+      var t=_st(function(){
+        if(!waiting[id]) return;
+        delete waiting[id];
+        reject(new Error('The vendor portal did not answer "'+type+'" within '+Math.round(ms/1000)
+          +' seconds — reload the page'+(type==='save'||type==='upload'||type==='answer'
+            ?' and check whether the change was kept':'')+'.'));
+      }, ms);
+      waiting[id]={type:type, resolve:resolve, reject:reject, t:t};
+      try{
+        var msg={channel:'tcf-studio', id:id, type:type, args:args||{}};
+        if(transfer&&transfer.length) parentWin.postMessage(msg, parentOrigin, transfer);
+        else parentWin.postMessage(msg, parentOrigin);
+      }catch(e){
+        _ct(t); delete waiting[id];
+        reject(new Error('could not reach the vendor portal — '+(e&&e.message?e.message:e)));
+      }
+    });
+  }
+  function onMessage(ev){
+    if(!ev || ev.source!==parentWin) return false;
+    if(PORTAL_ORIGINS.indexOf(ev.origin)<0 || ev.origin!==parentOrigin) return false;
+    var m=ev.data;
+    if(!m || typeof m!=='object' || m.channel!=='tcf-studio') return false;
+    if(PORTAL_TYPES.indexOf(m.type)<0) return false;
+    var w=waiting[m.id];
+    if(!w || w.type!==m.type) return false;
+    delete waiting[m.id]; _ct(w.t);
+    if(m.error!=null && m.error!=='') w.reject(new Error(String(m.error)));
+    else w.resolve(m.result);
+    return true;
+  }
+  return {
+    name:'portal', canUpload:true, parentOrigin:parentOrigin, onMessage:onMessage,
+    _waiting:function(){ return Object.keys(waiting).length; },
+    hello:function(){ return request('hello',{version:VENDOR_POLICY_FALLBACK.version}); },
+    listBatches:function(){
+      return request('listBatches',{}).then(function(r){
+        var rows=Array.isArray(r)?r:((r&&r.batches)||[]);
+        return sortBatches(rows.map(function(x){
+          return typeof x==='string'?{batch:x, mod:'', created:''}
+            :{batch:String(x.batch||''), mod:String(x.mod||''), created:String(x.created||'')};
+        }).filter(function(x){return x.batch;}));
+      });
+    },
+    /* → what mergeState() returns, exactly like loadLive() */
+    loadBatch:function(batch){
+      return request('load',{batch:batch}).then(function(r){
+        r=r||{};
+        var payload=r.payload;
+        if(!payload || !Array.isArray(payload.items))
+          throw new Error('the vendor portal sent no products for '+batch);
+        if(Array.isArray(r.needs) && !payload.needs_input) payload.needs_input=r.needs;
+        /* ⛔ the same drained rule loadLive applies before merging */
+        var rows=(r.rows||[]).map(function(f){ var o=Object.assign({},f); o._drained=isDrainedRow(o); return o; });
+        return mergeState(payload, rows);
+      });
+    },
+    saveDecision:function(batch, sku, patch){
+      patch=patch||{};
+      /* ⛔ refused LOCALLY, never posted — the bridge would refuse it anyway */
+      if(patch.overall!=null && !vpOverallOk(patch.overall))
+        return Promise.resolve({ok:false, reason:'refused',
+          message:'"'+patch.overall+'" is not something this view can save'});
+      return request('save',{batch:batch, sku:sku, patch:patch});
+    },
+    saveAnswer:function(batch, key, body){ return request('answer',{batch:batch, key:key, body:body}); },
+    imageSrc:function(ref){
+      ref=String(ref||'');
+      if(imgs[ref]) return Promise.resolve(imgs[ref]);
+      return request('image',{ref:ref}).then(function(r){
+        if(!r || !r.url) throw new Error('the portal had no picture for this candidate');
+        imgs[ref]=String(r.url); return imgs[ref];
+      });
+    },
+    uploadImage:function(batch, sku, file){
+      return Promise.resolve(file.arrayBuffer()).then(function(data){
+        return request('upload',{batch:batch, sku:sku, name:String(file.name||''),
+                                 type:String(file.type||''), data:data}, [data]);
+      });
+    }
+  };
+}
+var HOST=GraphHost;
+/* Build the PortalHost for this page and listen for its replies. */
+function startVendorHost(){
+  var host=makePortalHost(window.parent, VIEW.parentOrigin);
+  if(typeof window.addEventListener==='function')
+    window.addEventListener('message', function(ev){ host.onMessage(ev); });
+  HOST=host;
+  return host;
+}
+/* as-vendor: keep only this owner's products (and their answers/deferrals). */
+function _asVendorFilter(payload, owner){
+  var items=((payload&&payload.items)||[]).filter(function(it){ return String((it||{}).owner||'')===String(owner); });
+  if(!items.length) throw new Error('"'+owner+'" has no products in this batch');
+  payload.items=items;
+  if(Array.isArray(payload.needs_input))
+    payload.needs_input=payload.needs_input.filter(function(n){ return String((n||{}).owner||'')===String(owner); });
+  if(Array.isArray(payload.deferred))
+    payload.deferred=payload.deferred.filter(function(d){ return String((d||{}).owner||'')===String(owner); });
+  return payload;
+}
 
 const SEC=['gallery','identity','price','warranty','description','questions','keywords'];
 const LBL={gallery:'Gallery',identity:'Name & badge',price:'Price',warranty:'Warranty',description:'Description',questions:'Common questions',keywords:'Search keywords'};
@@ -932,6 +1258,8 @@ function fromPayload(it){
        (2026-09-10), which is exactly the drift that check exists for. */
     targetMargin:it.target_margin==null?null:+it.target_margin,
     taxOverride:it.tax||'',
+    /* ⭐ 2026-09-28 (plan §4): our own tax assessment — {class, rule_ids, confidence, reasoning, basis}. */
+    taxAssessment:it.tax_assessment||null,
     rank:it.rank||null, idea:it.idea||'', why:it.why||'',
     /* Guarded in the renderers (`p.wasProse?`, `p.variants&&`), so these
        cannot throw — but an enhance item's before/after and a clone's parent
@@ -1008,6 +1336,8 @@ function applyPayload(payload){
            n._note=String(r.drain_note||''); }
     NEEDS.push(n);});
   if(payload&&payload.vendor_directory&&payload.vendor_directory.vendors) VDIR=payload.vendor_directory;
+  /* ⭐ 2026-09-28: the vendor-view policy travels with the payload (the embedded copy is only a fallback). */
+  VPOLICY=(payload&&payload.vendor_policy&&typeof payload.vendor_policy==='object')?payload.vendor_policy:null;
   adoptSizeUnits(payload&&payload.size_units);
   WIRING=(payload&&payload.wiring&&typeof payload.wiring==='object')?payload.wiring:{};
   var mapped=items.map(fromPayload);
@@ -1071,7 +1401,33 @@ function targetMargin(p){
 /* precedence mirrors targetMargin(): operator override → what the PIPELINE
    resolved for this row → the category default. ⛔ The middle step was missing,
    so a row whose category is not in the page's list silently read 'NT'. */
-function taxOf(p){return p.taxOverride||p.taxPayload||((catOf(p.cat)||[])[4]||'NT');}
+/* ⭐⭐ 2026-09-28 (plan §4): a HUMAN choice (`taxOverride`, which is the
+   payload's stored `tax` = match.tax_class_override) → our own ASSESSMENT when
+   it is confident (≥ 0.9) and not 'unknown' → the category default → 'NT'.
+   ⛔ `taxPayload` is no longer a step: it is loaded from the same `tax` field as
+   `taxOverride`, so it could only ever repeat it. */
+const TAX_CONFIDENT=0.9;
+function taxConfident(p){
+  const a=p&&p.taxAssessment;
+  return !!a && (a.class==='NT'||a.class==='Taxable Item') && +a.confidence>=TAX_CONFIDENT;
+}
+function taxOf(p){
+  if(p.taxOverride) return p.taxOverride;
+  if(taxConfident(p)) return p.taxAssessment.class;
+  return (catOf(p.cat)||[])[4]||'NT';
+}
+const TAX_LABEL={'NT':'Not taxable','Taxable Item':'Taxable','unknown':'Not sure'};
+/* "We assessed: Not taxable — food and food ingredients (MN-FOOD-01) · <reasoning>".
+   Confidence is staff-only. */
+function taxAssessLine(p, showConf){
+  const a=p&&p.taxAssessment; if(!a) return '';
+  const rules=(Array.isArray(a.rule_ids)?a.rule_ids:[]).join(', ');
+  return `<div class="hint" id="taxAssess">We assessed: <b>${esc(TAX_LABEL[a.class]||TAX_LABEL.unknown)}</b>`
+    +(a.basis?` — ${esc(a.basis)}`:'')+(rules?` (${esc(rules)})`:'')
+    +(a.reasoning?` · ${esc(a.reasoning)}`:'')
+    +(showConf&&a.confidence!=null&&a.confidence!==''?` · confidence ${Math.round(+a.confidence*100)}%`:'')
+    +'</div>';
+}
 function floorOf(p){const t=targetMargin(p);return t>=1?p.cost:p.cost/(1-t);}
 function effPrice(p){return p.salePrice>0?p.salePrice:p.price;}
 function marginAt(p,pr){
@@ -1093,11 +1449,12 @@ function markEdited(k,what){
      is one source of truth. If a job is queued here, say so and leave it queued. */
   const hadJob=!!st[cur].cm[k];
   st[cur].sec[k]=hadJob?'rework':'edited';
-  st[cur].by[k]='edited by jack@tc.farm · just now';
+  st[cur].by[k]=isVendorView()?'edited by you · just now':'edited by jack@tc.farm · just now';
   renderAll();
   toast(hadJob
-    ? '⚠ Saved — but a rewrite is still queued on '+LBL[k]+'. Tonight it will overwrite this. Cancel it in the rework tray.'
-    : (what||'Saved through the applier · normalizer re-run'));
+    ? (isVendorView()?'⚠ Saved — but you also asked us to rewrite '+LBL[k]+', and that rewrite will replace this edit.'
+      :'⚠ Saved — but a rewrite is still queued on '+LBL[k]+'. Tonight it will overwrite this. Cancel it in the rework tray.')
+    : (isVendorView()?'Saved':(what||'Saved through the applier · normalizer re-run')));
   /* ⭐ P-1120: actually write it. `scheduleAutosave` debounces + chains per
      product, and its own `persist()` call fires a SECOND toast a moment
      later — 'Saved · revision N' on success, 'NOT SAVED — …' on failure —
@@ -1233,6 +1590,9 @@ function _reworkedAt(s){
   return isNaN(d)?'':d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 }
 /* ═══ the storefront preview ═══ */
+/* the page field keys each storefront section edits (vendor-view gating) */
+const SEC_FIELDS={identity:['name','badge'],price:['price','salePrice'],warranty:['warranty'],
+  description:['prose'],questions:['cq'],keywords:['kws']};
 function sec(k,body,extra){
   const s=st[cur].sec[k];
   const reworkedAt=_reworkedAt(s);
@@ -1240,8 +1600,10 @@ function sec(k,body,extra){
     :reworkedAt!==null?`<span class="chip ok">reworked${reworkedAt?' · '+esc(reworkedAt):''}</span>`
     :s==='rework'?'<span class="chip rw">rework queued</span>':'';
   const by=st[cur].by[k]?`<span class="byline">${esc(st[cur].by[k])}</span>`:'';
-  const note=st[cur].cm[k]?`<div class="cnote"><b>Queued for the next run</b>${esc(st[cur].cm[k])}</div>`:'';
+  const note=st[cur].cm[k]?`<div class="cnote"><b>${isVendorView()?'You asked us to rewrite this':'Queued for the next run'}</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
+  /* ⭐ vendor view: Edit only on a section with at least one field the policy lets them edit */
+  const canEdit=k==='gallery'||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit');
   /* ⭐ RULING (Jack, 2026-09-08): APPROVAL IS WHOLE-PRODUCT, not per section.
      Sections still track CHANGE (edited / rework queued) because the rework
      comments must attach somewhere — but there is no per-section Approve.
@@ -1250,7 +1612,7 @@ function sec(k,body,extra){
   return `<div class="sec ${isEd?'editing':''}" data-sec="${k}" data-state="${s}">
     <div class="sec-h"><span class="lbl">${LBL[k]}</span>${extra||''}${chip}${by}
       <span class="sec-tools">
-        <button class="tbtn ${isEd?'go':''}" data-act="edit">${isEd?'Save':'Edit'}</button>
+        ${canEdit?`<button class="tbtn ${isEd?'go':''}" data-act="edit">${isEd?'Save':'Edit'}</button>`:''}
         ${isEd?'<button class="tbtn" data-act="cancel">Cancel</button>':'<button class="tbtn" data-act="comment">Comment</button>'}
       </span></div>
     <div class="sec-body">${body}</div>${note}</div>`;
@@ -1258,7 +1620,8 @@ function sec(k,body,extra){
 
 function renderShop(){
   const p=P[cur],pk=st[cur].picks,E=editing;
-  $('#railKind').textContent=p.kind==='update'?'UPDATE · publishes via bc_publish':'CREATE · publishes via bc_create';
+  $('#railKind').textContent=vpHides('rail')?''
+    :p.kind==='update'?'UPDATE · publishes via bc_publish':'CREATE · publishes via bc_create';
   /* ⭐ same rule as `renderGrid()`'s `.cand .art`: no `im[5]` means nothing to
      show, so fall back to the filename text rather than a broken image; an
      `sp:` reference needs `hydrateSp()` (below); anything else is a plain
@@ -1286,7 +1649,7 @@ function renderShop(){
         <input class="ctl w-lg" id="edBadge" maxlength="24" value="${esc(p.badge)}">
         <div class="hint" id="badgeHint"></div></div>
       <div class="fld"><span class="lbl">Brand</span>
-        <select class="ctl w-md" id="edBrand">${selOpts(brandList(),p.brand)}</select></div>
+        <select class="ctl w-md" id="edBrand"${vpAccess('brand')==='edit'?'':' disabled'}>${selOpts(brandList(),p.brand)}</select></div>
     </div>
     <div style="margin-top:9px"><span class="lbl">Alternatives the copywriter offered — click to use</span>
       <div class="tags" style="border:0;padding:4px 0" id="altRow">
@@ -1301,7 +1664,18 @@ function renderShop(){
      ${wasNow('Product name', p.wasName, p.name)}`;
 
   /* price — live margin maths */
-  const price = E==='price' ? `
+  /* ⛔ vendor view: price and sale only — no cost, margin, floor, target or
+     pricing basis, in the editor or the read view. */
+  const price = (E==='price' && isVendorView()) ? `
+    <div class="inline">
+      <div class="fld"><span class="lbl">Price</span><input class="ctl w-sm mono" id="edPrice" type="number" step="0.01" min="0" value="${p.price}"></div>
+      <div class="fld"><span class="lbl">Sale price <span style="text-transform:none;letter-spacing:0">(0 = none)</span></span>
+        <input class="ctl w-sm mono" id="edSale" type="number" step="0.01" min="0" value="${p.salePrice}"></div>
+    </div>
+    ${wasNow('Price', p.wasPrice, p.price, v=>money(v))}
+    <div class="hint">Set a sale end date on the <b>All details</b> tab — a sale needs one.</div>`
+  : isVendorView() ? `<div class="p-price">${p.salePrice>0?`<s>${money(p.price)}</s>${money(p.salePrice)}`:money(p.price)}</div>`
+  : E==='price' ? `
     <div class="inline">
       <div class="fld"><span class="lbl">Price</span><input class="ctl w-sm mono" id="edPrice" type="number" step="0.01" min="0" value="${p.price}"></div>
       <div class="fld"><span class="lbl">Sale price <span style="text-transform:none;letter-spacing:0">(0 = none)</span></span>
@@ -1361,6 +1735,7 @@ function renderShop(){
   $('#listLegend').innerHTML = p.src==='enhance'
     ? `<b>Enhance item — already live.</b> The dashed block under the description is what is on the storefront today.`
     : p.src==='clone' ? `<b>Cloned from ${esc(p.cloneOf)}.</b> The two open flags are the decisions only staff can make.`
+    : isVendorView() ? `<b>New product.</b> It is not on our stores yet — approving publishes it.`
     : `<b>New product.</b> Nothing exists in BigCommerce or Finale yet.`;
 }
 
@@ -1379,7 +1754,7 @@ function wireEditors(){
     nm.oninput=check;bd.oninput=check;check();
     $('#altRow').querySelectorAll('[data-alt]').forEach(b=>b.onclick=()=>{bd.value=b.dataset.alt;check();});
   }
-  if(editing==='price'){
+  if(editing==='price' && !isVendorView()){
     /* ⛔⛔ P-851 item 4 (2026-09-10). Cost is read-only by ruling (R10) and the
        hint used to name `apply_tcf_cost_answer` and STOP — so a reviewer who
        spotted a wrong cost had to leave the app, and the product just stalled.
@@ -1450,16 +1825,20 @@ function commitEdit(k){
   const p=P[cur];
   if(k==='identity'){p.name=$('#edName').value.trim();p.badge=$('#edBadge').value.replace(/[®™©]/g,'').trim();p.brand=$('#edBrand').value;}
   if(k==='price'){p.price=+$('#edPrice').value||0;p.salePrice=+$('#edSale').value||0;
-    const t=(+$('#edTgt').value||0)/100;
+    /* ⛔ a vendor view renders no target-margin control, so there is nothing to read */
+    const tg=$('#edTgt');
+    if(tg && !isVendorView()){
+    const t=(+tg.value||0)/100;
     /* ⛔ AUDIT FIX: only a margin the reviewer CHANGED is an override — this
        used to record one on every price save whose rounded margin differed from
        the category default, which now reaches Finale. */
-    if(Math.abs(t-targetMargin(p))>0.004) p.marginOverride=(t!==((catOf(p.cat)||[])[3]??0.3))?t:null;}
+    if(Math.abs(t-targetMargin(p))>0.004) p.marginOverride=(t!==((catOf(p.cat)||[])[3]??0.3))?t:null;}}
   if(k==='warranty')p.warranty=$('#edWarr').innerHTML;
   if(k==='description')p.prose=$('#edProse').innerHTML;
   if(k==='questions')readCqFromDom();
   editing=null;
-  markEdited(k, k==='price'?'Price saved — apply_price_answer() · margin recomputed':'Saved through the applier · normalizer re-run');
+  markEdited(k, isVendorView()?'Saved'
+    :k==='price'?'Price saved — apply_price_answer() · margin recomputed':'Saved through the applier · normalizer re-run');
 }
 
 function wireSec(el){
@@ -1478,9 +1857,12 @@ function wireSec(el){
     else if(a==='comment'){
       if(el.querySelector('.cbox'))return;
       const box=document.createElement('div');box.className='cbox';
-      box.innerHTML=`<textarea placeholder="What should change, and why? The next scheduled run rewrites just this section with your note in the prompt."></textarea>
-        <div class="row"><button class="tbtn go" data-save>Queue rework</button><button class="tbtn" data-cancel>Cancel</button>
-        <span class="hint">Nothing changes until the run — the current copy stays live meanwhile.</span></div>`;
+      const V=isVendorView();
+      box.innerHTML=`<textarea placeholder="${V?'What should change, and why? We rewrite just this section using your note.'
+          :'What should change, and why? The next scheduled run rewrites just this section with your note in the prompt.'}"></textarea>
+        <div class="row"><button class="tbtn go" data-save>${V?'Ask us to rewrite this':'Queue rework'}</button><button class="tbtn" data-cancel>Cancel</button>
+        <span class="hint">${V?'Nothing changes until we rewrite it — the current text stays as it is meanwhile.'
+          :'Nothing changes until the run — the current copy stays live meanwhile.'}</span></div>`;
       el.querySelector('.sec-body').after(box);box.querySelector('textarea').focus();
       box.querySelector('[data-cancel]').onclick=()=>box.remove();
       box.querySelector('[data-save]').onclick=()=>{const v=box.querySelector('textarea').value.trim();
@@ -1494,7 +1876,8 @@ function wireSec(el){
            (nothing runs 21:00-07:00) and underspecifies (it may be the very
            next hour, or up to 2h away, or until 07:00 if queued after 21:00).
            ⛔ Never hardcode a time here again — say the RULE, not a promise. */
-        toast('Rework queued — the poller runs 07:00–21:00, every 2 hours (not overnight)');
+        toast(isVendorView()?'Sent — we rewrite this section, usually within a few hours (07:00–21:00)'
+          :'Rework queued — the poller runs 07:00–21:00, every 2 hours (not overnight)');
         scheduleAutosave(cur,'Rework request saved');};
     }
   });
@@ -1521,6 +1904,7 @@ function landsBadge(key){
   return '<span class="lands" data-lands="'+esc(key)+'" title="'+esc(tip)+'">'+esc(txt)+'</span>';
 }
 function applyLandsBadges(root){
+  if(isVendorView()) return;          /* ⛔ the badges name BigCommerce/Finale plumbing */
   try{
     Object.keys(WIRE_OF_ID).forEach(function(id){
       var el=(root||document).querySelector('#'+id); if(!el) return;
@@ -1659,27 +2043,27 @@ function renderFields(){
   /* ⭐ the field list is the note's FIRST line: "[fields] a,b" */
   const _hn = String(_dd.drain_note||'');
   const _heldFields = (/^\[fields\] ([^\n]*)/.exec(_hn)||[,''])[1].trim();
-  const heldHtml = !_dd.held ? '' : `
+  const heldHtml = !_dd.held ? '' : vh('heldBanner',`
   <div class="fgroup" id="heldNote" style="border-left:4px solid var(--bad,#9b2c2c)">
     <h3>⚠ Publishing is waiting for you</h3><div class="body">
     <div class="cascade">${esc(_hn.replace(/^\[fields\][^\n]*\n?/,''))}</div>
     <div style="margin-top:8px"><button class="btn primary" id="btnConfirmOverwrite"
-      data-fields="${esc(_heldFields)}">Confirm — overwrite these fields in BigCommerce</button></div></div></div>`;
+      data-fields="${esc(_heldFields)}">Confirm — overwrite these fields in BigCommerce</button></div></div></div>`);
   /* ⭐ 2026-09-26 (P-1674): publish_readiness parks/holds an APPROVED product the
      export would refuse (e.g. a Name with no " - <size>"), with a note starting
      "⛔ Not published" that already says what to change — so say THAT, not
      "your save was not applied" (the save WAS applied; the product cannot go live). */
   const _notPub = /^⛔ Not published/.test(_hn);
   const heldHtml2 = (_dd.held && _notPub) ? '' : heldHtml;
-  const drainHtml = heldHtml2 + (!(_dd.parked || (_dd.held && _notPub)) ? '' : `
+  const drainHtml = heldHtml2 + (!(_dd.parked || (_dd.held && _notPub)) ? '' : vh('heldBanner',`
   <div class="fgroup" id="drainNote" style="border-left:4px solid var(--bad,#9b2c2c)">
     <h3>${_notPub ? '⛔ Approved, but this product cannot be published yet'
                   : '⛔ Your last save was NOT fully applied'}</h3><div class="body">
     <div class="hint" style="margin-bottom:6px">${_notPub
       ? 'Nothing else in the batch is waiting on this one. Make the change below, Save, and Approve again — the next run publishes it automatically.'
       : 'Nothing below reaches the stores until this is fixed. Change the field it names and save again — the next run picks it up automatically.'}</div>
-    <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note||'(no reason recorded)')}</div></div></div>`);
-  const notesHtml = drainHtml + (!(p.notes||[]).length ? '' : `
+    <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note||'(no reason recorded)')}</div></div></div>`));
+  const notesHtml = drainHtml + (!(p.notes||[]).length ? '' : vh('notesBlock',`
   <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
     <div class="hint" style="margin-bottom:8px">
       These were left <b>blank on purpose</b>. We were not confident enough to fill them in,
@@ -1692,57 +2076,74 @@ function renderFields(){
        ${n.detail?`<div style="opacity:.75;margin-top:3px">${esc(n.detail)}</div>`:''}
        ${n.hasGuess?`<div style="opacity:.7;margin-top:3px">We do have a candidate for this one;
           say the word in a comment and we will use it.</div>`:''}</div>`).join('')}
-  </div></div>`);
+  </div></div>`));
 
-  $('#fields').innerHTML=notesHtml+`
+  /* ⭐ vendor view: `flags` is a VIEW field — the open flags of a vendor type,
+     as plain text. ⛔ A flag of any other type is never shown (the backend
+     filters them too; this does not depend on it). */
+  const vendorTopHtml = (!isVendorView() || vpAccess('flags')==='hide') ? '' : (function(){
+    const types=vpFlagTypes(), fl=openFlags(cur).filter(f=>types.indexOf(f.k)>=0);
+    if(!fl.length) return '';
+    return `<div class="fgroup" id="vFlags"><h3>Please check</h3><div class="body">${fl.map(f=>
+      `<div class="cascade" style="margin-bottom:6px"><b>${esc(VFLAG_LABEL[f.k]||f.k.replace(/_/g,' ').toLowerCase())}</b> ${esc(_plain(f.t))}</div>`).join('')}</div></div>`;
+  })();
+  $('#fields').innerHTML=notesHtml+vendorTopHtml+vgrp(`
   <div class="fgroup"><h3>Identity</h3><div class="body">
-    ${frow('Product name','the shelf identity',`<input class="ctl" id="fName" value="${esc(p.name)}">`,
+    ${vrow('name',null,frow('Product name','the shelf identity',`<input class="ctl" id="fName" value="${esc(p.name)}">`,
       (function(){const q=nameProblems(p.name,p.brand);
         return q.length?q.map(x=>`<span class="bad">⛔ ${esc(x)}</span>`).join('<br>')
-                       :'<span class="okk">✓ no brand, no case quantity, size suffix present</span>';})())}
-    ${frow('SKU','derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`
+                       :'<span class="okk">✓ no brand, no case quantity, size suffix present</span>';})()))}
+    ${vrow('sku',null,frow('SKU','derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`
       +((p.skuAfter&&p.skuAfter!==p.sku)?`<div class="hint">⏳ becomes <b class="mono">${esc(p.skuAfter)}</b> once your change is applied</div>`:''),
-      `<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`)}
-    ${frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.')}
-    ${frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`)}
-    ${frow('Badge','__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.')}
-    ${frow('Storage','__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
-      '⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.')}
-    ${frow('Owner','__Owner',`<select class="ctl w-md" id="fOwner">${selOpts(OWNERS,p.owner)}</select>`,
-      p.owner==='TCFarm'?'TCFarm → departmental income account.':'⛔ Non-TCFarm vendor → income routes to the consignment clearing account.')}
-  </div></div>
-
+      isVendorView()?'<span class="derived">set by us from the storage area and the category</span>':`<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`))}
+    ${isVendorView()?vrow('published',null,frow('On our stores',null,p.published
+        ?`<div class="hint okk" style="margin-top:6px">✓ Live${p.published.at?' since '+esc(String(p.published.at).slice(0,10)):''}</div>`
+        :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>')):''}
+    ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.'))}
+    ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
+    ${vrow('badge',null,frow('Badge','__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.'))}
+    ${vrow('storage',null,frow('Storage','__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
+      '⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.'))}
+    ${vrow(null,'ownerRow',frow('Owner','__Owner',`<select class="ctl w-md" id="fOwner">${selOpts(OWNERS,p.owner)}</select>`,
+      p.owner==='TCFarm'?'TCFarm → departmental income account.':'⛔ Non-TCFarm vendor → income routes to the consignment clearing account.'))}
+  </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Classification — ⚠ this cascades</h3><div class="body">
-    ${frow('Primary category','45 of 156 leaves in this wireframe',catSelect,`confidence ${p.catConf} — ${esc(p.catWhy)}`)}
-    ${frow('Secondary category','optional',`<select class="ctl w-lg" id="fCat2"><option value="">— none —</option>${CATS.map(x=>`<option ${x[0]===p.cat2?'selected':''}>${esc(x[0])}</option>`).join('')}</select>`)}
+    ${vrow('cat',null,frow('Primary category',isVendorView()?'where shoppers find it':'45 of 156 leaves in this wireframe',catSelect,isVendorView()?'':`confidence ${p.catConf} — ${esc(p.catWhy)}`))}
+    ${vrow('cat2',null,frow('Secondary category','optional',`<select class="ctl w-lg" id="fCat2"><option value="">— none —</option>${CATS.map(x=>`<option ${x[0]===p.cat2?'selected':''}>${esc(x[0])}</option>`).join('')}</select>`))}
     <div id="cascade"></div>
-    ${frow('Tax class','defaults from category',`<select class="ctl w-md" id="fTax">${selOpts(TAXES,taxOf(p))}</select>`,
-      `<span class="derived">category default is <b>${esc(c[4]||'NT')}</b>${p.taxOverride?' — you have overridden it':''}. MN rules: <span class="mono">docs/MN_TAX_REFERENCE.md</span></span>`)}
-    ${frow('Finale category','derived',`<input class="ctl" value="${esc(c[5]||'')}" disabled>`,'<span class="derived">from the primary category</span>')}
-    ${frow('Income account','derived · ⚠ owner can override',`<input class="ctl" value="${esc(p.owner==='TCFarm'?(c[6]||''):'RFS Sales Clearing Account')}" disabled>`,
-      p.owner==='TCFarm'?'<span class="derived">departmental, from the category</span>':'⛔ Consignment — the owner decides this, full stop.')}
-    ${frow('COGS account','derived',`<input class="ctl" value="${esc(c[7]||'')}" disabled>`,'<span class="derived">stays departmental even for consignment</span>')}
-    ${frow('Inventory account','derived',`<input class="ctl" value="${esc(c[8]||'')}" disabled>`)}
-  </div></div>
-
+    ${isVendorView()
+      ? vrow('taxOverride',null,frow('Is this item taxable in Minnesota?',null,
+          `<div class="taxr" role="radiogroup" aria-label="Is this item taxable in Minnesota?">
+             <label><input type="radio" name="fTaxR" id="fTaxNT" value="NT" ${taxOf(p)==='NT'?'checked':''}> Not taxable</label>
+             <label><input type="radio" name="fTaxR" id="fTaxTX" value="Taxable Item" ${taxOf(p)==='Taxable Item'?'checked':''}> Taxable</label></div>`,
+          vpAccess('taxAssessment')==='hide'?'':taxAssessLine(p,false)))
+      : frow('Tax class','your choice → our assessment → the category',`<select class="ctl w-md" id="fTax">${selOpts(TAXES,taxOf(p))}</select>`,
+      taxAssessLine(p,true)
+      +`<span class="derived">category default is <b>${esc(c[4]||'NT')}</b>${p.taxOverride?' — you have overridden it'
+        :taxConfident(p)?' — our assessment is used instead':''}. MN rules: <span class="mono">docs/MN_TAX_REFERENCE.md</span></span>`)}
+    ${vrow(null,'finaleRows',frow('Finale category','derived',`<input class="ctl" value="${esc(c[5]||'')}" disabled>`,'<span class="derived">from the primary category</span>'))}
+    ${vrow(null,'finaleRows',frow('Income account','derived · ⚠ owner can override',`<input class="ctl" value="${esc(p.owner==='TCFarm'?(c[6]||''):'RFS Sales Clearing Account')}" disabled>`,
+      p.owner==='TCFarm'?'<span class="derived">departmental, from the category</span>':'⛔ Consignment — the owner decides this, full stop.'))}
+    ${vrow(null,'finaleRows',frow('COGS account','derived',`<input class="ctl" value="${esc(c[7]||'')}" disabled>`,'<span class="derived">stays departmental even for consignment</span>'))}
+    ${vrow(null,'finaleRows',frow('Inventory account','derived',`<input class="ctl" value="${esc(c[8]||'')}" disabled>`))}
+  </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Pricing</h3><div class="body">
-    ${frow('Price',null,`<input class="ctl w-sm mono" id="fPrice" type="number" step="0.01" min="0" value="${p.price}">`)}
-    ${frow('Sale price','0 = not on sale',`<input class="ctl w-sm mono" id="fSale" type="number" step="0.01" min="0" value="${p.salePrice}">`,
-      '⚠ The fortnightly promo flip also writes this field — a hand-set sale is never taken down by that process.')}
-    ${frow('Sale ends','last delivery date at the sale price',
+    ${vrow('price',null,frow('Price',null,`<input class="ctl w-sm mono" id="fPrice" type="number" step="0.01" min="0" value="${p.price}">`))}
+    ${vrow('salePrice',null,frow('Sale price','0 = not on sale',`<input class="ctl w-sm mono" id="fSale" type="number" step="0.01" min="0" value="${p.salePrice}">`,
+      isVendorView()?'':'⚠ The fortnightly promo flip also writes this field — a hand-set sale is never taken down by that process.'))}
+    ${vrow('saleEnds',null,frow('Sale ends','last delivery date at the sale price',
       `<input class="ctl w-md mono" id="fSaleEnds" type="date" value="${esc(p.saleEnds||'')}">`,
       (p.salePrice>0&&!p.saleEnds)
         ? '<span class="bad">⛔ A sale needs its end date — it becomes the badge ("for delivery by M/D") and the automatic takedown. Without it the sale is not applied — you will see why on this product.</span>'
-        : '<span class="derived">Shown to shoppers as "for delivery by M/D"; the sale comes down automatically after this date.</span>')}
-    ${frow('Cost','read-only',`<input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled>`,'<span class="derived">KeHE regular cost / Finale average cost</span>')}
-    ${frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`)}
-    ${frow('Live maths','derived',`<div class="calc" id="fCalc"></div>`)}
-    ${frow('Bulk discount tiers','__bulk_pricing',tiersHtml)}
-  </div></div>
-
+        : '<span class="derived">Shown to shoppers as "for delivery by M/D"; the sale comes down automatically after this date.</span>'))}
+    ${vrow(null,'costRow',frow('Cost','read-only',`<input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled>`,'<span class="derived">KeHE regular cost / Finale average cost</span>'))}
+    ${vrow(null,'marginRow',frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`))}
+    ${vrow(null,'marginRow',frow('Live maths','derived',`<div class="calc" id="fCalc"></div>`))}
+    ${vrow('tiers',null,frow('Bulk discount tiers','__bulk_pricing',tiersHtml))}
+  </div></div>`)+vh('variantsBlock',`
   <div class="fgroup"><h3>Variants &amp; options</h3><div class="body">
     ${(p.variants&&p.variants.length)?`
-      ${frow('Option name','the shopper-facing label',`<input class="ctl w-md" id="vOpt" value="${esc(p.optionName||'')}">`)}
+      ${vrow(null,'variantsBlock',frow('Option name','the shopper-facing label',`<input class="ctl w-md" id="vOpt" value="${esc(p.optionName||'')}">`))}
       <div class="frow"><div class="k">Variants<em>${p.variants.length} on this product</em></div><div class="v">
         <div class="tiers" id="varBox">
           <div class="tier" style="grid-template-columns:120px 1fr 84px 78px 110px auto;background:none;border:0;padding:0 8px">
@@ -1780,90 +2181,91 @@ function renderFields(){
           tracking and every active subscription.</div>
         <button class="tbtn" style="margin-top:8px" onclick="toast('Opens the variantize preflight — dry-run across all 3 stores first')">Convert to variants…</button>
       </div></div>`}
-  </div></div>
-
+  </div></div>`)+vgrp(`
   <div class="fgroup"><h3>SEO &amp; search</h3><div class="body">
-    ${frow('Page title',null,`<input class="ctl" id="fPT" value="${esc(p.pageTitle)}">`,
-      /^(\w+)\s+\1/i.test(p.pageTitle.replace(/[^\w\s]/g,''))?'<span class="bad">⛔ the brand appears twice</span>':`${p.pageTitle.length} characters · aim ≤ 60`)}
-    ${frow('Meta description',null,`<textarea class="ctl" id="fMD" rows="2">${esc(p.metaDesc)}</textarea>`,
-      p.metaDesc?`${p.metaDesc.length} characters · aim 120–158`:'<span class="bad">⛔ empty — Google will invent one from the page</span>')}
-    ${frow('Search keywords','internal storefront search',`<div class="tags" style="border:0;padding:0">${p.kws.map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>`,
-      'Edit these on the Listing tab, where the guide rules are shown.')}
-  </div></div>
-
+    ${vrow('pageTitle',null,frow('Page title',null,`<input class="ctl" id="fPT" value="${esc(p.pageTitle)}">`,
+      /^(\w+)\s+\1/i.test(p.pageTitle.replace(/[^\w\s]/g,''))?'<span class="bad">⛔ the brand appears twice</span>':`${p.pageTitle.length} characters · aim ≤ 60`))}
+    ${vrow('metaDesc',null,frow('Meta description',null,`<textarea class="ctl" id="fMD" rows="2">${esc(p.metaDesc)}</textarea>`,
+      p.metaDesc?`${p.metaDesc.length} characters · aim 120–158`:'<span class="bad">⛔ empty — Google will invent one from the page</span>'))}
+    ${vrow('kws',null,frow('Search keywords','internal storefront search',`<div class="tags" style="border:0;padding:0">${p.kws.map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>`,
+      'Edit these on the Listing tab, where the guide rules are shown.'))}
+  </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Physical &amp; shipping</h3><div class="body">
-    ${frow('Weight','grams',`<input class="ctl w-sm mono" id="fW" type="number" value="${p.weightG}">`)}
-    ${frow('Dimensions','W × H × D cm',`<div class="inline">
+    ${vrow('weightG',null,frow('Weight','grams',`<input class="ctl w-sm mono" id="fW" type="number" value="${p.weightG}">`))}
+    ${vrow('dims',null,frow('Dimensions','W × H × D cm',`<div class="inline">
       <input class="ctl w-sm mono" id="fD0" type="number" value="${p.dims[0]}">
       <input class="ctl w-sm mono" id="fD1" type="number" value="${p.dims[1]}">
-      <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}"></div>`)}
-    ${frow('__Volume','derived',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
+      <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}"></div>`))}
+    ${vrow('dims',null,frow('__Volume','derived',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
       '<span class="derived">L × W × H cm³ — drives van load planning</span>'
       +((p.dimsMeta&&p.dimsMeta.basis==='rivir_declared')
         ? ' · <b>from RIVIR</b>, the manufacturer\'s declared package'
-        : ' · <b>ESTIMATED</b> — check it'))}
-  </div></div>
-
-  <div class="fgroup"><h3>Ordering &amp; Finale</h3><div class="body">
-    ${frow('Case pack','how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" value="${p.casepack}">`,'⛔ Never appears in the product Name.')}
-    ${frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`)}
-    ${frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" value="${esc(p.supplier)}">`,
-      p.supplier==='KEHE'?'A KeHE row must leave Supplier Name blank on the input CSV — that is the whole signal.':'')}
-    ${p.sourcingType==='kehe_distributor'?frow('KeHE free fill','on by default',
+        : ' · <b>ESTIMATED</b> — check it')))}
+  </div></div>`)+vgrp(`
+  <div class="fgroup"><h3>${isVendorView()?'Ordering':'Ordering &amp; Finale'}</h3><div class="body">
+    ${vrow('casepack',null,frow('Case pack',isVendorView()?'units in one case':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" value="${p.casepack}">`,'⛔ Never appears in the product Name.'))}
+    ${vrow(null,'finaleRows',frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`))}
+    ${vrow(null,'supplierRow',frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" value="${esc(p.supplier)}">`,
+      p.supplier==='KEHE'?'A KeHE row must leave Supplier Name blank on the input CSV — that is the whole signal.':''))}
+    ${p.sourcingType==='kehe_distributor'?vrow(null,'freeFillRow',frow('KeHE free fill','on by default',
       `<select class="ctl w-md" id="fFF">
          <option value="1" ${p.requestFreeFill?'selected':''}>Request a free fill</option>
          <option value="0" ${!p.requestFreeFill?'selected':''}>Skip — do not request</option>
        </select>`,
       p.requestFreeFill
         ? 'Included on the batch free-fill email to our KeHE rep.'
-        : '⚠ Excluded — this item will NOT be on the free-fill request email.'):''}
-    ${frow('Item type',null,`<select class="ctl w-lg" id="fIT">${selOpts(ITEM_TYPES,p.itemType)}</select>`)}
-    ${frow('Safety stock days','from category',`<input class="ctl w-sm mono" value="14" disabled>`)}
-    ${frow('Stores to add','derived','<input class="ctl" value="Bigcommerce, BC - MNFoodClub, Bigcommerce - NGF" disabled>',
-      '<span class="derived">every enabled store in <span class="mono">config/bc_stores.json</span>, TC Feeds excluded</span>')}
-  </div></div>
-
+        : '⚠ Excluded — this item will NOT be on the free-fill request email.')):''}
+    ${vrow(null,'itemTypeRow',frow('Item type',null,`<select class="ctl w-lg" id="fIT">${selOpts(ITEM_TYPES,p.itemType)}</select>`))}
+    ${vrow(null,'finaleRows',frow('Safety stock days','from category',`<input class="ctl w-sm mono" value="14" disabled>`))}
+    ${vrow(null,'finaleRows',frow('Stores to add','derived','<input class="ctl" value="Bigcommerce, BC - MNFoodClub, Bigcommerce - NGF" disabled>',
+      '<span class="derived">every enabled store in <span class="mono">config/bc_stores.json</span>, TC Feeds excluded</span>'))}
+  </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Visibility &amp; channels</h3><div class="body">
-    ${frow('Visible on storefront',null,`<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Visible</option><option value="0" ${!p.visible?'selected':''}>Hidden</option></select>`,
-      '⚠ Hidden products never appear in storefront search and their stock is unsellable.')}
-    ${frow('Channels','compliance gate','<input class="ctl" value="TC Farm · MNFood.Club · NelsonGrassFarm" disabled>',
-      '<span class="derived">⛔ assigned at create and READ BACK — a 2xx on the channel PUT is not proof</span>')}
-  </div></div>`;
+    ${vrow(null,'visibleRow',frow('Visible on storefront',null,`<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Visible</option><option value="0" ${!p.visible?'selected':''}>Hidden</option></select>`,
+      '⚠ Hidden products never appear in storefront search and their stock is unsellable.'))}
+    ${vrow(null,'visibleRow',frow('Channels','compliance gate','<input class="ctl" value="TC Farm · MNFood.Club · NelsonGrassFarm" disabled>',
+      '<span class="derived">⛔ assigned at create and READ BACK — a 2xx on the channel PUT is not proof</span>'))}
+  </div></div>`);
 
   /* wire */
   const recalc=()=>{
-    const price=+$('#fPrice').value||0,sale=+$('#fSale').value||0,tgt=(+$('#fTgt').value||0)/100;
+    /* ⛔ a vendor view renders no target-margin or live-maths row — read what exists */
+    const _n=(id,dflt)=>{const e=$('#'+id);return e?(+e.value||0):dflt;};
+    const price=_n('fPrice',p.price),sale=_n('fSale',p.salePrice),tgt=_n('fTgt',targetMargin(p)*100)/100;
     const eff=sale>0?sale:price,m=eff>0?(eff-p.cost)/eff:0,floor=tgt>=1?p.cost:p.cost/(1-tgt);
     const cls=m<0?'bad':m<tgt-0.05?'bad':m<tgt?'mid':'good';
-    $('#fCalc').innerHTML=`<span>margin <b class="mnum ${cls}">${(m*100).toFixed(1)}%</b></span>
+    if($('#fCalc'))$('#fCalc').innerHTML=`<span>margin <b class="mnum ${cls}">${(m*100).toFixed(1)}%</b></span>
       <span>floor <b>${money(floor)}</b></span><span>GP/unit <b>${money(eff-p.cost)}</b></span>
       ${eff<=p.cost?'<span class="mnum bad">⛔ at or below cost</span>':eff<floor?'<span class="mnum mid">⚠ below floor</span>':''}`;
-    $('#tierBox').querySelectorAll('.tier').forEach((row,i)=>{
+    if($('#tierBox'))$('#tierBox').querySelectorAll('.tier').forEach((row,i)=>{
       const pc=+row.querySelector('[data-tp]').value||0;
       row.querySelector('.unit').textContent=money(price*(1-pc/100))+' ea';});
   };
   ['fPrice','fSale','fTgt'].forEach(id=>{const e=$('#'+id);if(e)e.oninput=recalc;});
   recalc();
 
-  $('#fCat').onchange=()=>{
-    const nc=catOf($('#fCat').value)||[];
+  if($('#fCat'))$('#fCat').onchange=()=>{
+    const nc=catOf($('#fCat').value)||[], V=isVendorView();
+    const taxNow=taxOf(Object.assign({},p,{cat:$('#fCat').value}));
     $('#cascade').innerHTML=`<div class="cascade"><b>Changing the category changes all of this</b>
       <table>
-      <tr><td>SKU code</td><td><span class="was">${esc(c[2])}</span> → <span class="now">${esc(nc[2])}</span> — the SKU is rebuilt</td></tr>
-      <tr><td>Target margin</td><td><span class="was">${(c[3]*100).toFixed(0)}%</span> → <span class="now">${(nc[3]*100).toFixed(0)}%</span> — the floor moves to ${money(p.cost/(1-nc[3]))}</td></tr>
-      <tr><td>Tax class</td><td><span class="was">${esc(c[4])}</span> → <span class="now">${esc(nc[4])}</span></td></tr>
-      <tr><td>Finale category</td><td><span class="was">${esc(c[5])}</span> → <span class="now">${esc(nc[5])}</span></td></tr>
+      ${V?'':`<tr><td>SKU code</td><td><span class="was">${esc(c[2])}</span> → <span class="now">${esc(nc[2])}</span> — the SKU is rebuilt</td></tr>
+      <tr><td>Target margin</td><td><span class="was">${(c[3]*100).toFixed(0)}%</span> → <span class="now">${(nc[3]*100).toFixed(0)}%</span> — the floor moves to ${money(p.cost/(1-nc[3]))}</td></tr>`}
+      <tr><td>Tax class</td><td><span class="was">${esc(taxOf(p))}</span> → <span class="now">${esc(taxNow)}</span>${
+        p.taxOverride?' — your choice is kept':taxConfident(p)?' — our assessment is kept':''}</td></tr>
+      ${V?'':`<tr><td>Finale category</td><td><span class="was">${esc(c[5])}</span> → <span class="now">${esc(nc[5])}</span></td></tr>
       <tr><td>Income account</td><td><span class="was">${esc(c[6])}</span> → <span class="now">${esc(nc[6])}</span></td></tr>
       <tr><td>COGS account</td><td><span class="was">${esc(c[7])}</span> → <span class="now">${esc(nc[7])}</span></td></tr>
-      <tr><td>Inventory acct</td><td><span class="was">${esc(c[8])}</span> → <span class="now">${esc(nc[8])}</span></td></tr>
+      <tr><td>Inventory acct</td><td><span class="was">${esc(c[8])}</span> → <span class="now">${esc(nc[8])}</span></td></tr>`}
       <tr><td>SKU</td><td><span class="was">${esc(p.sku)}</span> → <span class="now">${esc(skuOf(Object.assign({},p,{cat:$('#fCat').value})))}</span></td></tr>
-      ${p.taxOverride?`<tr><td>⚠ your override</td><td>the manual tax class <b>${esc(p.taxOverride)}</b> will be DISCARDED and re-derived</td></tr>`:''}
-      ${p.marginOverride!=null?`<tr><td>⚠ your override</td><td>the manual target margin <b>${(p.marginOverride*100).toFixed(0)}%</b> will be DISCARDED</td></tr>`:''}
+      ${!V&&p.marginOverride!=null?`<tr><td>⚠ your override</td><td>the manual target margin <b>${(p.marginOverride*100).toFixed(0)}%</b> will be DISCARDED</td></tr>`:''}
       </table>
       <div style="margin-top:8px"><button class="tbtn go" id="applyCat">Apply category change</button>
       <button class="tbtn" id="cancelCat">Cancel</button></div></div>`;
     $('#applyCat').onclick=()=>{
-      p.cat=$('#fCat').value;p.taxOverride='';p.marginOverride=null;
+      /* ⛔⛔ 2026-09-28 (plan §4): a category change NO LONGER clears `taxOverride` — that is a
+         human's answer about THIS item; the category may only pre-select when there is none. */
+      p.cat=$('#fCat').value;p.marginOverride=null;
       /* ⛔⛔ 2026-09-22: the page NO LONGER changes p.sku. It is the key every save
          is filed under — rewriting it here filed the decision under a SKU the
          batch does not have, and every edit, image pick and approval on the
@@ -1874,7 +2276,7 @@ function renderFields(){
       markEdited('identity',`Category change saved — the SKU becomes ${p.skuAfter} once it is applied`);};
     $('#cancelCat').onclick=()=>{$('#fCat').value=p.cat;$('#cascade').innerHTML='';};
   };
-  $('#fStorage').onchange=()=>{
+  if($('#fStorage'))$('#fStorage').onchange=()=>{
     /* ⛔ A2: this used to promise a SKU rebuild in the dialog and the toast and
        never do it — skuOf() was dead code with zero call sites, which is exactly
        the two-halves-disagree failure the rule exists to prevent. */
@@ -1902,21 +2304,26 @@ function renderFields(){
     /* ⛔ through the normal save chain (no self-inflicted "someone else saved") */
     scheduleAutosave(cur,'Overwrite confirmed — it publishes on the next run');
     if(!IS_BROWSER) toast('Overwrite confirmed');};}
-  $('#fOwner').onchange=()=>{p.owner=$('#fOwner').value;markEdited('identity','Owner changed — income account re-resolved');};
-  $('#fTax').onchange=()=>{p.taxOverride=$('#fTax').value;markEdited('identity','Tax class overridden');};
-  $('#addTier').onclick=()=>{
+  if($('#fOwner'))$('#fOwner').onchange=()=>{p.owner=$('#fOwner').value;markEdited('identity','Owner changed — income account re-resolved');};
+  if($('#fTax'))$('#fTax').onchange=()=>{p.taxOverride=$('#fTax').value;markEdited('identity','Tax class overridden');};
+  /* ⭐ vendor view: the two radios write the same human choice. ⛔ The value comes
+     from WHICH radio fired, not from its value attribute. */
+  [['fTaxNT','NT'],['fTaxTX','Taxable Item']].forEach(([id,val])=>{const e=$('#'+id);
+    if(e)e.onchange=()=>{ if(e.checked===false) return; p.taxOverride=val;
+      markEdited('identity',val==='NT'?'Saved — not taxable':'Saved — taxable'); };});
+  if($('#addTier'))$('#addTier').onclick=()=>{
     const s=[...p.tiers].sort((a,b)=>a[0]-b[0]),last=s[s.length-1];
     p.tiers=s.concat([[last?last[0]*2:2,last?Math.min(last[1]+2,90):2]]);
     markEdited('price','Tier added — ranges re-derived');};
-  $('#sugTier').onclick=()=>{
+  if($('#sugTier'))$('#sugTier').onclick=()=>{
     p.tiers=suggestLadder(p.casepack).map(t=>[t[0],t[1]]);
     markEdited('price', p.casepack>CASE_CEILING
       ? `Capped at ${CAPPED_TOP} — a ${p.casepack}-unit top tier is unreachable`
       : `Kept the case shape — top tier stays at the ${p.casepack} case`);};
-  $('#tierBox').querySelectorAll('[data-rmt]').forEach(b=>b.onclick=()=>{
+  if($('#tierBox'))$('#tierBox').querySelectorAll('[data-rmt]').forEach(b=>b.onclick=()=>{
     const s=[...p.tiers].sort((a,b)=>a[0]-b[0]);s.splice(+b.dataset.rmt,1);
     p.tiers=s;markEdited('price','Tier removed — ranges re-derived');});
-  $('#tierBox').querySelectorAll('.tier').forEach((row,i)=>{
+  if($('#tierBox'))$('#tierBox').querySelectorAll('.tier').forEach((row,i)=>{
     const s=[...p.tiers].sort((a,b)=>a[0]-b[0]);
     /* ⛔ Found alongside the EDITABLE_FIELDS gap above (2026-09-12): these two
        did not even call markEdited — so editing an EXISTING tier's quantity
@@ -1934,7 +2341,7 @@ function renderFields(){
   /* ⛔ A16: the label promised "12 digits" and accepted anything. Given this
      project's history of leading-zero loss, this is the one field that must not
      be a free-text box. An 11-digit paste is left-padded, not rejected. */
-  $('#fUpc').onchange=()=>{
+  if($('#fUpc'))$('#fUpc').onchange=()=>{
     let v=String($('#fUpc').value||'').replace(/\s/g,'');
     if(v===''){p.upc='';markEdited('identity','UPC cleared');return;}
     if(!/^\d+$/.test(v)){toast('⛔ A UPC is digits only');$('#fUpc').value=p.upc;return;}
@@ -1945,7 +2352,7 @@ function renderFields(){
     .forEach(([id,key])=>{const e=$('#'+id);if(e)e.onchange=()=>{p[key]=+e.value||0;markEdited('price');};});
   {const e=$('#fSaleEnds');if(e)e.onchange=()=>{p.saleEnds=e.value||'';markEdited('price',
     p.saleEnds?`Sale ends ${p.saleEnds} — badge and takedown set`:'Sale end date cleared');};}
-  if(p.variants&&p.variants.length){
+  if(p.variants&&p.variants.length&&$('#varBox')){
     const vo=$('#vOpt');if(vo)vo.onchange=()=>{p.optionName=vo.value;markEdited('identity','Option name saved');};
     $('#varBox').querySelectorAll('[data-rmv]').forEach(b=>b.onclick=()=>{
       const i=+b.dataset.rmv;
@@ -1963,18 +2370,18 @@ function renderFields(){
       markEdited('identity',`Variant ${base}-${next} added — it needs a Finale entry and BOM before it can ship`);};
   }
   /* ⛔ A4: both of these rendered, accepted input and discarded it on re-render. */
-  $('#fTgt').onchange=()=>{
+  if($('#fTgt'))$('#fTgt').onchange=()=>{
     const t=(+$('#fTgt').value||0)/100, def=(catOf(p.cat)||[])[3];
     p.marginOverride=(t!==def)?t:null;
     markEdited('price',p.marginOverride==null?'Target margin back to the category default'
                                              :`Target margin overridden to ${(t*100).toFixed(0)}%`);};
-  $('#fCat2').onchange=()=>{
+  if($('#fCat2'))$('#fCat2').onchange=()=>{
     const v=$('#fCat2').value;
     if(v&&v===p.cat){toast('⛔ The secondary category cannot be the primary');$('#fCat2').value=p.cat2;return;}
     p.cat2=v;markEdited('identity',v?'Secondary category set':'Secondary category cleared');};
-  $('#fBrand').onchange=()=>{p.brand=$('#fBrand').value;markEdited('identity');};
-  $('#fIT').onchange=()=>{p.itemType=$('#fIT').value;markEdited('identity');};
-  $('#fVis').onchange=()=>{p.visible=$('#fVis').value==='1';markEdited('identity');};
+  if($('#fBrand'))$('#fBrand').onchange=()=>{p.brand=$('#fBrand').value;markEdited('identity');};
+  if($('#fIT'))$('#fIT').onchange=()=>{p.itemType=$('#fIT').value;markEdited('identity');};
+  if($('#fVis'))$('#fVis').onchange=()=>{p.visible=$('#fVis').value==='1';markEdited('identity');};
   {const e=$('#fFF');if(e)e.onchange=()=>{
     p.requestFreeFill=e.value==='1';
     markEdited('identity',p.requestFreeFill
@@ -2095,7 +2502,7 @@ function togglePick(i){
   const pk=st[cur].picks,at=pk.indexOf(i);
   if(at>=0)pk.splice(at,1);else pk.push(i);
   if(st[cur].sec.gallery!=='rework'){st[cur].sec.gallery='edited';
-    st[cur].by.gallery='edited by jack@tc.farm · just now';}
+    st[cur].by.gallery=isVendorView()?'edited by you · just now':'edited by jack@tc.farm · just now';}
   renderAll();
   scheduleAutosave(cur,'Image selection saved');
 }
@@ -2110,11 +2517,63 @@ window.togglePick=togglePick;
    ⭐ A real upload needs the file stored (SharePoint) and joined to the review
    package's candidates; it is being built with the consignment upload, which
    needs exactly the same plumbing. Until then there is NO upload button. */
-function addUpload(){
-  toast('Uploading your own image is not available yet — use "None of these" to ask for new images');
-  return false;
+/* ⭐⭐ 2026-09-28 (vendor mode §3): a REAL upload, through HOST.uploadImage.
+   The vendor portal (PortalHost) stores the file and adds it to the product's
+   candidates on its next update — so every file sent shows a placeholder tile
+   ("Uploading — appears in a few minutes") until then, never a silent gap.
+   ⛔ Staff (GraphHost) upload is phase 2: there it is still "not available yet",
+   and the Upload button is not shown at all — no control that cannot work. */
+const UPLOAD_MAX=15*1024*1024;
+const UPLOAD_TYPES=['image/jpeg','image/png','image/webp','image/heic','image/heif'];
+const UPLOADS={};              /* sku → [{name, state:'uploading'|'pending'|'failed', note}] — this session */
+function uploadProblem(f){
+  if(!f) return 'no file';
+  const okType=UPLOAD_TYPES.indexOf(String(f.type||'').toLowerCase())>=0
+    || /\.(jpe?g|png|webp|heic|heif)$/i.test(String(f.name||''));
+  if(!okType) return 'not a JPG, PNG, WEBP or HEIC photo';
+  if(!(f.size>0)) return 'the file is empty';
+  if(f.size>UPLOAD_MAX) return 'over 15 MB';
+  return '';
+}
+function addUpload(files){
+  if(!HOST||!HOST.canUpload){
+    toast('Uploading your own image is not available yet — use "None of these" to ask for new images');
+    return false;
+  }
+  if(!files||!files.length){ const inp=$('#upFile'); if(inp&&inp.click) inp.click(); return false; }
+  const i=cur, sku=P[i].sku, batch=_batchFromUI(), good=[], bad=[];
+  Array.from(files).forEach(f=>{ const why=uploadProblem(f); if(why) bad.push((f&&f.name||'file')+': '+why); else good.push(f); });
+  if(bad.length) toast('⛔ Not uploaded — '+bad.join('; '));
+  if(!good.length) return false;
+  const list=UPLOADS[sku]=UPLOADS[sku]||[];
+  good.forEach(f=>{
+    const u={name:String(f.name||'photo'), state:'uploading', note:''};
+    list.push(u);
+    const redraw=()=>{ if(P[cur]&&P[cur].sku===sku) renderGrid(); };
+    Promise.resolve().then(()=>HOST.uploadImage(batch, sku, f)).then(res=>{
+      if(res&&res.ok!==false){ u.state='pending'; }
+      else { u.state='failed'; u.note=(res&&(res.message||res.reason))||'refused'; toast('⛔ '+u.name+' was not uploaded — '+u.note); }
+      redraw();
+    },e=>{ u.state='failed'; u.note=String(e&&e.message?e.message:e); toast('⛔ '+u.name+' was not uploaded — '+u.note); redraw(); });
+  });
+  renderGrid();
+  if(!bad.length) toast(good.length+' photo'+(good.length>1?'s':'')+' sent — '+(good.length>1?'they appear':'it appears')+' here in a few minutes');
+  return true;
 }
 window.addUpload=addUpload;
+/* the placeholder tiles for this product's uploads */
+function uploadTiles(sku){
+  return (UPLOADS[sku]||[]).map((u,k)=>`<div class="cand up" data-up="${k}" role="status">
+      <span class="art"><span>${u.state==='failed'?'Upload failed — '+esc(u.note):'Uploading — appears in a few minutes'}</span></span>
+      <span class="cap"><b>${esc(u.name)}</b><em><span>yours</span>
+        <span>${u.state==='uploading'?'sending…':u.state==='failed'?'not saved':'received'}</span></em></span></div>`).join('');
+}
+/* after a reload, a placeholder whose file is now a real candidate is dropped */
+function reconcileUploads(){
+  P.forEach(p=>{ const l=UPLOADS[p.sku]; if(!l) return;
+    const have=p.imgs.map(im=>String(im[0]));
+    UPLOADS[p.sku]=l.filter(u=>u.state==='failed'||have.indexOf(u.name)<0); });
+}
 
 function renderGrid(){
   const p=P[cur],pk=st[cur].picks;
@@ -2138,7 +2597,7 @@ function renderGrid(){
         title="open full size" aria-label="Open ${esc(im[1])} full size">⤢</button>
       <span class="cap"><b>${esc(im[1])}</b><em><span>${im[2]}×${im[3]}</span>
         <span>${im[4]==='upload'?'yours':small?'too small':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
-    +'';
+    +uploadTiles(p.sku);
   hydrateSp($('#grid'));
   /* ⛔⛔ P-851 item 2 (2026-09-10). The zoom was a <span> INSIDE the tile's
      <button>, so a keyboard user could toggle the pick but could NEVER open
@@ -2171,6 +2630,7 @@ function renderSeq(){
 function renderFlags(){
   const p=P[cur], open=openFlags(cur);
   $('#tabFlagN').textContent=open.length;
+  if(vpHides('tabFlags')){ $('#flags').innerHTML=''; return; }   /* vendor view: flags show read-only on the details tab */
   /* ⛔ `idx` below indexes into `open` (what's rendered), never into `p.flags`
      (the full array) — the two only coincide until the first flag is
      actioned, and diverging silently is exactly how the old bug shipped. */
@@ -2261,6 +2721,7 @@ window.recordOverride=function(k){
 };
 
 function renderLog(){
+  if(vpHides('tabLog')){ $('#log').innerHTML=''; return; }
   const steps=[['ingest','1 new P&M file → 42 queue items','fingerprint changed; 2 UPCs superseded'],
    ['intake','42 records, 3 duplicates caught','duplicate_guard: all 3 layers ran'],
    ['rivir','40 of 42 matched at upc_direct','2 no-match flagged up front'],
@@ -2279,6 +2740,7 @@ function renderLog(){
 }
 
 function renderOps(){
+  if(vpHides('ops')){ $('#ops').innerHTML=''; return; }
   const p=P[cur],c=catOf(p.cat)||[];
   const row=(k,v,b)=>`<dt>${k}</dt><dd>${v}${b?`<span class="basis">${b}</span>`:''}</dd>`;
   $('#ops').innerHTML=`
@@ -2418,7 +2880,7 @@ async function saveAnswer(i, skip){
   if(ap.error){ toast(ap.error); return; }
   if(!IS_BROWSER){ toast('not signed in'); return; }
   try{
-    const res=await saveDecision(_batchFromUI(), ap.sku, ap.patch);
+    const res=await HOST.saveAnswer(_batchFromUI(), NEEDS[i].key, ap.patch);
     if(res&&res.ok){ NEEDS[i]._state='saved'; toast(skip?'Skipped — it leaves this batch':'Answer saved — the product restarts shortly'); showNeeds(); renderPubBar(); }
     else toast('Not saved — '+((res&&res.message)||'unknown error'));
   }catch(e){ toast('Not saved — '+(e&&e.message?e.message:e)); }
@@ -2455,7 +2917,12 @@ function renderDecide(){
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
-    +(blk?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
+    +(blk&&isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> thing${blk>1?'s':''} to settle first`
+        +(function(){const t=vpFlagTypes(),mine=openFlags(cur).filter(f=>f.sev==='stop'&&t.indexOf(f.k)>=0);
+           return mine.length?': '+mine.map(f=>esc(VFLAG_LABEL[f.k]||f.k)).join(', ')
+             +` — <a href="#" onclick="selectTab('fields');return false" style="color:var(--stop)">see details</a>`
+             :' on our side — we will sort it out';})()+'</span>':'')
+    +(blk&&!isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
         +openFlags(cur).filter(f=>f.sev==='stop').map(f=>esc(f.k)).join(', ')
         +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a></span>`:'')
     +(!blk&&noImgs?` · <span style="color:var(--warn)">no images chosen — <a href="#" onclick="selectTab('images');return false" style="color:var(--warn)">pick some</a></span>`:'')
@@ -2467,7 +2934,8 @@ function renderDecide(){
   const b=$('#btnApprove');b.disabled=!ok||st[cur].approved;
   b.textContent=st[cur].approved?'Approved':skuBad?'SKU is not final'
     :blk?'Blocked by a flag':rw?'Rework is queued'
-    :noImgs?'No images chosen':nameBad?'Name breaks a rule':'Approve product';
+    :noImgs?'No images chosen':nameBad?'Name breaks a rule'
+    :isVendorView()?'Approve — publish to our stores':'Approve product';
   const readyN=P.filter((p,i)=>productApproved(i)).length;
   $('#progText').textContent=readyN+' / '+P.length;$('#progBar').style.width=(readyN/P.length*100)+'%';
   renderPubBar();
@@ -2601,6 +3069,7 @@ function bulkCandidates(){
 }
 window.bulkCandidates=bulkCandidates;
 window.openBulk=function(){
+  if(isVendorView()) return;
   const {yes,no}=bulkCandidates();
   if(!yes.length){
     openSheet(`<h2>Nothing is ready to approve</h2>
@@ -2684,6 +3153,7 @@ $('#btnClone').hidden=true;
    `_undefer` (a timestamp) on the product's decision; the drain applies the
    LATER of a Defer and a bring-back, so neither can silently cancel the other. */
 window.undeferProduct=async function(sku){
+  if(HOST!==GraphHost){ toast('Bringing a product back is done by our team'); return {ok:false}; }
   if(!IS_BROWSER){ toast('Bringing a product back needs the live page'); return {ok:false}; }
   try{
     var batch=_batchFromUI(), row=await _findRow(batch, sku), f=row.fields||{}, ed={};
@@ -2746,6 +3216,8 @@ $('#btnNotes').onclick=()=>{const on=document.body.dataset.notes==='1';
 $('#btnSeq').onclick=()=>{const s=$('#seqstrip');s.hidden=!s.hidden;
   $('#btnSeq').textContent=s.hidden?'Show sequence':'Hide sequence';renderSeq();};
 $('#btnBulk').onclick=()=>openBulk();
+$('#btnUpload').onclick=()=>addUpload();
+$('#upFile').onchange=e=>{ const t=e&&e.target; addUpload(Array.from((t&&t.files)||[])); if(t) t.value=''; };
 $('#btnClear').onclick=()=>{
   /* ⛔ P-851 (2026-09-10): this wiped an ordered gallery with no confirm and
      no undo. ⭐ UNDO beats a confirm dialog here — the reviewer has just
@@ -2780,9 +3252,16 @@ $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
      such thing was ever queued. ⭐ What really happens: the drain raises an
      IMAGES_NEED_SOURCING flag, which blocks publishing until someone sources
      images (Open Flags tab). */
-  renderAll();toast('Flagged: this product needs new images — it will not publish until someone adds them (Open Flags)');
+  renderAll();toast(isVendorView()?'Noted — this product needs new photos. Upload your own, or we will find some; it will not publish without them.'
+    :'Flagged: this product needs new images — it will not publish until someone adds them (Open Flags)');
   scheduleAutosave(cur,'Image request saved');};
-$('#btnApprove').onclick=()=>openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
+$('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
+  <div class="sub">Approving publishes this product to our stores, usually within a few minutes.
+  ${P[cur].published?'It is already live, so the live listing is updated with your changes.':''}</div>
+  <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||VIEW.vendorName||'you')}</p></div>
+  <button class="btn primary" onclick="approveProduct()">Approve — publish to our stores</button>
+  <button class="btn" onclick="closeSheet()">Cancel</button>`)
+  :openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
   ${P[cur].published?`<div class="rwitem" style="border-left:4px solid var(--bad,#9b2c2c)">
    <b>⚠ This product was already pushed live to the BigCommerce stores${P[cur].published.at?' ('+esc(String(P[cur].published.at).slice(0,10))+')':''}.</b>
    <p>Approving these changes will <b>overwrite what is in the stores</b>. If anyone changed it in
@@ -2800,10 +3279,12 @@ $('#btnSendRw').onclick=async()=>{const n=Object.keys(st[cur].cm).length;
 $('#btnDefer').onclick=async()=>{
   /* ⭐ R8: an approval can be withdrawn and a stale unreviewed product just
      sits. Deferring is therefore a RECORDED state, not a no-op. */
+  /* ⛔ 'deferred' is not a vendor `overall` — the button is hidden there, and this refuses too */
+  if(isVendorView()){ toast('Deferring is done by our team'); return; }
   st[cur].approved=false;
   var b=_batchFromUI();
   if(IS_BROWSER){
-    var r=await saveDecision(b,P[cur].sku,
+    var r=await HOST.saveDecision(b,P[cur].sku,
       Object.assign(decisionPatch(cur),{overall:'deferred'})).catch(e=>({ok:false,reason:String(e)}));
     if(r&&r.ok) toast('Deferred — stays in the queue, flag open for next time');
     else toast('NOT SAVED — '+((r&&(r.message||r.reason))||'unknown'));
@@ -2858,6 +3339,7 @@ function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();
 }
+applyModeChrome();
 renderAll();
 /* ═══ live boot ════════════════════════════════════════════════════════════
    ⛔⛔ GUARDED ON A REAL BROWSER, AND THAT GUARD IS LOAD-BEARING. The
@@ -2888,6 +3370,32 @@ function _setWho(text, signedIn){
   var b=document.querySelector('#btnSignIn'); if(b) b.hidden=!!signedIn;
 }
 
+/* the who line: staff (and as-vendor) exactly as before; vendor = their business name */
+function _whoHtml(){
+  if(VIEW.mode==='vendor')
+    return '<b>'+esc(VIEW.vendorName||'Vendor')+'</b>'+(ACCOUNT?' · '+esc(ACCOUNT):'');
+  return 'signed in <b>'+(ACCOUNT||'?')+'</b>';
+}
+/* ⭐ The page chrome for the current mode. ⛔ In staff mode this changes NOTHING
+   visible: it only stamps body[data-mode="staff"], and data-vh-on is inert
+   unless the body is in a vendor view. */
+function applyModeChrome(){
+  const V=isVendorView(), body=document.body;
+  if(body&&body.dataset){ body.dataset.mode=VIEW.mode; body.dataset.opsHidden=vpHides('ops')?'1':'0'; }
+  Object.keys(HIDE_UI_STATIC).forEach(function(name){
+    const el=document.querySelector(HIDE_UI_STATIC[name]);
+    if(el&&el.dataset) el.dataset.vhOn=vpHides(name)?'1':'0';
+  });
+  VENDOR_ALWAYS_HIDE.forEach(function(sel){
+    const el=document.querySelector(sel); if(el&&el.dataset) el.dataset.vhOn=V?'1':'0';
+  });
+  const up=document.querySelector('#btnUpload'); if(up) up.hidden=!(HOST&&HOST.canUpload);
+  const mt=document.querySelector('#modeTag');
+  if(mt) mt.textContent=VIEW.mode==='vendor'?'Vendor view'
+    :VIEW.mode==='as-vendor'?'Viewing as '+VIEW.asOwner+' — what the vendor sees':'';
+  const tf=document.querySelector('#tabFields'); if(tf) tf.textContent=V?'All details':'All BC fields';
+  const sr=document.querySelector('#btnSendRw'); if(sr) sr.textContent=V?'Send rewrite requests':'Send rework';
+}
 async function _afterSignIn(){
   _setWho('signed in <b>'+(ACCOUNT||'?')+'</b>', true);
   await populateBatchSel();
@@ -2900,10 +3408,15 @@ async function bootLive(){
   var tag=document.querySelector('#mockTag');
   if(tag) tag.textContent='Loading '+batch+'…';
   try{
-    var payload=await loadLive(batch);
+    var payload=await HOST.loadBatch(batch);
+    /* ⭐ as-vendor: only that owner's products, then the SAME vendor view */
+    if(VIEW.mode==='as-vendor') payload=_asVendorFilter(payload, VIEW.asOwner);
     var n=applyPayload(payload);
+    reconcileUploads();
     if(tag) tag.textContent='Live · '+batch;
-    _setWho('signed in <b>'+(ACCOUNT||'?')+'</b>', true);
+    _setWho(_whoHtml(), true);
+    applyModeChrome();
+    if(VIEW.mode==='vendor' && document.body && document.body.dataset) document.body.dataset.loaded='1';
     renderAll();
     toast(n+' product'+(n===1?'':'s')+' loaded'
           +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':'')
@@ -2914,6 +3427,8 @@ async function bootLive(){
        fine and show made-up products. The tag says Wireframe precisely so
        nobody mistakes one for the other. */
     if(tag) tag.textContent='Wireframe (live load failed)';
+    /* ⛔ a vendor never sees the wireframe fixtures — say what failed instead */
+    if(VIEW.mode==='vendor') _vendorWait('Your products could not be loaded — '+(e&&e.message?e.message:e));
     toast('Live load failed — '+(e&&e.message?e.message:e));
     /* ⛔⛔ NEVER CALL BARE `print()` IN A PAGE. This line said
        `if(typeof print==='function') print('bootLive: '+e)` — written so the
@@ -2929,13 +3444,112 @@ async function bootLive(){
     }
   }
 }
+/* ⭐ The page's boot, as a function so the harness can drive every mode.
+   vendor → the portal handshake, never Microsoft sign-in;
+   a refused `?vendor=1` → an error, and nothing is loaded or signed in;
+   staff / as-vendor → exactly the sign-in sequence the page always ran. */
+async function bootPage(){
+  if(VIEW.mode==='vendor') return bootVendor();
+  if(VIEW.error){
+    _setWho('not signed in', false);
+    var _te=document.querySelector('#mockTag'); if(_te) _te.textContent='Not loaded';
+    openSheet(`<h2>This page cannot open here</h2><div class="sub">${esc(VIEW.error)}</div>
+      <button class="btn" onclick="closeSheet()">Close</button>`);
+    return;
+  }
+  /* ⭐⭐ AUTO-REDIRECT TO SIGN-IN, matching the sibling apps (Jack,
+     2026-09-10: *"i do not get OAUTH if I go to … in a private browser"*).
+     ⚠️ It did not, by an earlier choice of mine to render the wireframe
+     first — but `Purchasing/index.html` does `if(!await completeLogin())
+     { await beginLogin() }`, so a visitor's expectation is set by that and
+     being the one page that behaves differently is just a papercut.
+     ⛔ THREE THINGS THIS MUST NOT DO:
+     1 · loop. A failed or cancelled sign-in shows the error and a button;
+         it never re-redirects, or a bad redirect URI becomes an infinite
+         bounce with nothing on screen to explain it.
+     2 · fire under the test harness. `IS_BROWSER` guards the whole block —
+         `jsc` has no `location`, and a redirect at module scope would
+         abort the 224-assertion suite.
+     3 · leave no way to see the page without signing in. `?wireframe=1`
+         opts out, which is what design review and a screenshot need. */
+  try{
+    /* ⭐⭐ SIGNED-IN IS SET THE MOMENT WE HOLD A TOKEN — never on the data
+       load succeeding (2026-09-11). `bootLive` used to be the ONLY caller of
+       `_setWho(..., true)`, so any load failure left the header reading
+       "not signed in" with the Sign in button showing, over a perfectly
+       valid session. ⛔ The user then re-authenticates against a problem
+       authentication cannot fix, lands back on the same screen, and it looks
+       exactly like a broken OAuth loop. Measured 2026-09-11: that is the
+       whole of "I click the OAuth and it goes to the same spot".
+       ⭐ AUTH STATE AND DATA STATE ARE DIFFERENT THINGS. The mock tag says
+       whether the DATA loaded; this says whether the SESSION is real. */
+    if(await completeLogin()){ await _afterSignIn(); return; }
+    if(_loadTok()){ await _afterSignIn(); return; }
+    var skip=false;
+    try{ skip=new URLSearchParams(location.search).get('wireframe')==='1'; }
+    catch(_){}
+    if(skip){
+      _setWho('wireframe mode — not signed in, showing fixtures', false);
+      var _t=document.querySelector('#mockTag');
+      if(_t) _t.textContent='Wireframe (?wireframe=1)';
+      return;
+    }
+    _setWho('redirecting to sign in…', true);
+    await beginLogin();
+  }catch(e){
+    /* ⛔ Show it, do not retry. `AADSTS50011` here means the redirect URI is
+       not registered for THIS path, and the page is the only place that
+       will ever say so. */
+    _setWho('sign-in failed', false);
+    var _t2=document.querySelector('#mockTag');
+    if(_t2) _t2.textContent='Sign-in failed';
+    openSheet(`<h2>Sign-in failed</h2>
+      <div class="sub">${esc((e&&e.message)?e.message:String(e))}</div>
+      <div class="rwitem"><p>If this says <b>AADSTS50011</b>, this page's
+      redirect URI is not registered on the <b>TC Farm Receiving</b> Entra
+      app. It needs <b>${esc(location.origin+location.pathname)}</b> under
+      the <b>SPA</b> platform — Web rejects a PKCE exchange.</p></div>
+      <button class="btn primary" onclick="beginLogin()">Try again</button>
+      <button class="btn" onclick="closeSheet()">Show the wireframe</button>`);
+  }
+}
+function _vendorWait(text){
+  var w=document.querySelector('#vendorWait'); if(w) w.textContent=text;
+}
+/* ⛔⛔ The vendor boot: hello → who / vendor name → listBatches → load.
+   Nothing here calls beginLogin, completeLogin, _loadTok, _getTok or graph(). */
+async function bootVendor(){
+  try{
+    if(HOST===GraphHost) startVendorHost();
+    applyModeChrome();
+    _vendorWait('Connecting to the vendor portal…');
+    _setWho('connecting…', true);
+    var hi=(await HOST.hello())||{};
+    VIEW.vendorName=String(hi.vendor_name||hi.display_name||'');
+    ACCOUNT=String(hi.who||hi.email||'');
+    _setWho(_whoHtml(), true);
+    _vendorWait('Loading your products…');
+    /* ⛔ not populateBatchSel(): that one swallows a failed listing (right for
+       staff, who still see the fixtures) — a vendor would wait on "Loading…" forever */
+    var rows=await HOST.listBatches();
+    if(!rows.length){ _vendorWait('Nothing is waiting for your review right now.'); return; }
+    var sel=document.querySelector('#batchSel'); if(sel) _fillBatchSel(sel, rows);
+    await bootLive();
+  }catch(e){
+    _setWho(_whoHtml(), true);
+    _vendorWait('The vendor portal did not answer — '+(e&&e.message?e.message:e));
+    toast('Could not load — '+(e&&e.message?e.message:e));
+  }
+}
 if(IS_BROWSER){
   var _nav=document.querySelector('#appNav');
   if(_nav) _nav.onchange=function(){
     if(_nav.value) location.assign(_nav.value); };
-  document.querySelector('#btnSignIn').onclick=function(){ beginLogin(); };
+  /* ⛔ a vendor view never signs in to Microsoft */
+  document.querySelector('#btnSignIn').onclick=function(){
+    if(VIEW.mode==='vendor') return; beginLogin(); };
   var _sel=document.querySelector('#batchSel');
-  if(_sel) _sel.onchange=function(){ if(_tok) bootLive(); };
+  if(_sel) _sel.onchange=function(){ if(_tok || VIEW.mode==='vendor') bootLive(); };
   /* ⭐ P-1120 backstop. The debounced autosave in `scheduleAutosave` should
      always flush a pending edit within ~700ms, but a dropped network call or
      a reload inside that window is still possible — this is the last line of
@@ -2951,63 +3565,7 @@ if(IS_BROWSER){
       if(pendingAutosave()){ e.preventDefault(); e.returnValue=''; return ''; }
     });
   }
-  (async function(){
-    /* ⭐⭐ AUTO-REDIRECT TO SIGN-IN, matching the sibling apps (Jack,
-       2026-09-10: *"i do not get OAUTH if I go to … in a private browser"*).
-       ⚠️ It did not, by an earlier choice of mine to render the wireframe
-       first — but `Purchasing/index.html` does `if(!await completeLogin())
-       { await beginLogin() }`, so a visitor's expectation is set by that and
-       being the one page that behaves differently is just a papercut.
-       ⛔ THREE THINGS THIS MUST NOT DO:
-       1 · loop. A failed or cancelled sign-in shows the error and a button;
-           it never re-redirects, or a bad redirect URI becomes an infinite
-           bounce with nothing on screen to explain it.
-       2 · fire under the test harness. `IS_BROWSER` guards the whole block —
-           `jsc` has no `location`, and a redirect at module scope would
-           abort the 224-assertion suite.
-       3 · leave no way to see the page without signing in. `?wireframe=1`
-           opts out, which is what design review and a screenshot need. */
-    try{
-      /* ⭐⭐ SIGNED-IN IS SET THE MOMENT WE HOLD A TOKEN — never on the data
-         load succeeding (2026-09-11). `bootLive` used to be the ONLY caller of
-         `_setWho(..., true)`, so any load failure left the header reading
-         "not signed in" with the Sign in button showing, over a perfectly
-         valid session. ⛔ The user then re-authenticates against a problem
-         authentication cannot fix, lands back on the same screen, and it looks
-         exactly like a broken OAuth loop. Measured 2026-09-11: that is the
-         whole of "I click the OAuth and it goes to the same spot".
-         ⭐ AUTH STATE AND DATA STATE ARE DIFFERENT THINGS. The mock tag says
-         whether the DATA loaded; this says whether the SESSION is real. */
-      if(await completeLogin()){ await _afterSignIn(); return; }
-      if(_loadTok()){ await _afterSignIn(); return; }
-      var skip=false;
-      try{ skip=new URLSearchParams(location.search).get('wireframe')==='1'; }
-      catch(_){}
-      if(skip){
-        _setWho('wireframe mode — not signed in, showing fixtures', false);
-        var _t=document.querySelector('#mockTag');
-        if(_t) _t.textContent='Wireframe (?wireframe=1)';
-        return;
-      }
-      _setWho('redirecting to sign in…', true);
-      await beginLogin();
-    }catch(e){
-      /* ⛔ Show it, do not retry. `AADSTS50011` here means the redirect URI is
-         not registered for THIS path, and the page is the only place that
-         will ever say so. */
-      _setWho('sign-in failed', false);
-      var _t2=document.querySelector('#mockTag');
-      if(_t2) _t2.textContent='Sign-in failed';
-      openSheet(`<h2>Sign-in failed</h2>
-        <div class="sub">${esc((e&&e.message)?e.message:String(e))}</div>
-        <div class="rwitem"><p>If this says <b>AADSTS50011</b>, this page's
-        redirect URI is not registered on the <b>TC Farm Receiving</b> Entra
-        app. It needs <b>${esc(location.origin+location.pathname)}</b> under
-        the <b>SPA</b> platform — Web rejects a PKCE exchange.</p></div>
-        <button class="btn primary" onclick="beginLogin()">Try again</button>
-        <button class="btn" onclick="closeSheet()">Show the wireframe</button>`);
-    }
-  })();
+  bootPage();
 }
 
 /* ═══ writing decisions back (stage 5) ════════════════════════════════════
@@ -3264,7 +3822,7 @@ async function persist(i, label){
   var batch=_batchFromUI();
   try{
     var _patch=decisionPatch(i);
-    var res=await saveDecision(batch, P[i].sku, _patch);
+    var res=await HOST.saveDecision(batch, P[i].sku, _patch);
     if(!res.ok && res.reason==='stale'){
       /* ⛔ Do NOT overwrite. Say what happened and make reloading the action. */
       openSheet(`<h2>Someone else saved this product</h2>
@@ -3421,6 +3979,7 @@ function cnTimeline(state){
 }
 
 async function cnOpen(){
+  if(VIEW.mode==='vendor') return;       /* ⛔ staff-only, and it talks to Graph */
   if(!IS_BROWSER){ toast('Consignment intake needs the live page (sign in)'); return; }
   try{ await cnIds(); }catch(e){ toast('⛔ '+e.message); return; }
   var b=await graph(`/sites/${CFG.siteId}/lists/${CN.list}/items?$expand=fields&$top=200`);
@@ -3748,6 +4307,7 @@ async function vpSubmit(owner, email, action){
   }catch(e){ toast('NOT SENT — '+e.message); }
 }
 async function vpOpen(keepPolling){
+  if(VIEW.mode==='vendor') return;       /* ⛔ staff-only, and it talks to Graph */
   if(!IS_BROWSER){ toast('Vendor portal access needs the live page (sign in)'); return; }
   try{ await vpIds(); }catch(e){ toast('⛔ '+e.message); return; }
   var rows; try{ rows=await vpRows(); }catch(e){ toast('⛔ '+e.message); return; }
