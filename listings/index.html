@@ -331,6 +331,7 @@ body[data-notes="1"] .note{display:block}
   <button class="tbtn" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
   <button class="tbtn" id="btnConsign" title="Upload a vendor's files and turn them into listings">Consignment</button>
+  <button class="tbtn" id="btnPortal" title="Invite a vendor to the vendor portal, or turn their login off">Vendor portal</button>
   <button class="tbtn" id="btnRw">Rework tray <span class="mono" id="rwN">0</span></button>
   <button class="tbtn" id="btnRunNow" title="Save your comments and queue this product for the next run">Run now</button>
   <button class="tbtn" id="btnBulk">Approve all unblocked</button>
@@ -3651,6 +3652,146 @@ if(document.querySelector('#btnConsign')){
   $('#btnConsign').onclick=function(){ cnOpen(); };
   if(!CN_ENABLED) $('#btnConsign').style.display='none';
 }
+
+/* ═══ VENDOR PORTAL ACCESS (P-1772, 2026-09-28) ═════════════════════════════
+   Staff invite a vendor contact to the vendor portal, or turn a login off/on,
+   with no AWS console. ⛔⛔ THE PAGE ONLY WRITES A REQUEST ROW AND A JOB POINTER:
+   a `VendorPortalAccess` row (owner_key, email, action, state=requested) written
+   AS THE SIGNED-IN STAFF MEMBER, then an AgentJobs row
+   `productpipeline.vendor_portal_access` whose Subject is that row id.
+   The Mac mini (vendor_portal_admin.py) re-reads the row and REFUSES a row not
+   created by a @tc.farm sign-in, an owner not in Vendor Master, an internal owner,
+   a bad email, or an email already bound to another vendor. These checks here only
+   drive the buttons; the server decides. It sends no email: staff send the link. */
+var VP={list:null, jobs:null, poll:null};
+var VP_ACTIONS=['invite','disable','enable'];
+var VP_PORTAL_URL='https://main.do89570fqs33f.amplifyapp.com';
+/* ⭐ The LIVE vendor directory (Vendor Master) first; the page's fixture list only if no payload is loaded. */
+function vpOwners(dir){
+  dir=dir||VDIR;
+  var live=Object.keys((dir&&dir.vendors)||{});
+  var src=live.length?live:OWNERS;
+  return src.filter(function(o){return CN_NOT_VENDORS.indexOf(o)<0 && !/^zztest/i.test(o);})
+            .sort(function(a,b){return String(a).localeCompare(String(b));});
+}
+function vpEmailOk(e){
+  e=String(e||'').trim().toLowerCase();
+  return e.length<=254 && /^[a-z0-9._%+\-]{1,64}@[a-z0-9\-]{1,63}(\.[a-z0-9\-]{1,63})+$/.test(e);
+}
+/* '' when the request may be sent, else the reason (the SAME rules the server applies). */
+function vpRequestProblem(owner, email, action, dir){
+  if(VP_ACTIONS.indexOf(action)<0) return 'unknown action';
+  if(!owner) return 'choose the vendor';
+  if(vpOwners(dir).indexOf(owner)<0) return `"${owner}" is not a vendor in Vendor Master`;
+  if(!vpEmailOk(email)) return 'enter one plain email address';
+  return '';
+}
+/* One line per login: the NEWEST row per email is its current state. */
+function vpRoster(rows){
+  var by={};
+  (rows||[]).forEach(function(r){
+    var k=String(r.email||'').toLowerCase(); if(!k) return;
+    if(!by[k] || (+r._id)>(+by[k]._id)) by[k]=r;
+  });
+  return Object.keys(by).map(function(k){return by[k];})
+    .sort(function(a,b){return String(a.owner_key).localeCompare(String(b.owner_key))||String(a.email).localeCompare(String(b.email));});
+}
+/* What the next button should be for a login, from its newest row. */
+function vpNextAction(r){
+  var st=String(r.state||''), ps=String(r.pool_status||'');
+  if(st==='requested'||st==='failed') return '';            /* still working — wait */
+  if(/^enabled/.test(ps)) return 'disable';
+  if(/^disabled/.test(ps)) return 'enable';
+  return 'invite';                                           /* refused / never created */
+}
+window.vpOwners=vpOwners; window.vpEmailOk=vpEmailOk; window.vpRequestProblem=vpRequestProblem;
+window.vpRoster=vpRoster; window.vpNextAction=vpNextAction;
+
+async function vpIds(){
+  if(VP.list) return;
+  var ls=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  var by={}; (ls.value||[]).forEach(function(l){by[l.displayName]=l.id;});
+  if(!by.VendorPortalAccess||!by.AgentJobs)
+    throw new Error('the vendor portal list is not set up on this site (VendorPortalAccess / AgentJobs)');
+  VP.list=by.VendorPortalAccess; VP.jobs=by.AgentJobs;
+}
+async function vpRows(){
+  var out=[], url=`/sites/${CFG.siteId}/lists/${VP.list}/items?$expand=fields&$top=200`;
+  while(url){
+    var b=await graph(url);
+    (b.value||[]).forEach(function(x){
+      var cb=((x.createdBy||{}).user||{});
+      out.push(Object.assign({_id:x.id, _by:cb.email||cb.displayName||''}, x.fields));});
+    var nx=b['@odata.nextLink']; url=nx?nx.replace(GRAPH,''):null;
+  }
+  return out;
+}
+async function vpSubmit(owner, email, action){
+  var why=vpRequestProblem(owner, email, action);
+  if(why){ toast('⛔ '+why); return; }
+  email=String(email).trim().toLowerCase();
+  if(action==='disable' && !confirm(`Turn off ${email}'s portal login for ${owner}? They are signed out everywhere.`)) return;
+  var now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  try{
+    await vpIds();
+    var made=await graph(`/sites/${CFG.siteId}/lists/${VP.list}/items`,{method:'POST',body:JSON.stringify({fields:{
+      Title:action+': '+email, owner_key:owner, email:email, action:action, state:'requested',
+      requested_by:ACCOUNT||'', requested_utc:now}})});
+    /* ⛔ EXACT AgentJobs fields (_shared/USING-THE-SUPERVISOR.md §3): State `queued`,
+       Params a JSON STRING, ClaimedBy/LeaseUntil EMPTY, Subject a POINTER. */
+    await graph(`/sites/${CFG.siteId}/lists/${VP.jobs}/items`,{method:'POST',body:JSON.stringify({fields:{
+      Title:'productpipeline.vendor_portal_access:'+made.id, Kind:'productpipeline.vendor_portal_access',
+      Subject:String(made.id), Params:'{}', State:'queued', Attempts:0, RequestedUtc:now,
+      RequestedBy:ACCOUNT||'listing-studio'}})});
+    toast(action==='invite'?'Invite sent to the Mac mini — usually done within a minute':'Sent — usually done within a minute');
+    vpOpen(true);
+  }catch(e){ toast('NOT SENT — '+e.message); }
+}
+async function vpOpen(keepPolling){
+  if(!IS_BROWSER){ toast('Vendor portal access needs the live page (sign in)'); return; }
+  try{ await vpIds(); }catch(e){ toast('⛔ '+e.message); return; }
+  var rows; try{ rows=await vpRows(); }catch(e){ toast('⛔ '+e.message); return; }
+  var roster=vpRoster(rows), owners=vpOwners();
+  var busy=roster.some(function(r){return r.state==='requested';});
+  openSheet(`<h2>Vendor portal access</h2>
+    <div class="sub">Give a vendor's contact a login to the vendor portal, where they upload product info and
+    review their listings. ⛔ The vendor you pick decides which products they see, so pick it carefully.
+    No email is sent — once it says <b>done</b>, send them the link: <span class="mono">${esc(VP_PORTAL_URL)}</span>
+    (they sign in with their email and get a code).</div>
+    <div class="cn-grid">
+      <label>Vendor<select id="vpOwner"><option value="">choose…</option>${owners
+        .map(function(o){return `<option>${esc(o)}</option>`;}).join('')}</select></label>
+      <label>Their email<input id="vpEmail" type="email" autocomplete="off" placeholder="name@theirfarm.com"></label>
+    </div>
+    <div><button class="btn primary" id="vpInvite">Invite</button> <span class="note" id="vpWhy"></span></div>
+    <h3 style="margin-top:16px">Portal logins</h3>
+    <table class="cn-tbl"><tr><th>Vendor</th><th>Email</th><th>Status</th><th>Last change</th><th></th></tr>
+    ${roster.map(function(r){
+      var nx=vpNextAction(r), st=String(r.state||'');
+      var status=st==='done'?esc(String(r.pool_status||'').split('/')[0]||'done'):
+        (st==='requested'?'⏳ working…':st==='refused'?'⛔ refused':st==='failed'?'⚠ failed — retrying':esc(st));
+      return `<tr><td>${esc(r.owner_key||'')}</td><td class="mono">${esc(r.email||'')}</td><td>${status}</td>
+        <td>${esc(r.action||'')} · ${esc((r.updated_utc||r.requested_utc||'').slice(0,16).replace('T',' '))} · ${esc(r._by||'')}
+          <div class="note">${esc(r.state_note||'')}</div></td>
+        <td>${nx?`<button class="tbtn" data-vp-o="${esc(r.owner_key||'')}" data-vp-e="${esc(r.email||'')}" data-vp-a="${nx}">${
+          nx==='disable'?'Turn off':nx==='enable'?'Turn back on':'Invite again'}</button>`:''}</td></tr>`;}).join('')
+      ||'<tr><td colspan="5">No portal logins yet.</td></tr>'}</table>
+    <div style="margin-top:12px"><button class="btn" onclick="closeSheet()">Close</button></div>`);
+  $('#sheet').classList.add('wide');
+  var upd=function(){ var w=vpRequestProblem($('#vpOwner').value,$('#vpEmail').value,'invite');
+    $('#vpInvite').disabled=!!w; $('#vpWhy').textContent=($('#vpOwner').value||$('#vpEmail').value)?w:''; };
+  $('#vpOwner').onchange=upd; $('#vpEmail').oninput=upd; upd();
+  $('#vpInvite').onclick=function(){ this.disabled=true; vpSubmit($('#vpOwner').value,$('#vpEmail').value,'invite'); };
+  document.querySelectorAll('[data-vp-a]').forEach(function(b){
+    b.onclick=function(){ vpSubmit(b.dataset.vpO, b.dataset.vpE, b.dataset.vpA); };});
+  clearTimeout(VP.poll);
+  if(busy || keepPolling===true){
+    VP._n=(keepPolling===true?0:(VP._n||0))+1;
+    if(VP._n<=24) VP.poll=setTimeout(function(){ if($('#vpOwner')) vpOpen(); }, 5000);   /* ≤ 2 min, only while open */
+  }
+}
+window.vpOpen=vpOpen; window.vpSubmit=vpSubmit;
+if(document.querySelector('#btnPortal')){ $('#btnPortal').onclick=function(){ vpOpen(); }; }
 
 window.fromPayload=fromPayload; window.applyPayload=applyPayload;
 window.bootLive=bootLive;
