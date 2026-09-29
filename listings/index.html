@@ -1714,8 +1714,40 @@ function wireRte(bar,target){
    drained) still reads exactly 'rework', so the two states stay distinct. */
 function _reworkedAt(s){
   if(typeof s!=='string'||s.indexOf('reworked@')!==0)return null;
-  const d=new Date(s.slice(9));
-  return isNaN(d)?'':d.toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  return fmtWhen(s.slice(9));
+}
+/* ⭐ ONE way to show a time (Jack, 2026-09-29: "AM/PM instead of 24 hour clock … just the MMM DD"):
+   "Sep 29, 9:04 AM" in the VIEWER's own time zone. `utc:true` for a field stored in UTC without a zone mark
+   (the *_utc columns) — a bare ISO string is otherwise read as local time. */
+function fmtWhen(v, o){
+  if(v==null||v==='') return '';
+  let t=String(v).trim();
+  if(o&&o.utc && /^\d{4}-\d\d-\d\dT\d\d:\d\d(:\d\d(\.\d+)?)?$/.test(t)) t+='Z';
+  const d=new Date(t);
+  if(isNaN(d)) return t;
+  /* ⛔ built by hand: toLocaleString joins the date and time differently per browser ("Sep 29, 9:04 AM" in Chrome,
+     "Sep 29 at 9:04 AM" in Safari) */
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const h=d.getHours(), m=d.getMinutes();
+  return `${M[d.getMonth()]} ${d.getDate()}, ${(h%12)||12}:${m<10?'0':''}${m} ${h<12?'AM':'PM'}`;
+}
+function _whenMs(v){ const d=new Date(String(v||'')); return isNaN(d)?0:d.getTime(); }
+/* ⭐ The vendor's note, kept CURRENT (Jack, 2026-09-29: "I still see this, which feels out of date"). The bridge
+   writes a note when it PROCESSES a save (~2 min later), so between a save and that pass the old note is stale:
+   a save newer than the note replaces it with "Saved — updating", and a rewrite that landed after the note says so. */
+function vendorNoteHtml(p, s){
+  if(!p) return '';
+  const vn=p.vendorNote, noteMs=vn?_whenMs(vn.at):0;
+  const savedAt=[p._savedAt, p._pending_at].filter(Boolean).sort().pop()||'';
+  const lines=[];
+  if(savedAt && _whenMs(savedAt)>noteMs+1000)
+    lines.push(`<b>Saved</b> ${esc(fmtWhen(savedAt))} — we are updating your listing (usually within 2 minutes).`);
+  else if(vn)
+    lines.push(`<b>A note from us:</b> ${esc(vn.text)}${vn.at?`<span class="when">${esc(fmtWhen(vn.at))}</span>`:''}`);
+  const re=Object.keys((s&&s.sec)||{}).filter(k=>_reworkedAt(s.sec[k])!==null && _whenMs(s.sec[k].slice(9))>noteMs);
+  if(re.length)
+    lines.push(`<b>✓ We rewrote</b> ${esc(re.map(k=>(typeof LBL!=='undefined'&&LBL[k])||k).join(', '))} — have a look.`);
+  return lines.join('<br>');
 }
 /* ═══ the storefront preview ═══ */
 /* the page field keys each storefront section edits (vendor-view gating) */
@@ -3601,7 +3633,7 @@ function vStatusOf(i){
 function renderVendorExtras(){
   const V=isVendorView(), nEl=$('#vNote'), kEl=$('#vPick');
   if(nEl){ const vn=V&&P[cur]?P[cur].vendorNote:null;
-    nEl.innerHTML=vn?`<b>A note from us:</b> ${esc(vn.text)}${vn.at?`<span class="when">${esc(String(vn.at).slice(0,16).replace('T',' '))}</span>`:''}`:''; }
+    nEl.innerHTML=vn||(V&&P[cur]&&(P[cur]._savedAt||P[cur]._pending_at))?vendorNoteHtml(P[cur], st[cur]):''; }
   if(!kEl) return;
   if(!V){ kEl.innerHTML=''; return; }
   const [lbl,cls]=vStatusOf(cur);
@@ -4134,7 +4166,12 @@ async function persist(i, label){
        P[i]._overwriteConfirmed===_patch.edits._overwriteConfirmed) delete P[i]._overwriteConfirmed;
     /* ⭐ fix 5: the vendor portal QUEUES a save (the bridge applies it shortly) — say
        that, not "revision 0", which reads like nothing happened. */
-    if(res && res.queued) toast(isVendorView()&&label==='Approved'?VENDOR_APPROVED_MSG:SAVED_QUEUED_MSG);
+    if(res && res.queued){
+      toast(isVendorView()&&label==='Approved'?VENDOR_APPROVED_MSG:SAVED_QUEUED_MSG);
+      /* ⭐ the note now says "Saved — updating" until the bridge's own note catches up */
+      if(isVendorView() && res.ok!==false){ P[i]._savedAt=new Date().toISOString();
+        if(i===cur && typeof renderVendorExtras==='function') renderVendorExtras(); }
+    }
     else toast((label||'Saved')+' · revision '+res.revision);
     return res;
   }catch(e){
@@ -4283,7 +4320,7 @@ async function cnOpen(){
     <button class="btn primary" onclick="cnNew()">New intake</button>
     <table class="cn-tbl" style="margin-top:12px"><tr><th>Vendor</th><th>Batch</th><th>State</th><th>Updated</th><th></th></tr>
     ${rows.map(function(r){return `<tr><td>${esc(r.vendor_name||r.owner_key)}</td><td class="mono">${esc(r.batch_stem||'')}</td>
-      <td>${esc(r.state||'')}</td><td>${esc((r.updated_utc||r.requested_utc||'').slice(0,16))}</td>
+      <td>${esc(r.state||'')}</td><td>${esc(fmtWhen(r.updated_utc||r.requested_utc||'',{utc:true}))}</td>
       <td><button class="tbtn" onclick="cnDetail('${esc(r._id)}')">Open</button></td></tr>`;}).join('')
       ||'<tr><td colspan="5">No intakes yet.</td></tr>'}</table>
     <div style="margin-top:12px"><button class="btn" onclick="closeSheet()">Close</button></div>`);
@@ -4623,7 +4660,7 @@ async function vpOpen(keepPolling){
       var status=st==='done'?esc(String(r.pool_status||'').split('/')[0]||'done'):
         (st==='requested'?'⏳ working…':st==='refused'?'⛔ refused':st==='failed'?'⚠ failed — retrying':esc(st));
       return `<tr><td>${esc(r.owner_key||'')}</td><td class="mono">${esc(r.email||'')}</td><td>${status}</td>
-        <td>${esc(r.action||'')} · ${esc((r.updated_utc||r.requested_utc||'').slice(0,16).replace('T',' '))} · ${esc(r._by||'')}
+        <td>${esc(r.action||'')} · ${esc(fmtWhen(r.updated_utc||r.requested_utc||'',{utc:true}))} · ${esc(r._by||'')}
           <div class="note">${esc(r.state_note||'')}</div></td>
         <td>${nx?`<button class="tbtn" data-vp-o="${esc(r.owner_key||'')}" data-vp-e="${esc(r.email||'')}" data-vp-a="${nx}">${
           nx==='disable'?'Turn off':nx==='enable'?'Turn back on':'Invite again'}</button>`:''}</td></tr>`;}).join('')
