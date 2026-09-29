@@ -965,6 +965,10 @@ function detectMode(env){
 }
 var VIEW=(function(){ var m=detectMode(_modeEnv()); m.vendorName=''; return m; })();
 function isVendorView(){ return VIEW.mode==='vendor' || VIEW.mode==='as-vendor'; }
+/* ⭐ v3 Phase A (team roles, 2026-09-29): only a vendor ADMIN approves (publish consent, R3). ⛔ The page
+   hiding it is NOT the control — the bridge downgrades a user's approval to pending from the token-derived
+   role. An older portal that sends no role keeps today's behaviour; the bridge still decides. */
+function vendorCanApprove(){ return !isVendorView() || VIEW.vendorRole!=='user'; }
 function activePolicy(){
   var p=VPOLICY;
   if(p && Array.isArray(p.edit) && Array.isArray(p.view) && Array.isArray(p.hide_ui)) return p;
@@ -3234,8 +3238,9 @@ function renderDecide(){
         (<span class="mono">${esc(P[cur].sku||'none')}</span>) — a “?” means the
         storage area or category was never resolved. This cannot be approved
         until it is fixed.</span>`:'');
-  const b=$('#btnApprove');b.disabled=!ok||st[cur].approved;
-  b.textContent=st[cur].approved?'Approved':skuBad?'SKU is not final'
+  const b=$('#btnApprove');b.disabled=!ok||st[cur].approved||!vendorCanApprove();
+  b.textContent=st[cur].approved?'Approved':!vendorCanApprove()?'Your admin approves listings'
+    :skuBad?'SKU is not final'
     :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule'
     :isVendorView()?'Approve — publish to our stores':'Approve product';
@@ -3273,6 +3278,7 @@ window.approveProduct=async function(){
      so `decisionPatch` sends 'approved', and rolled back if the save fails:
      an approval that looks accepted but was never stored is the worst of the
      available outcomes. */
+  if(!vendorCanApprove()){ toast('Your admin approves listings for publishing — your changes are saved.'); return; }
   var i=cur, was=st[i].approved, wasBy=st[i].approvedBy;
   st[i].approved=true; st[i].approvedBy=ACCOUNT||'unknown';
   closeSheet(); renderAll();
@@ -3857,6 +3863,7 @@ async function bootVendor(){
     _setWho('connecting…', true);
     var hi=(await HOST.hello())||{};
     VIEW.vendorName=String(hi.vendor_name||hi.display_name||'');
+    VIEW.vendorRole=(hi.role==='admin'||hi.role==='user')?hi.role:'';
     ACCOUNT=String(hi.who||hi.email||'');
     _setWho(_whoHtml(), true);
     _vendorWait('Loading your products…');
@@ -4580,7 +4587,8 @@ if(document.querySelector('#btnConsign')){
    a bad email, or an email already bound to another vendor. These checks here only
    drive the buttons; the server decides. It sends no email: staff send the link. */
 var VP={list:null, jobs:null, poll:null};
-var VP_ACTIONS=['invite','disable','enable'];
+var VP_ACTIONS=['invite','disable','enable','set_role'];
+var VP_ROLES=['admin','user'];   /* v3 (plan PLAN_VENDOR_PORTAL_V3 §A): only an admin approves + manages the vendor's team */
 var VP_PORTAL_URL='https://vendors.mnfood.club';   /* custom domain live 2026-09-28 (P-1774) */
 /* ⭐ The LIVE vendor directory (Vendor Master) first; the page's fixture list only if no payload is loaded. */
 function vpOwners(dir){
@@ -4595,8 +4603,10 @@ function vpEmailOk(e){
   return e.length<=254 && /^[a-z0-9._%+\-]{1,64}@[a-z0-9\-]{1,63}(\.[a-z0-9\-]{1,63})+$/.test(e);
 }
 /* '' when the request may be sent, else the reason (the SAME rules the server applies). */
-function vpRequestProblem(owner, email, action, dir){
+function vpRequestProblem(owner, email, action, dir, role){
   if(VP_ACTIONS.indexOf(action)<0) return 'unknown action';
+  if(action==='set_role' && VP_ROLES.indexOf(role)<0) return 'choose admin or user';
+  if(action==='invite' && role!=null && role!=='' && VP_ROLES.indexOf(role)<0) return 'choose admin or user';
   if(!owner) return 'choose the vendor';
   if(vpOwners(dir).indexOf(owner)<0) return `"${owner}" is not a vendor in Vendor Master`;
   if(!vpEmailOk(email)) return 'enter one plain email address';
@@ -4620,6 +4630,21 @@ function vpNextAction(r){
   if(/^disabled/.test(ps)) return 'enable';
   return 'invite';                                           /* refused / never created */
 }
+/* The login's role as the rows record it: the newest DONE row that carries one (invite or set_role). A staff invite
+   with no role column (before v3) was the vendor's first login → admin, the same default the mini applies. */
+function vpRoleOf(rows, email){
+  var e=String(email||'').toLowerCase(), best=null;
+  (rows||[]).forEach(function(r){
+    if(String(r.email||'').toLowerCase()!==e || r.state!=='done') return;
+    if(r.action!=='invite' && r.action!=='set_role') return;
+    if(!best || (+r._id)>(+best._id)) best=r;
+  });
+  if(!best) return '';
+  var rl=String(best.role||'').toLowerCase();
+  if(VP_ROLES.indexOf(rl)>=0) return rl;
+  return /^vendor:/i.test(String(best.requested_by||''))?'user':'admin';
+}
+window.vpRoleOf=vpRoleOf;
 window.vpOwners=vpOwners; window.vpEmailOk=vpEmailOk; window.vpRequestProblem=vpRequestProblem;
 window.vpRoster=vpRoster; window.vpNextAction=vpNextAction;
 
@@ -4642,8 +4667,8 @@ async function vpRows(){
   }
   return out;
 }
-async function vpSubmit(owner, email, action){
-  var why=vpRequestProblem(owner, email, action);
+async function vpSubmit(owner, email, action, role){
+  var why=vpRequestProblem(owner, email, action, null, role);
   if(why){ toast('⛔ '+why); return; }
   email=String(email).trim().toLowerCase();
   if(action==='disable' && !confirm(`Turn off ${email}'s portal login for ${owner}? They are signed out everywhere.`)) return;
@@ -4652,6 +4677,7 @@ async function vpSubmit(owner, email, action){
     await vpIds();
     var made=await graph(`/sites/${CFG.siteId}/lists/${VP.list}/items`,{method:'POST',body:JSON.stringify({fields:{
       Title:action+': '+email, owner_key:owner, email:email, action:action, state:'requested',
+      role:(action==='invite'||action==='set_role')?(role||'admin'):'',
       requested_by:ACCOUNT||'', requested_utc:now}})});
     /* ⛔ EXACT AgentJobs fields (_shared/USING-THE-SUPERVISOR.md §3): State `queued`,
        Params a JSON STRING, ClaimedBy/LeaseUntil EMPTY, Subject a POINTER. */
@@ -4679,28 +4705,33 @@ async function vpOpen(keepPolling){
       <label>Vendor<select id="vpOwner"><option value="">choose…</option>${owners
         .map(function(o){return `<option>${esc(o)}</option>`;}).join('')}</select></label>
       <label>Their email<input id="vpEmail" type="email" autocomplete="off" placeholder="name@theirfarm.com"></label>
+      <label>Role<select id="vpRole"><option value="admin">Admin — approves listings, manages their team</option>
+        <option value="user">User — edits and uploads; an admin approves</option></select></label>
     </div>
     <div><button class="btn primary" id="vpInvite">Invite</button> <span class="note" id="vpWhy"></span></div>
     <h3 style="margin-top:16px">Portal logins</h3>
-    <table class="cn-tbl"><tr><th>Vendor</th><th>Email</th><th>Status</th><th>Last change</th><th></th></tr>
+    <table class="cn-tbl"><tr><th>Vendor</th><th>Email</th><th>Role</th><th>Status</th><th>Last change</th><th></th></tr>
     ${roster.map(function(r){
       var nx=vpNextAction(r), st=String(r.state||'');
       var status=st==='done'?esc(String(r.pool_status||'').split('/')[0]||'done'):
         (st==='requested'?'⏳ working…':st==='refused'?'⛔ refused':st==='failed'?'⚠ failed — retrying':esc(st));
-      return `<tr><td>${esc(r.owner_key||'')}</td><td class="mono">${esc(r.email||'')}</td><td>${status}</td>
+      var rl=vpRoleOf(rows, r.email), live=/^enabled/.test(String(r.pool_status||'')) && st==='done';
+      var flip=live&&rl?(rl==='admin'?'user':'admin'):'';
+      return `<tr><td>${esc(r.owner_key||'')}</td><td class="mono">${esc(r.email||'')}</td><td>${esc(rl||'—')}</td><td>${status}</td>
         <td>${esc(r.action||'')} · ${esc(fmtWhen(r.updated_utc||r.requested_utc||'',{utc:true}))} · ${esc(r._by||'')}
           <div class="note">${esc(r.state_note||'')}</div></td>
         <td>${nx?`<button class="tbtn" data-vp-o="${esc(r.owner_key||'')}" data-vp-e="${esc(r.email||'')}" data-vp-a="${nx}">${
-          nx==='disable'?'Turn off':nx==='enable'?'Turn back on':'Invite again'}</button>`:''}</td></tr>`;}).join('')
-      ||'<tr><td colspan="5">No portal logins yet.</td></tr>'}</table>
+          nx==='disable'?'Turn off':nx==='enable'?'Turn back on':'Invite again'}</button>`:''}${flip?` <button class="tbtn" data-vp-o="${esc(r.owner_key||'')}" data-vp-e="${esc(r.email||'')}" data-vp-a="set_role" data-vp-r="${flip}">Make ${flip}</button>`:''}</td></tr>`;}).join('')
+      ||'<tr><td colspan="6">No portal logins yet.</td></tr>'}</table>
     <div style="margin-top:12px"><button class="btn" onclick="closeSheet()">Close</button></div>`);
   $('#sheet').classList.add('wide');
   var upd=function(){ var w=vpRequestProblem($('#vpOwner').value,$('#vpEmail').value,'invite');
     $('#vpInvite').disabled=!!w; $('#vpWhy').textContent=($('#vpOwner').value||$('#vpEmail').value)?w:''; };
   $('#vpOwner').onchange=upd; $('#vpEmail').oninput=upd; upd();
-  $('#vpInvite').onclick=function(){ this.disabled=true; vpSubmit($('#vpOwner').value,$('#vpEmail').value,'invite'); };
+  $('#vpInvite').onclick=function(){ this.disabled=true; vpSubmit($('#vpOwner').value,$('#vpEmail').value,'invite',$('#vpRole').value); };
   document.querySelectorAll('[data-vp-a]').forEach(function(b){
-    b.onclick=function(){ vpSubmit(b.dataset.vpO, b.dataset.vpE, b.dataset.vpA); };});
+    b.onclick=function(){ vpSubmit(b.dataset.vpO, b.dataset.vpE, b.dataset.vpA,
+      b.dataset.vpA==='invite'?(vpRoleOf(rows,b.dataset.vpE)||'admin'):(b.dataset.vpR||'')); };});
   clearTimeout(VP.poll);
   if(busy || keepPolling===true){
     VP._n=(keepPolling===true?0:(VP._n||0))+1;
