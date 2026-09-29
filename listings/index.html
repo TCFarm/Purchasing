@@ -321,6 +321,15 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .vwait{display:block}
 body[data-mode="vendor"]:not([data-loaded="1"]) .shell,body[data-mode="vendor"]:not([data-loaded="1"]) .filters,
 body[data-mode="vendor"]:not([data-loaded="1"]) .pubbar,body[data-mode="vendor"]:not([data-loaded="1"]) .top .lbl,
 body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor"]:not([data-loaded="1"]) #progText{display:none}
+.vnote{margin:12px 22px 0;max-width:760px;padding:10px 14px;border-radius:var(--r);border-left:4px solid var(--warn);background:var(--warn-soft);font-size:13px;color:var(--ink)}
+.vnote:empty{display:none}
+.vnote .when{color:var(--ink-3);font-size:11.5px;margin-left:6px}
+.vdot{color:var(--warn);font-size:10px;margin-left:5px;vertical-align:middle}
+.vpick{display:none;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
+.vpick select{flex:1 1 180px;min-width:0}
+.vpick .chip.stop{background:var(--stop-soft);color:var(--stop)}
+.vpick .chip.warn{background:var(--warn-soft);color:var(--warn)}
+@media (max-width:880px){body[data-mode="vendor"] .vpick,body[data-mode="as-vendor"] .vpick{display:flex}}
 .taxr{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:5px}
 .taxr label{display:inline-flex;gap:6px;align-items:center;font-size:13px}
 </style>
@@ -382,6 +391,10 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
     <div class="queue-h" id="qFoot" style="padding-top:14px"><span class="lbl">this wireframe carries 4 of the queue's items</span></div></nav>
 
   <main class="centre">
+    <!-- ⭐ fix 10: vendor view on a phone/tablet — the product list is hidden below 880px -->
+    <div class="vpick" id="vPick"></div>
+    <!-- ⭐ fix 7: one plain note from us on this product (a refused save, a hold, a photo) -->
+    <div class="vnote" id="vNote" role="status"></div>
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-pane="listing">Listing</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="fields" id="tabFields">All BC fields</button>
@@ -420,7 +433,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
           <button class="tbtn" id="btnNone">None of these — needs new images</button>
           <!-- ⭐ 2026-09-28 (vendor mode §3): shown only when the HOST can store an upload (the vendor portal today). -->
           <button class="tbtn go" id="btnUpload" hidden>Upload photo</button>
-          <input type="file" id="upFile" multiple hidden accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif">
+          <input type="file" id="upFile" multiple hidden accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
         </div>
       </div>
       <div class="seqstrip" id="seqstrip" hidden></div>
@@ -666,10 +679,21 @@ function isSp(u){return typeof u==='string'&&(u.indexOf('sp:')===0||u.indexOf('v
    appear is indistinguishable from a product that has fewer candidates. */
 async function hydrateOne(img){
   const u=img.getAttribute('data-sp'); img.removeAttribute('data-sp');
-  try{ img.src=await HOST.imageSrc(u); }
-  catch(e){ const host=img.parentNode;
+  const fail=e=>{ const host=img.parentNode;
     if(host)host.innerHTML='<span>could not load this candidate<br>'+
-      esc(String(e.message||e).slice(0,60))+'</span>'; }
+      esc(String(e&&e.message||e).slice(0,60))+'</span>'; };
+  /* ⭐ fix 11: a portal image URL is signed and EXPIRES. If the browser cannot load
+     it, drop the cached URL and ask the portal once more; a second failure is shown. */
+  if(String(u||'').indexOf('vp:')===0 && HOST && typeof HOST.forgetImage==='function'){
+    let retried=false;
+    img.onerror=function(){
+      if(retried){ img.onerror=null; fail(new Error('this photo did not load — reload the page')); return; }
+      retried=true; HOST.forgetImage(u);
+      Promise.resolve().then(()=>HOST.imageSrc(u)).then(x=>{ img.src=x; }, fail);
+    };
+  }
+  try{ img.src=await HOST.imageSrc(u); }
+  catch(e){ fail(e); }
 }
 function hydrateSp(root){
   (root||document).querySelectorAll('img[data-sp]').forEach(hydrateOne);
@@ -1027,6 +1051,8 @@ function makePortalHost(parentWin, parentOrigin, opts){
     throw new Error('refusing to talk to '+(parentOrigin||'an unknown parent')+' — not the vendor portal');
   var _st=opts.setTimeout||setTimeout, _ct=opts.clearTimeout||clearTimeout;
   var ms=opts.timeoutMs||PORTAL_TIMEOUT_MS, seq=0, waiting={}, imgs={};
+  /* ⭐ fix 11: a signed image URL expires after an hour — keep one ≤ 50 min. */
+  var _now=opts.now||function(){ return Date.now(); };
   function request(type, args, transfer){
     return new Promise(function(resolve, reject){
       var id='tcfs-'+(++seq)+'-'+Date.now().toString(36);
@@ -1069,8 +1095,10 @@ function makePortalHost(parentWin, parentOrigin, opts){
       return request('listBatches',{}).then(function(r){
         var rows=Array.isArray(r)?r:((r&&r.batches)||[]);
         return sortBatches(rows.map(function(x){
+          /* ⭐ fix 4: the portal index stamps `updated_at`; `created`/`mod` may be absent. */
           return typeof x==='string'?{batch:x, mod:'', created:''}
-            :{batch:String(x.batch||''), mod:String(x.mod||''), created:String(x.created||'')};
+            :{batch:String(x.batch||''), mod:String(x.mod||x.updated_at||''),
+              created:String(x.created||x.updated_at||'')};
         }).filter(function(x){return x.batch;}));
       });
     },
@@ -1081,10 +1109,20 @@ function makePortalHost(parentWin, parentOrigin, opts){
         var payload=r.payload;
         if(!payload || !Array.isArray(payload.items))
           throw new Error('the vendor portal sent no products for '+batch);
-        if(Array.isArray(r.needs) && !payload.needs_input) payload.needs_input=r.needs;
+        /* ⛔ fix 8: the bridge routes questions by owner into `r.needs` AND the payload
+           carries its own `needs_input` (often `[]`, which is truthy) — merge the two,
+           by key, rather than keeping only whichever came first. */
+        if(Array.isArray(r.needs) && r.needs.length){
+          var nin=Array.isArray(payload.needs_input)?payload.needs_input:[], seen={};
+          nin.forEach(function(n){ if(n&&n.key!=null) seen[String(n.key)]=1; });
+          r.needs.forEach(function(n){ if(n && !seen[String(n.key)]){ nin.push(n); seen[String(n.key)]=1; } });
+          payload.needs_input=nin;
+        }
         /* ⛔ the same drained rule loadLive applies before merging */
         var rows=(r.rows||[]).map(function(f){ var o=Object.assign({},f); o._drained=isDrainedRow(o); return o; });
-        return mergeState(payload, rows);
+        var merged=mergeState(payload, rows);
+        _applyPending(merged, r.pending, rows);
+        return merged;
       });
     },
     saveDecision:function(batch, sku, patch){
@@ -1098,21 +1136,67 @@ function makePortalHost(parentWin, parentOrigin, opts){
     saveAnswer:function(batch, key, body){ return request('answer',{batch:batch, key:key, body:body}); },
     imageSrc:function(ref){
       ref=String(ref||'');
-      if(imgs[ref]) return Promise.resolve(imgs[ref]);
+      var c=imgs[ref];
+      if(c && (_now()-c.at)<=IMG_URL_TTL_MS) return Promise.resolve(c.url);
       return request('image',{ref:ref}).then(function(r){
         if(!r || !r.url) throw new Error('the portal had no picture for this candidate');
-        imgs[ref]=String(r.url); return imgs[ref];
+        imgs[ref]={url:String(r.url), at:_now()}; return imgs[ref].url;
       });
     },
+    /* ⭐ fix 11: an <img> that failed to load drops its (probably expired) URL */
+    forgetImage:function(ref){ delete imgs[String(ref||'')]; },
     uploadImage:function(batch, sku, file){
       return Promise.resolve(file.arrayBuffer()).then(function(data){
         return request('upload',{batch:batch, sku:sku, name:String(file.name||''),
-                                 type:String(file.type||''), data:data}, [data]);
+                                 type:uploadMime(file), data:data}, [data]);
       });
     }
   };
 }
 var HOST=GraphHost;
+var IMG_URL_TTL_MS=50*60*1000;
+/* ⭐ fix 12: some browsers hand over a file with an empty `type` — infer it from the name. */
+function uploadMime(f){
+  var t=String((f&&f.type)||'').toLowerCase(); if(t) return t;
+  var m=/\.([a-z0-9]+)$/i.exec(String((f&&f.name)||'')), e=m?m[1].toLowerCase():'';
+  return e==='jpg'||e==='jpeg'?'image/jpeg':e==='png'?'image/png':e==='webp'?'image/webp':'';
+}
+/* ⭐⭐ fix 14: the portal's `load` returns `pending: {sku: {patch, at}}` — the vendor's own
+   saves the bridge has not applied yet. Re-applied AFTER mergeState (which is untouched), in
+   the same shape mergeState leaves a stored decision in, so applyPayload and decisionPatch
+   treat them exactly like a saved edit (`_origin:'you'`).
+   ⛔ Only when the patch is still ahead of the row: newer than the row's decided_at, or the
+   row's revision has not moved past the revision the patch was made against. */
+function _applyPending(payload, pending, rows){
+  if(!pending || typeof pending!=='object') return payload;
+  var byRow={}; (rows||[]).forEach(function(r){ byRow[r.sku]=r; });
+  (payload.items||[]).forEach(function(item){
+    var pe=pending[item.sku]; if(!pe || !pe.patch || typeof pe.patch!=='object') return;
+    var pt=pe.patch, at=String(pe.at||''), d=item._decision||{};
+    var row=byRow[item.sku], rowRev=+((row&&row.revision)||d.revision||0);
+    var decidedAt=String(d.decided_at||'');
+    var newer=!decidedAt || (at && at>decidedAt);
+    var notPast=rowRev<=+(pt.expect_revision||0);
+    if(!(newer || notPast)) return;
+    item._origin=item._origin||{}; item._edits=Object.assign({}, item._edits||{});
+    var ed=(pt.edits&&typeof pt.edits==='object')?pt.edits:{};
+    Object.keys(ed).forEach(function(f){
+      item._edits[f]=ed[f];
+      if(f.charAt(0)==='_') return;          /* reserved keys (_flagActions…) ride in _edits only */
+      item[f]=ed[f]; item._origin[f]='you';
+    });
+    if(Array.isArray(pt.image_order)){
+      item.preread=pt.image_order.filter(function(x){return /^\d+$/.test(String(x));}).map(Number);
+      item._origin.preread='you';
+    }
+    if(pt.comments && typeof pt.comments==='object') item._comments=Object.assign({}, pt.comments);
+    item._decision=Object.assign({}, d);
+    if(pt.sections && typeof pt.sections==='object') item._decision.sections=Object.assign({}, pt.sections);
+    if(pt.overall!=null && vpOverallOk(pt.overall)) item._decision.overall=String(pt.overall);
+    item._pending_at=at;
+  });
+  return payload;
+}
 /* Build the PortalHost for this page and listen for its replies. */
 function startVendorHost(){
   var host=makePortalHost(window.parent, VIEW.parentOrigin);
@@ -1232,6 +1316,9 @@ function fromPayload(it){
     }),
     imgs:imgs, pre:(it.preread||[]).filter(function(n){return n<imgs.length;}),
     preNote:it.preread_note||'',
+    /* ⭐ fix 7: {text, at} — a refused save, a staff hold, a photo added/refused */
+    vendorNote:(it.vendor_note&&it.vendor_note.text)
+      ?{text:String(it.vendor_note.text), at:String(it.vendor_note.at||'')}:null,
     /* RIVIR, flattened the way the ops panel reads it. */
     gtin:riv.gtin||'', basis:riv.basis||'', conf:riv.conf==null?null:+riv.conf,
     brick:riv.brick||'', rivir:riv,
@@ -1343,6 +1430,7 @@ function applyPayload(payload){
   var mapped=items.map(fromPayload);
   mapped.forEach(function(x){
     x._base=_snapshot(x);                 /* ⭐ the PAYLOAD's values = "unchanged" */
+    x._loadedPicks=x.pre.slice();          /* ⭐ fix 1: the gallery as loaded */
     /* ⛔ AUDIT FIX: re-apply the reviewer's stored edits by the page's own names. */
     var ed=x._edits||{};
     EDITABLE_FIELDS.forEach(function(f){
@@ -1427,6 +1515,16 @@ function taxAssessLine(p, showConf){
     +(a.reasoning?` · ${esc(a.reasoning)}`:'')
     +(showConf&&a.confidence!=null&&a.confidence!==''?` · confidence ${Math.round(+a.confidence*100)}%`:'')
     +'</div>';
+}
+/* vendor view: "We think: Not taxable — food and food ingredients (MN-FOOD-01) · <reasoning>",
+   then whether they have answered. ⭐ fix 9. */
+function taxSuggestLine(p){
+  const a=p&&p.taxAssessment, rules=a&&Array.isArray(a.rule_ids)?a.rule_ids.join(', '):'';
+  const guess=a&&(a.class==='NT'||a.class==='Taxable Item')?a.class:taxOf(Object.assign({},p,{taxOverride:''}));
+  return `<div class="hint" id="taxAssess">We think: <b>${esc(TAX_LABEL[guess]||TAX_LABEL.unknown)}</b>`
+    +(a&&a.basis?` — ${esc(a.basis)}`:'')+(rules?` (${esc(rules)})`:'')
+    +(a&&a.reasoning?` · ${esc(a.reasoning)}`:'')
+    +(p.taxOverride?'':'<br>Please choose one to confirm.')+'</div>';
 }
 function floorOf(p){const t=targetMargin(p);return t>=1?p.cost:p.cost/(1-t);}
 function effPrice(p){return p.salePrice>0?p.salePrice:p.price;}
@@ -1535,10 +1633,13 @@ function renderQueue(){
       :'<span class="chip ok" style="padding:1px 5px">ready</span>';
     return `<button class="qrow" data-i="${i}" aria-current="${i===cur}">
       <span class="qthumb">${esc(p.brand.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase())}</span>
-      <span><span class="qname">${esc(p.name)}</span><span class="qmeta">
+      <span><span class="qname">${esc(p.name)}${isVendorView()&&p.vendorNote?'<span class="vdot" title="A note from us" aria-label="has a note from us">●</span>':''}</span><span class="qmeta">
       <span class="src ${p.src}">${p.src==='newitem'?'new':p.src}</span>${tick}<span class="dots">${dots}</span>
       </span></span></button>`;}).join('')||'<div style="padding:16px" class="lbl">nothing in this filter</div>';
   $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
+    /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
+       not allow a native dialog, and a blocked confirm() returns false silently. */
+    if(isVendorView()){ vGoTo(+b.dataset.i); return; }
     /* ⛔ A9: leaving a product mid-edit used to bin the edit with no signal. */
     if(editing!==null && !confirm(`You are still editing ${LBL[editing]}.\n\n`
         +`Leaving now discards that change.\n\nDiscard and move on?`)) return;
@@ -1555,6 +1656,33 @@ function renderQueue(){
   $('#fAll').textContent=P.length;$('#fNew').textContent=c('newitem');
   $('#fEnh').textContent=c('enhance');$('#fCln').textContent=c('clone');
 }
+
+/* ⭐ fix 5: ONE wording for a vendor's approval (sheet + toast) and for a queued save. */
+var VENDOR_APPROVED_MSG='Approved — it will be published to our stores within a few minutes (after our system picks it up)';
+var SAVED_QUEUED_MSG='Saved — we\'ll apply it within about 2 minutes';
+/* ⭐ fix 3: an in-page confirmation (the sheet), used in a vendor view instead of confirm(). */
+function askConfirm(o){
+  openSheet(`<h2>${esc(o.title||'Are you sure?')}</h2>
+    <div class="sub" style="white-space:pre-line">${esc(o.body||'')}</div>
+    <button class="btn primary" id="cfYes">${esc(o.yes||'Yes')}</button>
+    <button class="btn" id="cfNo">${esc(o.no||'Cancel')}</button>`);
+  const y=$('#cfYes'), n=$('#cfNo');
+  if(y) y.onclick=()=>{ closeSheet(); if(o.onYes) o.onYes(); };
+  if(n) n.onclick=()=>{ closeSheet(); if(o.onNo) o.onNo(); };
+}
+/* vendor view: switch product, asking first if an edit is open */
+function vGoTo(i){
+  i=+i; if(!(i>=0 && i<P.length)) return;
+  const go=()=>{ cur=i; editing=null; renderAll(); };
+  if(editing!==null && i!==cur){
+    askConfirm({title:'You are still editing '+LBL[editing],
+      body:'Leaving now discards that change.', yes:'Discard and move on', no:'Keep editing', onYes:go,
+      onNo:()=>renderVendorExtras()});
+    return;
+  }
+  go();
+}
+window.vGoTo=vGoTo;
 
 /* ═══ rich text toolbar ═══ */
 function rtebar(kind){
@@ -1713,15 +1841,17 @@ function renderShop(){
         <button class="tbtn danger" data-rmcq="${i}" style="margin-top:6px">Remove</button>
       </div>`).join('')}
       <button class="tbtn" id="addCq">+ Add question</button>
-      <div class="hint">These feed the AEO block and the visible Common Questions section — Google needs them on the page, not only in a comment.</div></div>`
+      <div class="hint">${isVendorView()?'These show on the product page under Common questions.'
+        :'These feed the AEO block and the visible Common Questions section — Google needs them on the page, not only in a comment.'}</div></div>`
     : `<dl class="cq">${p.cq.map(c=>`<dt>${esc(c[0])}</dt><dd>${esc(c[1])}</dd>`).join('')}</dl>`;
 
   const keywords = E==='keywords' ? `
       <div class="tags" id="kwBox">${p.kws.map((k,i)=>`<span class="tag">${esc(k)}<button data-rmkw="${i}">×</button></span>`).join('')}
         <input id="kwIn" placeholder="type a term, press Enter"></div>
       <div class="kwstat" id="kwStat"></div>
-      <div class="hint">Internal storefront search only — generic nouns, real shopper typos, compound
-        terms. Not SEO long-tail. Rules live in <span class="mono">Search Reference/SEARCH-TERMS-GUIDE.md</span>.</div>`
+      <div class="hint">${isVendorView()?'Words shoppers type into our store\'s search box — plain names for the item, common misspellings, other words for it.'
+        :`Internal storefront search only — generic nouns, real shopper typos, compound
+        terms. Not SEO long-tail. Rules live in <span class="mono">Search Reference/SEARCH-TERMS-GUIDE.md</span>.`}</div>`
     : `<div class="tags" style="border:0;padding:0">${p.kws.map(k=>`<span class="tag">${esc(k)}</span>`).join('')}</div>`;
 
   $('#shopBody').innerHTML=[
@@ -2011,7 +2141,10 @@ function renderFields(){
     </div>
     ${probs.length?`<div class="cascade" style="margin-top:9px"><b>Problems with this ladder</b>
       ${probs.map(x=>`<div>⛔ ${esc(x)}</div>`).join('')}</div>`:''}
-    <div class="hint" style="margin-top:7px">
+    ${isVendorView()?`<div class="hint" style="margin-top:7px">
+      Each discount runs from its quantity up to where the next one starts; the last has no top.
+      You set the quantity and the percent off — the rest follows. The top quantity is normally one
+      case (<b>${p.casepack||'—'}</b> here).</div>`:`<div class="hint" style="margin-top:7px">
       ⭐ <b>Ranges are derived, so a gap or an overlap cannot be created</b> — each tier runs up to
       the next tier's start and the last is unbounded. You set the start quantity and the discount;
       the rest follows.<br>
@@ -2026,7 +2159,7 @@ function renderFields(){
            qty 2–${Math.floor(p.casepack/2)-1}, so a shopper buying six gets the smallest discount.
            The suggestion caps the top at <b>${CAPPED_TOP}</b>.`
         : `✓ At or under the ${CASE_CEILING}-unit ceiling, so the case shape is the right shape and
-           the suggestion returns exactly what ships today — unchanged.`}</div>`;
+           the suggestion returns exactly what ships today — unchanged.`}</div>`}`;
 
   /* ⛔⛔ R-A, and it goes FIRST because Jack said so in as many words: "the
      very first section should be a note to the user that we have a low
@@ -2101,9 +2234,10 @@ function renderFields(){
         :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>')):''}
     ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.'))}
     ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
-    ${vrow('badge',null,frow('Badge','__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.'))}
-    ${vrow('storage',null,frow('Storage','__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
-      '⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.'))}
+    ${vrow('badge',null,frow('Badge',isVendorView()?'up to 24 characters':'__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.'))}
+    ${vrow('storage',null,frow('Storage',isVendorView()?'how it is kept':'__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
+      isVendorView()?'Changing this also changes the item code (SKU).'
+      :'⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.'))}
     ${vrow(null,'ownerRow',frow('Owner','__Owner',`<select class="ctl w-md" id="fOwner">${selOpts(OWNERS,p.owner)}</select>`,
       p.owner==='TCFarm'?'TCFarm → departmental income account.':'⛔ Non-TCFarm vendor → income routes to the consignment clearing account.'))}
   </div></div>`)+vgrp(`
@@ -2114,9 +2248,11 @@ function renderFields(){
     ${isVendorView()
       ? vrow('taxOverride',null,frow('Is this item taxable in Minnesota?',null,
           `<div class="taxr" role="radiogroup" aria-label="Is this item taxable in Minnesota?">
-             <label><input type="radio" name="fTaxR" id="fTaxNT" value="NT" ${taxOf(p)==='NT'?'checked':''}> Not taxable</label>
-             <label><input type="radio" name="fTaxR" id="fTaxTX" value="Taxable Item" ${taxOf(p)==='Taxable Item'?'checked':''}> Taxable</label></div>`,
-          vpAccess('taxAssessment')==='hide'?'':taxAssessLine(p,false)))
+             <label><input type="radio" name="fTaxR" id="fTaxNT" value="NT" ${p.taxOverride==='NT'?'checked':''}> Not taxable</label>
+             <label><input type="radio" name="fTaxR" id="fTaxTX" value="Taxable Item" ${p.taxOverride==='Taxable Item'?'checked':''}> Taxable</label></div>`,
+          /* ⭐ fix 9: both radios stay EMPTY until the vendor answers — a pre-checked radio
+             cannot be "confirmed" (clicking it fires no change). Our view is the suggestion. */
+          vpAccess('taxAssessment')==='hide'?'':taxSuggestLine(p)))
       : frow('Tax class','your choice → our assessment → the category',`<select class="ctl w-md" id="fTax">${selOpts(TAXES,taxOf(p))}</select>`,
       taxAssessLine(p,true)
       +`<span class="derived">category default is <b>${esc(c[4]||'NT')}</b>${p.taxOverride?' — you have overridden it'
@@ -2139,7 +2275,7 @@ function renderFields(){
     ${vrow(null,'costRow',frow('Cost','read-only',`<input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled>`,'<span class="derived">KeHE regular cost / Finale average cost</span>'))}
     ${vrow(null,'marginRow',frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`))}
     ${vrow(null,'marginRow',frow('Live maths','derived',`<div class="calc" id="fCalc"></div>`))}
-    ${vrow('tiers',null,frow('Bulk discount tiers','__bulk_pricing',tiersHtml))}
+    ${vrow('tiers',null,frow(isVendorView()?'Bulk discounts':'Bulk discount tiers',isVendorView()?'money off for buying more':'__bulk_pricing',tiersHtml))}
   </div></div>`)+vh('variantsBlock',`
   <div class="fgroup"><h3>Variants &amp; options</h3><div class="body">
     ${(p.variants&&p.variants.length)?`
@@ -2196,7 +2332,13 @@ function renderFields(){
       <input class="ctl w-sm mono" id="fD0" type="number" value="${p.dims[0]}">
       <input class="ctl w-sm mono" id="fD1" type="number" value="${p.dims[1]}">
       <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}"></div>`))}
-    ${vrow('dims',null,frow('__Volume','derived',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
+    ${vrow('dims',null,isVendorView()
+      ? frow('Volume','worked out from the size',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
+          '<span class="derived">W × H × D, in cm³</span>'
+          +((p.dimsMeta&&p.dimsMeta.basis==='rivir_declared')
+            ? ' · from the manufacturer\'s declared package'
+            : ' · <b>estimated</b> — please check the size'))
+      : frow('__Volume','derived',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
       '<span class="derived">L × W × H cm³ — drives van load planning</span>'
       +((p.dimsMeta&&p.dimsMeta.basis==='rivir_declared')
         ? ' · <b>from RIVIR</b>, the manufacturer\'s declared package'
@@ -2281,6 +2423,16 @@ function renderFields(){
        never do it — skuOf() was dead code with zero call sites, which is exactly
        the two-halves-disagree failure the rule exists to prevent. */
     const want=$('#fStorage').value, old=p.sku, next=skuOf(Object.assign({},p,{storage:want}));
+    if(isVendorView()){
+      /* ⭐ fix 3: ask in the page; the select shows the saved value until they say yes */
+      $('#fStorage').value=p.storage;
+      askConfirm({title:'Change storage to '+want+'?',
+        body:'This also changes the item code (SKU) once it is applied:\n'+old+'  →  '+next,
+        yes:'Change it', no:'Cancel', onYes:()=>{
+          p.storage=want; p.skuAfter=next;
+          markEdited('identity','Storage change saved — the item code becomes '+next+' once it is applied');}});
+      return;
+    }
     if(!confirm(`Storage → ${want}\n\nThe SKU is rebuilt with it when this is applied:\n    ${old}\n → ${next}\n\n`
        +`Both halves must agree or the receiving scanner mis-files it.\n\nApply?`)){
       $('#fStorage').value=p.storage;return;}
@@ -2500,6 +2652,7 @@ window.lbOpen=lbOpen;window.lbClose=lbClose;
 
 function togglePick(i){
   const pk=st[cur].picks,at=pk.indexOf(i);
+  st[cur].picksTouched=true;
   if(at>=0)pk.splice(at,1);else pk.push(i);
   if(st[cur].sec.gallery!=='rework'){st[cur].sec.gallery='edited';
     st[cur].by.gallery=isVendorView()?'edited by you · just now':'edited by jack@tc.farm · just now';}
@@ -2524,13 +2677,14 @@ window.togglePick=togglePick;
    ⛔ Staff (GraphHost) upload is phase 2: there it is still "not available yet",
    and the Upload button is not shown at all — no control that cannot work. */
 const UPLOAD_MAX=15*1024*1024;
-const UPLOAD_TYPES=['image/jpeg','image/png','image/webp','image/heic','image/heif'];
+/* ⛔ fix 12: NO HEIC — the portal refuses it, and an iPhone converts to JPG when HEIC is not offered. */
+const UPLOAD_TYPES=['image/jpeg','image/png','image/webp'];
 const UPLOADS={};              /* sku → [{name, state:'uploading'|'pending'|'failed', note}] — this session */
 function uploadProblem(f){
   if(!f) return 'no file';
   const okType=UPLOAD_TYPES.indexOf(String(f.type||'').toLowerCase())>=0
-    || /\.(jpe?g|png|webp|heic|heif)$/i.test(String(f.name||''));
-  if(!okType) return 'not a JPG, PNG, WEBP or HEIC photo';
+    || /\.(jpe?g|png|webp)$/i.test(String(f.name||''));
+  if(!okType) return 'not a JPG, PNG or WEBP photo';
   if(!(f.size>0)) return 'the file is empty';
   if(f.size>UPLOAD_MAX) return 'over 15 MB';
   return '';
@@ -2546,16 +2700,20 @@ function addUpload(files){
   if(bad.length) toast('⛔ Not uploaded — '+bad.join('; '));
   if(!good.length) return false;
   const list=UPLOADS[sku]=UPLOADS[sku]||[];
+  /* ⭐ fix 6: how many of the vendor's own photos this product had when they sent it —
+     a rise in that count is how an upload is recognised even if its name changed. */
+  const base=vendorUploadCount(P[i]);
   good.forEach(f=>{
-    const u={name:String(f.name||'photo'), state:'uploading', note:''};
+    const u={name:String(f.name||'photo'), state:'uploading', note:'', at:_nowFn(), base:base};
     list.push(u);
-    const redraw=()=>{ if(P[cur]&&P[cur].sku===sku) renderGrid(); };
+    const redraw=()=>{ saveUploadsSession(); if(P[cur]&&P[cur].sku===sku) renderGrid(); };
     Promise.resolve().then(()=>HOST.uploadImage(batch, sku, f)).then(res=>{
-      if(res&&res.ok!==false){ u.state='pending'; }
+      if(res&&res.ok!==false){ u.state='pending'; _poll.tries=0; ensureUploadPoll(); }
       else { u.state='failed'; u.note=(res&&(res.message||res.reason))||'refused'; toast('⛔ '+u.name+' was not uploaded — '+u.note); }
       redraw();
     },e=>{ u.state='failed'; u.note=String(e&&e.message?e.message:e); toast('⛔ '+u.name+' was not uploaded — '+u.note); redraw(); });
   });
+  saveUploadsSession();
   renderGrid();
   if(!bad.length) toast(good.length+' photo'+(good.length>1?'s':'')+' sent — '+(good.length>1?'they appear':'it appears')+' here in a few minutes');
   return true;
@@ -2564,15 +2722,111 @@ window.addUpload=addUpload;
 /* the placeholder tiles for this product's uploads */
 function uploadTiles(sku){
   return (UPLOADS[sku]||[]).map((u,k)=>`<div class="cand up" data-up="${k}" role="status">
-      <span class="art"><span>${u.state==='failed'?'Upload failed — '+esc(u.note):'Uploading — appears in a few minutes'}</span></span>
+      <span class="art"><span>${u.state==='failed'?'Upload failed — '+esc(u.note)
+        :u.state==='expired'?esc(UPLOAD_EXPIRED_MSG):'Uploading — appears in a few minutes'}</span></span>
       <span class="cap"><b>${esc(u.name)}</b><em><span>yours</span>
-        <span>${u.state==='uploading'?'sending…':u.state==='failed'?'not saved':'received'}</span></em></span></div>`).join('');
+        <span>${u.state==='uploading'?'sending…':u.state==='failed'?'not saved':u.state==='expired'?'not received':'received'}</span></em></span></div>`).join('');
 }
-/* after a reload, a placeholder whose file is now a real candidate is dropped */
+/* ═══ fix 6: uploaded photos arrive LATER — follow them until they do ═══════════
+   The portal stores the file and the bridge adds it to the product's candidates a few
+   minutes on (caption "your photo · <file name>", source vendor_upload). So:
+     · a placeholder is kept per batch/sku in sessionStorage — it survives a reload;
+     · while one is waiting, `load` is re-requested every 30 s (at most 20 times), and
+       ⛔ never while this vendor has an edit open or an unsaved change;
+     · a placeholder is dropped when a vendor_upload candidate carries its file name,
+       or when the count of vendor_upload candidates rises past what it was at upload;
+     · after 20 minutes it turns into "We didn't receive this photo — try again". */
+var UPLOAD_POLL_MS=30000, UPLOAD_POLL_MAX=20, UPLOAD_EXPIRE_MS=20*60*1000;
+var UPLOAD_EXPIRED_MSG='We didn\'t receive this photo — try again';
+var _nowFn=function(){ return Date.now(); };
+var _poll={timer:null, tries:0,
+  sched:function(fn,ms){ return setTimeout(fn,ms); }, clear:function(t){ clearTimeout(t); }};
+function vendorUploadCount(p){ return ((p&&p.imgs)||[]).filter(im=>im[4]==='vendor_upload').length; }
+function _ss(){ try{ return (typeof sessionStorage!=='undefined' && sessionStorage) || null; }catch(_){ return null; } }
+function _upKey(){ return 'tcfs_uploads:'+(_batchFromUI()||''); }
+function saveUploadsSession(){
+  if(VIEW.mode!=='vendor') return;
+  const ss=_ss(); if(!ss) return;
+  try{
+    const o={};
+    Object.keys(UPLOADS).forEach(k=>{ const l=(UPLOADS[k]||[]).filter(u=>u.state!=='failed');
+      if(l.length) o[k]=l.map(u=>({name:u.name, state:u.state, at:u.at, base:u.base, note:u.note||''})); });
+    if(Object.keys(o).length) ss.setItem(_upKey(), JSON.stringify(o)); else ss.removeItem(_upKey());
+  }catch(_){}
+}
+function loadUploadsSession(){
+  if(VIEW.mode!=='vendor') return;
+  const ss=_ss(); if(!ss) return;
+  let o=null; try{ o=JSON.parse(ss.getItem(_upKey())||'null'); }catch(_){ o=null; }
+  if(!o || typeof o!=='object') return;
+  Object.keys(o).forEach(k=>{
+    const l=UPLOADS[k]=UPLOADS[k]||[], have=l.map(u=>u.name+'|'+u.at);
+    (Array.isArray(o[k])?o[k]:[]).forEach(u=>{ if(u && have.indexOf(u.name+'|'+u.at)<0)
+      l.push({name:String(u.name||'photo'), state:String(u.state||'pending'), note:String(u.note||''),
+              at:+u.at||_nowFn(), base:u.base==null?null:+u.base}); });
+  });
+}
 function reconcileUploads(){
-  P.forEach(p=>{ const l=UPLOADS[p.sku]; if(!l) return;
-    const have=p.imgs.map(im=>String(im[0]));
-    UPLOADS[p.sku]=l.filter(u=>u.state==='failed'||have.indexOf(u.name)<0); });
+  const now=_nowFn();
+  P.forEach(p=>{ const l=UPLOADS[p.sku]; if(!l||!l.length) return;
+    const vu=p.imgs.filter(im=>im[4]==='vendor_upload'), n=vu.length;
+    const caps=vu.map(im=>String(im[1]||'')+' '+String(im[0]||''));
+    const byName=u=>!!u.name && caps.some(c=>c.indexOf(u.name)>=0);
+    const live=u=>u.state!=='failed'&&u.state!=='expired';
+    /* name matches first; each one also accounts for one step of the count */
+    let used=l.filter(u=>live(u)&&byName(u)).length;
+    UPLOADS[p.sku]=l.filter(u=>{
+      if(!live(u)) return true;
+      if(byName(u)) return false;
+      if(u.base!=null && n>u.base+used){ used++; return false; }
+      if(u.at && now-u.at>UPLOAD_EXPIRE_MS){ u.state='expired'; u.note=UPLOAD_EXPIRED_MSG; }
+      return true;
+    });
+  });
+  saveUploadsSession();
+}
+function _uploadsWaiting(){
+  return P.some(p=>(UPLOADS[p.sku]||[]).some(u=>u.state==='uploading'||u.state==='pending'))
+    || P.some(p=>p.vendorNote && /photo/i.test(p.vendorNote.text) && /\badded\b/i.test(p.vendorNote.text));
+}
+function ensureUploadPoll(){
+  if(VIEW.mode!=='vendor' || !HOST || HOST===GraphHost) return false;
+  if(_poll.timer!=null || _poll.tries>=UPLOAD_POLL_MAX || !_uploadsWaiting()) return false;
+  _poll.timer=_poll.sched(uploadPollTick, UPLOAD_POLL_MS);
+  return true;
+}
+/* anything a refresh would throw away: an open editor, a save not yet confirmed, a
+   comment box being typed in, a focused field, or an open sheet (answers, a confirm) */
+function _unsaved(){
+  if(editing!==null || pendingAutosave()) return true;
+  try{ if(document.querySelectorAll('.cbox').length) return true; }catch(_){}
+  try{ const a=document.activeElement, t=a&&String(a.tagName||'').toLowerCase();
+       if(t==='input'||t==='textarea'||t==='select'||(a&&a.isContentEditable)) return true; }catch(_){}
+  try{ const d=document.querySelector('#drawer'); if(d&&d.dataset&&d.dataset.open==='1') return true; }catch(_){}
+  return false;
+}
+async function uploadPollTick(){
+  _poll.timer=null;
+  if(!_uploadsWaiting() || _poll.tries>=UPLOAD_POLL_MAX) return 'idle';
+  _poll.tries++;
+  let out='skipped';
+  if(!_unsaved()){
+    const batch=_batchFromUI();
+    try{
+      const payload=batch?await HOST.loadBatch(batch):null;
+      /* ⛔ re-checked AFTER the wait — an edit may have started while it was in flight */
+      if(payload && !_unsaved()){
+        const sku=P[cur]&&P[cur].sku, f=filter;
+        applyPayload(payload);
+        const j=P.findIndex(p=>p.sku===sku); cur=j>=0?j:0; filter=f;
+        if(!visible().includes(cur)) filter='all';
+        reconcileUploads(); renderAll();
+        out='reloaded';
+      }
+    }catch(e){ out='failed'; }
+  }
+  ensureUploadPoll();
+  return out;
 }
 
 function renderGrid(){
@@ -2596,7 +2850,7 @@ function renderGrid(){
       <button type="button" class="zoom" data-zoom="${i}"
         title="open full size" aria-label="Open ${esc(im[1])} full size">⤢</button>
       <span class="cap"><b>${esc(im[1])}</b><em><span>${im[2]}×${im[3]}</span>
-        <span>${im[4]==='upload'?'yours':small?'too small':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
+        <span>${isVendorView()&&im[4]==='vendor_upload'?'Your photo':im[4]==='upload'?'yours':small?'too small':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
     +uploadTiles(p.sku);
   hydrateSp($('#grid'));
   /* ⛔⛔ P-851 item 2 (2026-09-10). The zoom was a <span> INSIDE the tile's
@@ -2913,7 +3167,8 @@ function renderDecide(){
   const ed=SEC.filter(k=>s[k]==='edited').length;
   const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
   $('#decStatus').innerHTML=(pubState(cur)==='published'?'<b style="color:var(--ok)">✓ Published</b> — live on the stores'
-      :st[cur].approved?'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes'
+      :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — it will be published to our stores within a few minutes'
+        :'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes')
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
@@ -2978,7 +3233,7 @@ window.approveProduct=async function(){
     st[i].approved=was; st[i].approvedBy=wasBy; renderAll();
     return;
   }
-  toast('Approved — enters tonight\'s publish queue');
+  toast(isVendorView()?VENDOR_APPROVED_MSG:'Approved — enters tonight\'s publish queue');
 };
 
 
@@ -3225,7 +3480,7 @@ $('#btnClear').onclick=()=>{
      cheaper for them than one more click every time they legitimately clear. */
   const was=st[cur].picks.slice();
   if(!was.length){ toast('Nothing picked'); return; }
-  st[cur].picks=[]; renderAll();
+  st[cur].picks=[]; st[cur].picksTouched=true; renderAll();
   _undoPicks={i:cur, picks:was};
   toast(`${was.length} pick${was.length>1?'s':''} cleared — press u to undo`);
   scheduleAutosave(cur,'Cleared picks saved');
@@ -3239,7 +3494,7 @@ let _undoPicks=null;
 function undoClearPicks(){
   if(!_undoPicks){ toast('Nothing to undo'); return false; }
   const i=_undoPicks.i;
-  st[i].picks=_undoPicks.picks.slice();
+  st[i].picks=_undoPicks.picks.slice(); st[i].picksTouched=true;
   const n=_undoPicks.picks.length; _undoPicks=null;
   renderAll(); toast(`${n} pick${n>1?'s':''} restored`);
   scheduleAutosave(i,'Restored picks saved');
@@ -3256,7 +3511,7 @@ $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
     :'Flagged: this product needs new images — it will not publish until someone adds them (Open Flags)');
   scheduleAutosave(cur,'Image request saved');};
 $('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
-  <div class="sub">Approving publishes this product to our stores, usually within a few minutes.
+  <div class="sub">${esc(VENDOR_APPROVED_MSG)}.
   ${P[cur].published?'It is already live, so the live listing is updated with your changes.':''}</div>
   <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||VIEW.vendorName||'you')}</p></div>
   <button class="btn primary" onclick="approveProduct()">Approve — publish to our stores</button>
@@ -3335,9 +3590,35 @@ document.addEventListener('keydown',e=>{
     <button class="btn" onclick="closeSheet()">Close</button>`); e.preventDefault(); }
 });
 
+/* ⭐ fix 7 + fix 10: the vendor note banner and the compact product picker.
+   Staff: both stay empty. */
+function vStatusOf(i){
+  const ps=pubState(i), g=productBlocked(i);
+  return ps==='published'?['Published','ok']:ps==='parked'||ps==='held'?['Waiting on us','stop']
+    :st[i].approved?['Approved','ok']:g.blk?['Needs your attention','stop']:g.rw?['Rewrite asked','rw']
+    :g.noImgs?['No photos chosen','warn']:g.nameBad?['Check the name','warn']:['Ready to approve','ok'];
+}
+function renderVendorExtras(){
+  const V=isVendorView(), nEl=$('#vNote'), kEl=$('#vPick');
+  if(nEl){ const vn=V&&P[cur]?P[cur].vendorNote:null;
+    nEl.innerHTML=vn?`<b>A note from us:</b> ${esc(vn.text)}${vn.at?`<span class="when">${esc(String(vn.at).slice(0,16).replace('T',' '))}</span>`:''}`:''; }
+  if(!kEl) return;
+  if(!V){ kEl.innerHTML=''; return; }
+  const [lbl,cls]=vStatusOf(cur);
+  kEl.innerHTML=`<button class="tbtn" id="vPrev" ${cur<=0?'disabled':''} aria-label="Previous product">‹ Prev</button>
+    <select class="ctl" id="vPickSel" aria-label="Choose a product">${P.map((p,i)=>
+      `<option value="${i}" ${i===cur?'selected':''}>${i+1}. ${esc(p.name)} — ${esc(vStatusOf(i)[0])}</option>`).join('')}</select>
+    <span class="chip ${cls}" id="vPickChip">${esc(lbl)}</span>
+    <button class="tbtn" id="vNext" ${cur>=P.length-1?'disabled':''} aria-label="Next product">Next ›</button>`;
+  const sel=$('#vPickSel'), pv=$('#vPrev'), nx=$('#vNext');
+  if(sel) sel.onchange=()=>vGoTo(+sel.value);
+  if(pv) pv.onclick=()=>vGoTo(cur-1);
+  if(nx) nx.onclick=()=>vGoTo(cur+1);
+}
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();
+  renderVendorExtras();
 }
 applyModeChrome();
 renderAll();
@@ -3412,12 +3693,14 @@ async function bootLive(){
     /* ⭐ as-vendor: only that owner's products, then the SAME vendor view */
     if(VIEW.mode==='as-vendor') payload=_asVendorFilter(payload, VIEW.asOwner);
     var n=applyPayload(payload);
+    loadUploadsSession();
     reconcileUploads();
     if(tag) tag.textContent='Live · '+batch;
     _setWho(_whoHtml(), true);
     applyModeChrome();
     if(VIEW.mode==='vendor' && document.body && document.body.dataset) document.body.dataset.loaded='1';
     renderAll();
+    ensureUploadPoll();
     toast(n+' product'+(n===1?'':'s')+' loaded'
           +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':'')
           +(NEEDS.length?' · ❓ '+NEEDS.length+' need your answer':''));
@@ -3754,12 +4037,18 @@ function decisionPatch(i){
   if(Object.keys(_cmAt).length) edits._commentsAt=_cmAt;
   /* ⭐ 2026-09-22 (plan B6): a confirmed overwrite of a live product. */
   if(p._overwriteConfirmed) edits._overwriteConfirmed=p._overwriteConfirmed;
+  /* ⛔⛔ fix 1 (vendor view only): a vendor who never touched the photo picker must not
+     have an autosave (a price edit, say) rewrite the gallery. Until they tap a tile,
+     clear or undo, the patch carries the picks AS LOADED — and never "everything
+     excluded" when nothing was loaded. ⭐ Same keys, same types: only the values differ. */
+  var _picks=s.picks, _vUntouched=isVendorView() && !s.picksTouched;
+  if(_vUntouched) _picks=(p._loadedPicks||p.pre||[]);
   return {
     overall: s.approved?'approved':(Object.keys(s.cm||{}).length?'rework':'pending'),
     sections: s.sec, edits: edits, comments: s.cm||{},
-    image_order: s.picks.slice(),
-    image_excluded: p.imgs.map(function(_,n){return n;})
-                      .filter(function(n){return s.picks.indexOf(n)<0;}),
+    image_order: _picks.slice(),
+    image_excluded: (_vUntouched && !_picks.length) ? [] : p.imgs.map(function(_,n){return n;})
+                      .filter(function(n){return _picks.indexOf(n)<0;}),
     upc: p.upc,
     expect_revision: (p._decision&&p._decision.revision)||0
   };
@@ -3843,7 +4132,10 @@ async function persist(i, label){
        it lost the reviewer's click — the product stayed held with no sign why. */
     if(P[i]._overwriteConfirmed && _patch.edits &&
        P[i]._overwriteConfirmed===_patch.edits._overwriteConfirmed) delete P[i]._overwriteConfirmed;
-    toast((label||'Saved')+' · revision '+res.revision);
+    /* ⭐ fix 5: the vendor portal QUEUES a save (the bridge applies it shortly) — say
+       that, not "revision 0", which reads like nothing happened. */
+    if(res && res.queued) toast(isVendorView()&&label==='Approved'?VENDOR_APPROVED_MSG:SAVED_QUEUED_MSG);
+    else toast((label||'Saved')+' · revision '+res.revision);
     return res;
   }catch(e){
     /* ⛔ NEVER let a failed save look like a successful one. */
