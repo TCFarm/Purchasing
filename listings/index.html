@@ -823,7 +823,9 @@ function _fillBatchSel(sel, rows){
   let want='';
   try{ want=new URLSearchParams(location.search).get('batch')||''; }catch(_){}
   sel.innerHTML=rows.map(r=>
-    `<option value="${esc(r.batch)}">Queue · ${esc(r.batch)}</option>`).join('');
+    /* ⭐ Jack, 2026-09-29: show what the batch IS — the vendor's own name (or a readable id) + a short date, from
+       the bridge's `title`. Staff rows carry no title (or title == batch) and keep the raw id they know. */
+    `<option value="${esc(r.batch)}">${(r.title&&r.title!==r.batch)?esc(r.title):'Queue · '+esc(r.batch)}</option>`).join('');
   /* ⭐ `?batch=` still wins when it names something real; otherwise NEWEST. */
   sel.value=(want&&rows.some(r=>r.batch===want))?want:rows[0].batch;
   return sel.value;
