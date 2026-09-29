@@ -1321,6 +1321,9 @@ function fromPayload(it){
     /* ⭐ fix 7: {text, at} — a refused save, a staff hold, a photo added/refused */
     vendorNote:(it.vendor_note&&it.vendor_note.text)
       ?{text:String(it.vendor_note.text), at:String(it.vendor_note.at||'')}:null,
+    /* ⭐ (2026-09-29) the vendor's own save still waiting for the bridge — carried through so the note says
+       "Saved — updating" after a reload instead of a stale note (_applyPending sets it on the payload item) */
+    _pending_at:it._pending_at||'',
     /* RIVIR, flattened the way the ops panel reads it. */
     gtin:riv.gtin||'', basis:riv.basis||'', conf:riv.conf==null?null:+riv.conf,
     brick:riv.brick||'', rivir:riv,
