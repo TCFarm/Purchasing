@@ -2226,7 +2226,7 @@ function renderFields(){
       (function(){const q=nameProblems(p.name,p.brand);
         return q.length?q.map(x=>`<span class="bad">⛔ ${esc(x)}</span>`).join('<br>')
                        :'<span class="okk">✓ no brand, no case quantity, size suffix present</span>';})()))}
-    ${vrow('sku',null,frow('SKU','derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`
+    ${vrow('sku',null,frow('SKU',isVendorView()?'our item code':'derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`
       +((p.skuAfter&&p.skuAfter!==p.sku)?`<div class="hint">⏳ becomes <b class="mono">${esc(p.skuAfter)}</b> once your change is applied</div>`:''),
       isVendorView()?'<span class="derived">set by us from the storage area and the category</span>':`<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`))}
     ${isVendorView()?vrow('published',null,frow('On our stores',null,p.published
@@ -2241,7 +2241,7 @@ function renderFields(){
     ${vrow(null,'ownerRow',frow('Owner','__Owner',`<select class="ctl w-md" id="fOwner">${selOpts(OWNERS,p.owner)}</select>`,
       p.owner==='TCFarm'?'TCFarm → departmental income account.':'⛔ Non-TCFarm vendor → income routes to the consignment clearing account.'))}
   </div></div>`)+vgrp(`
-  <div class="fgroup"><h3>Classification — ⚠ this cascades</h3><div class="body">
+  <div class="fgroup"><h3>${isVendorView()?'Storage &amp; category':'Classification — ⚠ this cascades'}</h3><div class="body">
     ${vrow('cat',null,frow('Primary category',isVendorView()?'where shoppers find it':'45 of 156 leaves in this wireframe',catSelect,isVendorView()?'':`confidence ${p.catConf} — ${esc(p.catWhy)}`))}
     ${vrow('cat2',null,frow('Secondary category','optional',`<select class="ctl w-lg" id="fCat2"><option value="">— none —</option>${CATS.map(x=>`<option ${x[0]===p.cat2?'selected':''}>${esc(x[0])}</option>`).join('')}</select>`))}
     <div id="cascade"></div>
