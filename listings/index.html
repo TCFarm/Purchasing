@@ -323,6 +323,15 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .pubbar,body[data-mode="vendor"]
 body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor"]:not([data-loaded="1"]) #progText{display:none}
 .vnote{margin:12px 22px 0;max-width:760px;padding:10px 14px;border-radius:var(--r);border-left:4px solid var(--warn);background:var(--warn-soft);font-size:13px;color:var(--ink)}
 .vnote:empty{display:none}
+#vStory:empty{display:none}
+.vstory{margin:0 0 14px;max-width:760px;border:1px solid var(--rule,#ddd);border-radius:var(--r);background:var(--paper,#fff)}
+.vstory summary{cursor:pointer;padding:10px 14px;font-weight:600;font-size:14px}
+.vstory .vs-body{padding:0 14px 12px;font-size:13px}
+.vstory ul{margin:6px 0 8px 18px;padding:0}
+.vstory .vs-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}
+.vstory .vs-rec{width:10px;height:10px;border-radius:50%;background:var(--stop,#b33);display:inline-block}
+.vstory .vs-memo{border-left:3px solid var(--rule,#ddd);padding:4px 0 4px 10px;margin:6px 0}
+.vstory .vs-memo p{margin:4px 0;white-space:pre-wrap}
 .vnote .when{color:var(--ink-3);font-size:11.5px;margin-left:6px}
 .vdot{color:var(--warn);font-size:10px;margin-left:5px;vertical-align:middle}
 .vpick{display:none;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft);flex-wrap:wrap}
@@ -408,6 +417,8 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
         Hover a section: <b>Edit</b> opens the right control for that field — a rich-text editor for
         prose, number inputs with live margin for price, a picker for category. <b>Comment</b> queues
         a rewrite for tonight instead.</div>
+      <!-- ⭐ Jack 2026-09-29: "Enhance this description — tell us its story" (vendor view only, collapsible) -->
+      <div id="vStory"></div>
       <div class="shopfront">
         <div class="shop-rail"><span class="lbl">Storefront preview</span><span class="lbl" id="railKind" data-vhide="rail" style="margin-left:auto"></span></div>
         <div class="shop-body" id="shopBody"></div>
@@ -884,7 +895,7 @@ window.loadLive=loadLive;
    owner and supplier data before a vendor payload leaves it. The page is only
    required not to DEPEND on that — and a test proves it renders none of it. */
 var PORTAL_ORIGINS=['https://vendors.mnfood.club','https://main.do89570fqs33f.amplifyapp.com'];
-var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload'];
+var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos'];
 var PORTAL_TIMEOUT_MS=30000;
 /* ⛔ An EMBEDDED COPY of config vendor_field_policy.json — used ONLY when the
    payload carries no `vendor_policy`. The harness compares it to the file, so
@@ -1164,7 +1175,16 @@ function makePortalHost(parentWin, parentOrigin, opts){
         return request('upload',{batch:batch, sku:sku, name:String(file.name||''),
                                  type:uploadMime(file), data:data}, [data]);
       });
-    }
+    },
+    /* ⭐ Jack 2026-09-29: one PART of a per-listing story recording (≤ 5 min), and this listing's recordings */
+    sendMemo:function(batch, sku, id, blob, meta){
+      meta=meta||{};
+      return Promise.resolve(blob.arrayBuffer()).then(function(data){
+        return request('memo',{batch:batch, sku:sku, id:id, ext:meta.ext, mime:meta.mime,
+                               duration_s:meta.duration_s||0, data:data}, [data]);
+      });
+    },
+    listMemos:function(sku){ return request('memos',{sku:sku}).then(function(r){ return (r&&r.memos)||[]; }); }
   };
 }
 var HOST=GraphHost;
@@ -3669,10 +3689,118 @@ function renderVendorExtras(){
   if(pv) pv.onclick=()=>vGoTo(cur-1);
   if(nx) nx.onclick=()=>vGoTo(cur+1);
 }
+/* ═══ per-listing story recorder (Jack, 2026-09-29) ══════════════════════════
+   Vendor view only. Records in PARTS of up to 5 minutes (auto-continue), Pause/Continue, each part sent through the
+   portal (HOST.sendMemo) with this listing's batch + sku. ⛔ The bridge checks the owner and the bytes; once a part is
+   transcribed, the mini asks for a rewrite of this description with it (vendor_portal_hooks.process_story_rewrites).
+   No approval step: the story is used as heard. */
+var STORY_MAX_S=300;
+var STORY={phase:'idle', stream:null, rec:null, sess:'', n:1, t0:0, timer:null, sku:'', batch:'', parts:[], memos:{}, open:false, err:'', fetched:{}};
+function storyCanRecord(){
+  return typeof MediaRecorder!=='undefined' && typeof navigator!=='undefined' && !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia);
+}
+function _storyMime(){
+  if(typeof MediaRecorder==='undefined'||typeof MediaRecorder.isTypeSupported!=='function') return '';
+  var c=['audio/webm;codecs=opus','audio/webm','audio/mp4'];
+  for(var i=0;i<c.length;i++) if(MediaRecorder.isTypeSupported(c[i])) return c[i];
+  return '';
+}
+function _storyMmss(s){ s=Math.floor(s||0); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+function storyRefresh(force){
+  var sku=P[cur]&&P[cur].sku; if(!sku||!HOST||typeof HOST.listMemos!=='function') return;
+  /* ⛔ throttled: a re-render of an open <details> fires `toggle` again — never a fetch loop */
+  var now=Date.now(); if(!force && STORY.fetched[sku] && now-STORY.fetched[sku]<30000) return;
+  STORY.fetched[sku]=now;
+  HOST.listMemos(sku).then(function(m){ STORY.memos[sku]=m||[]; if(P[cur]&&P[cur].sku===sku) renderStory(); })
+    .catch(function(){});
+}
+function _storySend(blob, type, seconds, sess, n, batch, sku){
+  var ext=type.indexOf('audio/mp4')===0?'m4a':'webm', id=sess+'-'+String(n).padStart(2,'0');
+  var part={id:id, n:n, seconds:seconds, sku:sku, state:'sending'};
+  STORY.parts.push(part); renderStory();
+  return HOST.sendMemo(batch, sku, id, blob, {ext:ext, mime:type, duration_s:Math.round(seconds)})
+    .then(function(){ part.state='sent'; renderStory(); setTimeout(function(){ storyRefresh(true); }, 4000); })
+    .catch(function(e){ part.state='failed'; STORY.err='Part '+n+' did not send — '+(e&&e.message?e.message:e); renderStory(); });
+}
+function _storyPart(){
+  var s=STORY.stream; if(!s) return;
+  var mime=_storyMime(), r;
+  try{ r=mime?new MediaRecorder(s,{mimeType:mime}):new MediaRecorder(s); }
+  catch(e){ STORY.err='This browser cannot record audio.'; storyStopMic(); STORY.phase='idle'; renderStory(); return; }
+  var chunks=[], started=Date.now(), sess=STORY.sess, n=STORY.n++, batch=STORY.batch, sku=STORY.sku;
+  r.ondataavailable=function(e){ if(e.data&&e.data.size) chunks.push(e.data); };
+  r.onstop=function(){
+    var type=((r.mimeType||mime||'audio/webm').split(';')[0]);
+    var blob=new Blob(chunks,{type:type});
+    if(blob.size) _storySend(blob, type, Math.min(STORY_MAX_S,(Date.now()-started)/1000), sess, n, batch, sku);
+  };
+  STORY.rec=r; STORY.t0=started; r.start(1000); STORY.phase='recording';
+  clearInterval(STORY.timer);
+  STORY.timer=setInterval(function(){
+    var el=(Date.now()-STORY.t0)/1000, t=document.querySelector('#vsTime');
+    if(t) t.textContent=_storyMmss(el);
+    if(el>=STORY_MAX_S && STORY.rec===r && r.state==='recording'){ r.stop(); _storyPart(); }   /* ⭐ 5 min: send + keep going */
+  },250);
+  renderStory();
+}
+function storyStopMic(){ clearInterval(STORY.timer); if(STORY.stream) STORY.stream.getTracks().forEach(function(t){t.stop();}); STORY.stream=null; }
+window.storyStart=function(){
+  STORY.err='';
+  if(!storyCanRecord()){ STORY.err='This browser cannot record audio here. You can record on the Upload tab instead.'; renderStory(); return; }
+  var p=P[cur]; if(!p) return;
+  navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+    if(!STORY.sess || STORY.sku!==p.sku){
+      STORY.sess='s'+new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14)+'-'+Math.random().toString(36).slice(2,6);
+      STORY.n=1;
+    }
+    STORY.sku=p.sku; STORY.batch=_batchFromUI(); STORY.stream=stream; _storyPart();
+  }).catch(function(){ STORY.err='We could not use your microphone. Allow microphone access for this page and try again.'; renderStory(); });
+};
+window.storyPause=function(){
+  clearInterval(STORY.timer);
+  if(STORY.rec && STORY.rec.state!=='inactive') STORY.rec.stop();
+  STORY.rec=null; storyStopMic(); STORY.phase='paused'; renderStory();
+};
+window.storyFinish=function(){ window.storyPause(); STORY.sess=''; STORY.phase='idle'; renderStory(); };
+function renderStory(){
+  var el=document.querySelector('#vStory'); if(!el) return;
+  if(!isVendorView() || !P[cur]){ el.innerHTML=''; return; }
+  var sku=P[cur].sku, mine=(STORY.memos[sku]||[]), here=STORY.parts.filter(function(x){return x.sku===sku;});
+  if(!STORY.fetched[sku]) setTimeout(function(){ storyRefresh(); }, 0);   /* the count badge, once per product */
+  var recHere=STORY.phase!=='idle' && STORY.sku===sku;
+  var ctl;
+  if(STORY.phase==='recording' && recHere)
+    ctl=`<span class="vs-rec" aria-hidden="true"></span><b>Recording part ${STORY.n-1} · <span id="vsTime">0:00</span></b>
+      <span class="note">a new part starts at 5:00</span>
+      <button class="btn" onclick="storyPause()">Pause</button><button class="btn" onclick="storyFinish()">Finish</button>`;
+  else if(STORY.phase==='paused' && recHere)
+    ctl=`<b>Paused</b> <span class="note">— what you said so far is saved.</span>
+      <button class="btn primary" onclick="storyStart()">Continue recording</button><button class="btn" onclick="storyFinish()">Done</button>`;
+  else if(STORY.phase!=='idle')
+    ctl=`<span class="note">You are recording a story for another product — finish that one first.</span>`;
+  else ctl=`<button class="btn primary" onclick="storyStart()">Start recording</button>`;
+  el.innerHTML=`<details class="vstory" ${STORY.open||recHere?'open':''} ontoggle="STORY.open=this.open;if(this.open)storyRefresh()">
+    <summary>🎙 Enhance this description — tell us its story${mine.length?` <span class="chip ok">${mine.length} recording${mine.length===1?'':'s'}</span>`:''}</summary>
+    <div class="vs-body">
+      <div>Tell us about <b>${esc(P[cur].name||'this product')}</b> in your own words, and we will rewrite its description with it:</div>
+      <ul><li>The history of the product, and why you made it</li><li>What's special about it, and what you're excited about</li>
+        <li>Why you're excited to share it with the world</li><li>Anything interesting about how it came to be</li>
+        <li>What it's used for, and what you love about using it</li></ul>
+      <div class="note">Talk as long as you like: every 5 minutes we save that part and keep recording. Nothing needs our approval —
+        we use what you tell us, then show you the new description.</div>
+      <div class="vs-row">${ctl}</div>
+      ${here.map(function(x){return `<div class="note">Part ${x.n}${x.seconds?' · '+_storyMmss(x.seconds):''} · ${x.state==='sending'?'sending…':x.state==='sent'?'sent ✓':'did not send'}</div>`;}).join('')}
+      ${STORY.err?`<div class="note" style="color:var(--stop)">${esc(STORY.err)}</div>`:''}
+      ${mine.map(function(m){ return `<div class="vs-memo"><span class="note">${esc(m.at?fmtWhen(m.at):'')}${m.duration_s?' · '+_storyMmss(m.duration_s):''} ·
+        ${m.status==='done'?'✓ turned into text — we are rewriting this description with it':m.status==='failed'?'could not use this recording':'turning it into text…'}</span>
+        ${m.status==='done'&&m.text?`<p>${esc(m.text)}</p>`:''}${m.status==='failed'&&m.reason?`<p class="note">${esc(m.reason)}</p>`:''}</div>`; }).join('')}
+    </div></details>`;
+}
+window.renderStory=renderStory; window.storyRefresh=storyRefresh;
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();
-  renderVendorExtras();
+  renderVendorExtras(); renderStory();
 }
 applyModeChrome();
 renderAll();
