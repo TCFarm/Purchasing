@@ -1294,6 +1294,11 @@ function studioProbe(ev){
   else if(m.type==='act'){
     var c=_PROBE_LAST[m.i|0];
     if(!c || !c._el || !document.contains(c._el)) res={error:'stale index — enumerate again'};
+    else if(m.action==='fill' && (c._el.tagName==='INPUT'||c._el.tagName==='TEXTAREA')){
+      var proto=c._el.tagName==='INPUT'?HTMLInputElement.prototype:HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(proto,'value').set.call(c._el, String(m.value));
+      c._el.dispatchEvent(new Event('input',{bubbles:true})); c._el.dispatchEvent(new Event('change',{bubbles:true}));
+      res={ok:true, value:c._el.value}; }
     else if(m.action==='set' && c._el.tagName==='SELECT'){ c._el.value=String(m.value); c._el.dispatchEvent(new Event('change',{bubbles:true})); res={ok:true, value:c._el.value}; }
     else { if(m.action==='scroll') c._el.scrollIntoView({block:'center'}); else c._el.click(); res={ok:true, label:c.label}; }
   } else res={error:'unknown probe type'};
