@@ -2136,9 +2136,13 @@ function wireSec(el){
       if(el.querySelector('.cbox'))return;
       const box=document.createElement('div');box.className='cbox';
       const V=isVendorView();
-      box.innerHTML=`<textarea placeholder="${V?'What should change, and why? We rewrite just this section using your note.'
+      /* ⭐ 2026-09-30: photos and price are answered by a PERSON (listing_drain QUESTION_SECTIONS), never rewritten */
+      const toPerson=(k==='gallery'||k==='price');
+      box.innerHTML=`<textarea placeholder="${V?(k==='gallery'?'What is wrong with the photos? Our team will find better ones.'
+            :k==='price'?'What is wrong with the price? Our team will reply.'
+            :'What should change, and why? We rewrite just this section using your note.')
           :'What should change, and why? The next scheduled run rewrites just this section with your note in the prompt.'}"></textarea>
-        <div class="row"><button class="tbtn go" data-save>${V?'Ask us to rewrite this':'Queue rework'}</button><button class="tbtn" data-cancel>Cancel</button>
+        <div class="row"><button class="tbtn go" data-save>${V?(toPerson?'Send to our team':'Ask us to rewrite this'):'Queue rework'}</button><button class="tbtn" data-cancel>Cancel</button>
         <span class="hint">${V?'Nothing changes until we rewrite it — the current text stays as it is meanwhile.'
           :'Nothing changes until the run — the current copy stays live meanwhile.'}</span></div>`;
       el.querySelector('.sec-body').after(box);box.querySelector('textarea').focus();
