@@ -3804,8 +3804,12 @@ function vRewriting(i){
   var s=(st[i]&&st[i].sec)||{}, d=P[i]._decision||{};
   /* ⛔ a PARKED (the drain refused it) or HELD listing is never locked — the vendor may need to fix it */
   if(d.parked || d.held) return false;
-  return Object.keys(s).some(function(k){ return s[k]==='rework'; }) && !!(+d.revision);
+  /* ⛔ 2026-09-30 (Chrome click-through): only a COPY rework locks the page — "None of these photos" (gallery) and a
+     price comment become a question for a PERSON (listing_drain QUESTION_SECTIONS); nothing is rewritten, so nothing
+     may be locked (the page used to lock AND claim "we're rewriting this description with your story") */
+  return Object.keys(s).some(function(k){ return s[k]==='rework' && REWRITE_SECS.indexOf(k)>=0; }) && !!(+d.revision);
 }
+var REWRITE_SECS=['identity','description','warranty','questions','keywords'];
 window.vRewriting=vRewriting;
 window.storyUnlock=function(){
   var p=P[cur]; if(!p) return;
@@ -4000,7 +4004,7 @@ function renderStory(){
   if(locked){
     var parts=pend?mine.filter(function(m){ return String(m.id||'').indexOf(pend.sess+'-')===0; }):[];
     var txt=parts.length && parts.every(function(m){ return m.status==='done'||m.status==='failed'; });
-    prog=`<div class="vs-memo" role="status"><b>✍️ We're rewriting this description with your story.</b>
+    prog=`<div class="vs-memo" role="status"><b>✍️ ${pend?"We're rewriting this description with your story.":"We're rewriting this listing as you asked."}</b>
       <div class="note">Editing this product is paused until it's ready — this page updates by itself.</div>
       <div class="note">${pend?'✓ recording sent':'✓ rewrite requested'} · ${pend?(txt?'✓ turned into text':'⏳ turning it into text…'):'✓ turned into text'} · ⏳ rewriting the description…</div>
       <div class="note">This usually takes 10–30 minutes. <button class="btn" onclick="storyUnlock()">Stop waiting — let me edit</button></div></div>`;
