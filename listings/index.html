@@ -440,7 +440,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
         <div><h2>Every candidate the scrape found</h2><div class="sub" id="gridSub"></div></div>
         <div class="gactions">
           <button class="tbtn" id="btnSeq">Show sequence</button>
-          <button class="tbtn" id="btnClear">Clear picks</button>
+          <button class="tbtn" id="btnClear">Clear picks</button><button class="tbtn go" id="btnUndoPicks" hidden>Undo clear</button>
           <button class="tbtn" id="btnNone">None of these — needs new images</button>
           <!-- ⭐ 2026-09-28 (vendor mode §3): shown only when the HOST can store an upload (the vendor portal today). -->
           <button class="tbtn go" id="btnUpload" hidden>Upload photo</button>
@@ -3652,7 +3652,10 @@ $('#btnClear').onclick=()=>{
   if(!was.length){ toast('Nothing picked'); return; }
   st[cur].picks=[]; st[cur].picksTouched=true; renderAll();
   _undoPicks={i:cur, picks:was};
-  toast(`${was.length} pick${was.length>1?'s':''} cleared — press u to undo`);
+  /* ⭐ 2026-09-30 (Chrome click-through): a VISIBLE Undo — "press u" reaches nobody on a phone or a vendor who never
+     saw the shortcut list */
+  { const ub=$('#btnUndoPicks'); if(ub) ub.hidden=false; }
+  toast(`${was.length} pick${was.length>1?'s':''} cleared — press Undo clear to get them back`);
   scheduleAutosave(cur,'Cleared picks saved');
 };
 let _undoPicks=null;
@@ -3666,11 +3669,13 @@ function undoClearPicks(){
   const i=_undoPicks.i;
   st[i].picks=_undoPicks.picks.slice(); st[i].picksTouched=true;
   const n=_undoPicks.picks.length; _undoPicks=null;
+  { const ub=$('#btnUndoPicks'); if(ub) ub.hidden=true; }
   renderAll(); toast(`${n} pick${n>1?'s':''} restored`);
   scheduleAutosave(i,'Restored picks saved');
   return true;
 }
 window.undoClearPicks=undoClearPicks;
+{ const ub=$('#btnUndoPicks'); if(ub) ub.onclick=()=>undoClearPicks(); }
 $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
   st[cur].cm.gallery='None of the candidates show this product. Fetch a fresh pool.';
   /* ⛔ 2026-09-22: this toast used to say "Queued an image_fetch_agent" — no
