@@ -1244,11 +1244,50 @@ function _applyPending(payload, pending, rows){
   });
   return payload;
 }
+/* ⭐ 2026-09-30 TEST PROBE — lets a browser-automation test crawl EVERY control inside this cross-origin frame
+   (the portal page cannot see into it). Answers ONLY the verified portal parent, and ONLY for a TEST vendor
+   (owner ZZTEST…). It lists the visible controls and can click / scroll one by index — nothing a vendor could not
+   do with the mouse. {channel:'tcf-studio-probe', id, type:'enumerate'|'act', i, action:'click'|'scroll'} */
+function _probeControls(){
+  var sel='button,a[href],input,select,textarea,summary,[role=button],[role=tab],[role=checkbox],[role=switch],[onclick],[contenteditable=true]';
+  var out=[], els=document.querySelectorAll(sel);
+  for(var k=0;k<els.length;k++){
+    var el=els[k], r=el.getBoundingClientRect(), cs=window.getComputedStyle(el);
+    if(!(r.width>0&&r.height>0) || cs.visibility==='hidden' || cs.display==='none') continue;
+    var lab=(el.getAttribute('aria-label')||el.getAttribute('title')||'').trim()
+      ||String(el.innerText||el.textContent||'').replace(/\s+/g,' ').trim()
+      ||el.getAttribute('placeholder')||el.getAttribute('name')||el.id||'';
+    out.push({i:out.length, tag:el.tagName.toLowerCase(), type:el.getAttribute('type')||el.getAttribute('role')||'',
+      label:String(lab).slice(0,80), disabled:!!el.disabled||el.getAttribute('aria-disabled')==='true',
+      checked:el.type==='checkbox'||el.type==='radio'?!!el.checked:undefined,
+      value:el.tagName==='SELECT'?String(el.value):undefined,
+      options:el.tagName==='SELECT'?[].map.call(el.options,function(o){return o.value;}).slice(0,40):undefined,
+      x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2), _el:el});
+  }
+  return out;
+}
+var _PROBE_LAST=[];
+function studioProbe(ev){
+  var m=ev&&ev.data;
+  if(!m || typeof m!=='object' || m.channel!=='tcf-studio-probe') return false;
+  if(ev.source!==window.parent || ev.origin!==VIEW.parentOrigin || PORTAL_ORIGINS.indexOf(ev.origin)<0) return true;
+  if(!/^ZZTEST/i.test(String(VIEW.vendorOwner||''))) return true;          /* ⛔ test vendors only */
+  var res;
+  if(m.type==='enumerate'){ _PROBE_LAST=_probeControls(); res=_PROBE_LAST.map(function(c){ var o=Object.assign({},c); delete o._el; return o; }); }
+  else if(m.type==='act'){
+    var c=_PROBE_LAST[m.i|0];
+    if(!c || !c._el || !document.contains(c._el)) res={error:'stale index — enumerate again'};
+    else { if(m.action==='scroll') c._el.scrollIntoView({block:'center'}); else c._el.click(); res={ok:true, label:c.label}; }
+  } else res={error:'unknown probe type'};
+  window.parent.postMessage({channel:'tcf-studio-probe', id:m.id, type:m.type, result:res,
+    scroll:{y:window.scrollY, h:document.documentElement.scrollHeight, vh:window.innerHeight}}, VIEW.parentOrigin);
+  return true;
+}
 /* Build the PortalHost for this page and listen for its replies. */
 function startVendorHost(){
   var host=makePortalHost(window.parent, VIEW.parentOrigin);
   if(typeof window.addEventListener==='function')
-    window.addEventListener('message', function(ev){ host.onMessage(ev); });
+    window.addEventListener('message', function(ev){ if(!studioProbe(ev)) host.onMessage(ev); });
   HOST=host;
   return host;
 }
@@ -4091,6 +4130,7 @@ async function bootVendor(){
     var hi=(await HOST.hello())||{};
     VIEW.vendorName=String(hi.vendor_name||hi.display_name||'');
     VIEW.vendorRole=(hi.role==='admin'||hi.role==='user')?hi.role:'';
+    VIEW.vendorOwner=String(hi.owner||'');
     ACCOUNT=String(hi.who||hi.email||'');
     _setWho(_whoHtml(), true);
     _vendorWait('Loading your products…');
