@@ -904,6 +904,7 @@ var VENDOR_POLICY_FALLBACK={
   version:1,
   edit:['name','badge','prose','warranty','cq','kws','upc','storage','cat','cat2','taxOverride',
         'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack'],
+  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc'],
   view:['sku','brand','published','taxAssessment','flags'],
   hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred','btnClone',
            'costRow','marginRow','finaleRows','ownerRow','supplierRow','itemTypeRow','freeFillRow','visibleRow',
@@ -985,11 +986,21 @@ function activePolicy(){
   if(p && Array.isArray(p.edit) && Array.isArray(p.view) && Array.isArray(p.hide_ui)) return p;
   return VENDOR_POLICY_FALLBACK;
 }
+/* ⭐ Phase C (plan V3 §C.3): is the product on screen one that is ALREADY LIVE on our stores (payload kind 'update')?
+   ⛔ Vendor view only — and the bridge/hook narrow the SAVE the same way, so this only mirrors the real control. */
+function vpLive(){
+  return isVendorView() && typeof P!=='undefined' && Array.isArray(P) && !!P[cur] && P[cur].kind==='update';
+}
 /* 'edit' | 'view' | 'hide' for a PAGE field key. Staff edits everything. */
 function vpAccess(key){
   if(!isVendorView()) return 'edit';
   var p=activePolicy();
-  if(p.edit.indexOf(key)>=0) return 'edit';
+  if(p.edit.indexOf(key)>=0){
+    /* a LIVE product: only the policy's `live_edit` subset is editable (absent list = none — fail closed); the rest of
+       `edit` (UPC, category, tax, storage, case pack, dimensions, tiers) is shown read-only */
+    if(vpLive() && !(Array.isArray(p.live_edit) && p.live_edit.indexOf(key)>=0)) return 'view';
+    return 'edit';
+  }
   if(p.view.indexOf(key)>=0) return 'view';
   return 'hide';
 }
@@ -1282,7 +1293,7 @@ function fromPayload(it){
   });
   var riv=it.rivir||{};
   return {
-    sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create',
+    sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create', liveEdit:!!it.live_edit,
     upc:it.upc||'', brand:it.brand||'',
     name:it.name||'', badge:it.badge||'', badgeAlts:it.badge_alts||[],
     kehe:it.kehe_line||'',
@@ -1701,6 +1712,10 @@ function renderQueue(){
 
 /* ⭐ fix 5: ONE wording for a vendor's approval (sheet + toast) and for a queued save. */
 var VENDOR_APPROVED_MSG='Approved — it will be published to our stores within a few minutes (after our system picks it up)';
+/* ⭐ Phase C (ruling D1): the admin's approval of a change to a product that is ALREADY on our stores IS the go-ahead —
+   there is no second review, so the wording says so plainly. Wording only; the mechanism is the existing approve. */
+var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores as soon as our system picks it up (within a few minutes). There is no further review.';
+function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
 var SAVED_QUEUED_MSG='Saved — we\'ll apply it within about 2 minutes';
 /* ⭐ fix 3: an in-page confirmation (the sheet), used in a vendor view instead of confirm(). */
 function askConfirm(o){
@@ -1806,7 +1821,7 @@ function sec(k,body,extra){
   const isEd=editing===k;
   /* ⭐ vendor view: Edit only on a section with at least one field the policy lets them edit */
   const _lock=vRewriting(cur);            /* ⭐ Jack 2026-09-29: no changes while a rewrite is in progress */
-  const canEdit=!_lock&&(k==='gallery'||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit'));
+  const canEdit=!_lock&&((k==='gallery'&&!vpLive())||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit'));
   /* ⭐ RULING (Jack, 2026-09-08): APPROVAL IS WHOLE-PRODUCT, not per section.
      Sections still track CHANGE (edited / rework queued) because the rework
      comments must attach somewhere — but there is no per-section Approve.
@@ -1937,7 +1952,9 @@ function renderShop(){
   $('#shopBody').querySelectorAll('.sec').forEach(wireSec);
   wireEditors();
   hydrateSp($('#shopBody'));
-  $('#listLegend').innerHTML = p.src==='enhance'
+  $('#listLegend').innerHTML = (isVendorView() && p.kind==='update')
+    ? `<b>On our stores now.</b> You are editing the live listing — changes you approve go live on the stores right away. The item code, UPC, category and tax are set by our team.`
+    : p.src==='enhance'
     ? `<b>Enhance item — already live.</b> The dashed block under the description is what is on the storefront today.`
     : p.src==='clone' ? `<b>Cloned from ${esc(p.cloneOf)}.</b> The two open flags are the decisions only staff can make.`
     : isVendorView() ? `<b>New product.</b> It is not on our stores yet — approving publishes it.`
@@ -2306,7 +2323,8 @@ function renderFields(){
       isVendorView()?'<span class="derived">set by us from the storage area and the category</span>':`<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`))}
     ${isVendorView()?vrow('published',null,frow('On our stores',null,p.published
         ?`<div class="hint okk" style="margin-top:6px">${IS_TEST?'✓ Published to the Dev store only (test item)':'✓ Live'}${p.published.at?' since '+esc(String(p.published.at).slice(0,10)):''}</div>`
-        :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>')):''}
+        :(p.kind==='update'?'<div class="hint okk" style="margin-top:6px">✓ On our stores now — approving updates the live listing.</div>'
+          :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>'))):''}
     ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.'))}
     ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
     ${vrow('badge',null,frow('Badge',isVendorView()?'up to 24 characters':'__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.'))}
@@ -3222,7 +3240,7 @@ function productBlocked(i){
   const blk=openFlags(i).filter(f=>f.sev==='stop').length;
   /* ⛔ A5: no gallery means no thumbnail, which product_compliance.audit_content
      treats as a bare stub. An approval with zero images is not an approval. */
-  const noImgs=(st[i].picks||[]).length===0;
+  const noImgs=(st[i].picks||[]).length===0 && !P[i].liveEdit;   /* ⭐ Phase C: a live listing's gallery is not republished */
   /* ⛔ Rule 6 is a hard export gate, not a hint — enforce it here too. */
   const nameBad=!hasSizeSuffix(P[i].name);
   /* ⛔⛔ A PROVISIONAL SKU CANNOT BE APPROVED (ruling: Jack, 2026-09-10 —
@@ -3237,12 +3255,19 @@ function productBlocked(i){
   return {rw,blk,noImgs,nameBad,skuBad,
           ok:!rw&&!blk&&!noImgs&&!nameBad&&!skuBad};
 }
+/* ⭐ Phase C: on a LIVE listing the photo controls do nothing (the live gallery is changed by our team) — hide them */
+function applyLiveImageChrome(){
+  var L=vpLive();
+  ['#btnNone','#btnClear'].forEach(function(sel){ var e=document.querySelector(sel); if(e) e.hidden=L; });
+  var up=document.querySelector('#btnUpload'); if(up) up.hidden=L||!(HOST&&HOST.canUpload);
+}
 function renderDecide(){
+  applyLiveImageChrome();
   const s=st[cur].sec;
   const ed=SEC.filter(k=>s[k]==='edited').length;
   const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
   $('#decStatus').innerHTML=(pubState(cur)==='published'?(IS_TEST?'<b style="color:var(--ok)">✓ Published</b> — on the Dev store only (test item)':'<b style="color:var(--ok)">✓ Published</b> — live on the stores')
-      :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — it will be published to our stores within a few minutes'
+      :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — '+(P[cur].kind==='update'?'the change goes live on our stores within a few minutes':'it will be published to our stores within a few minutes')
         :'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes')
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
@@ -3266,7 +3291,7 @@ function renderDecide(){
     :skuBad?'SKU is not final'
     :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule'
-    :isVendorView()?'Approve — publish to our stores':'Approve product';
+    :isVendorView()?(P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'):'Approve product';
   const readyN=P.filter((p,i)=>productApproved(i)).length;
   $('#progText').textContent=readyN+' / '+P.length;$('#progBar').style.width=(readyN/P.length*100)+'%';
   renderPubBar();
@@ -3310,7 +3335,7 @@ window.approveProduct=async function(){
     st[i].approved=was; st[i].approvedBy=wasBy; renderAll();
     return;
   }
-  toast(isVendorView()?VENDOR_APPROVED_MSG:'Approved — enters tonight\'s publish queue');
+  toast(isVendorView()?vendorApprovedMsg(i):'Approved — enters tonight\'s publish queue');
 };
 
 
@@ -3588,10 +3613,11 @@ $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
     :'Flagged: this product needs new images — it will not publish until someone adds them (Open Flags)');
   scheduleAutosave(cur,'Image request saved');};
 $('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
-  <div class="sub">${esc(VENDOR_APPROVED_MSG)}.
-  ${P[cur].published?'It is already live, so the live listing is updated with your changes.':''}</div>
+  <div class="sub">${esc(vendorApprovedMsg(cur))}
+  ${P[cur].kind==='update'?'<br>Only the fields you changed are updated; the item code, UPC, category and tax are never touched.'
+    :(P[cur].published?'It is already live, so the live listing is updated with your changes.':'')}</div>
   <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||VIEW.vendorName||'you')}</p></div>
-  <button class="btn primary" onclick="approveProduct()">Approve — publish to our stores</button>
+  <button class="btn primary" onclick="approveProduct()">${P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'}</button>
   <button class="btn" onclick="closeSheet()">Cancel</button>`)
   :openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
   ${P[cur].published?`<div class="rwitem" style="border-left:4px solid var(--bad,#9b2c2c)">
@@ -4403,7 +4429,7 @@ async function persist(i, label){
     /* ⭐ fix 5: the vendor portal QUEUES a save (the bridge applies it shortly) — say
        that, not "revision 0", which reads like nothing happened. */
     if(res && res.queued){
-      toast(isVendorView()&&label==='Approved'?VENDOR_APPROVED_MSG:SAVED_QUEUED_MSG);
+      toast(isVendorView()&&label==='Approved'?vendorApprovedMsg(i):SAVED_QUEUED_MSG);
       /* ⭐ the note now says "Saved — updating" until the bridge's own note catches up */
       if(isVendorView() && res.ok!==false){ P[i]._savedAt=new Date().toISOString();
         if(i===cur && typeof renderVendorExtras==='function') renderVendorExtras(); }
