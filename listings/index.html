@@ -2282,7 +2282,11 @@ function renderFields(){
   const parents=[...new Set(CATS.map(x=>x[1]))].sort();
   const catSelect=`<select class="ctl w-lg" id="fCat">${parents.map(par=>
     `<optgroup label="${esc(par)}">${CATS.filter(x=>x[1]===par).sort((a,b)=>a[0]<b[0]?-1:1)
-      .map(x=>`<option ${x[0]===p.cat?'selected':''}>${esc(x[0])}</option>`).join('')}</optgroup>`).join('')}</select>`;
+      .map(x=>`<option ${x[0]===p.cat?'selected':''}>${esc(x[0])}</option>`).join('')}</optgroup>`).join('')}</select>`
+    /* ⭐ 2026-09-30 (Jack): an unsure category was applied provisionally so the listing could be written — one click
+       CONFIRMS it (sent as a category edit; the drain clears the flag without re-pricing), or change it above. */
+    +(catNeedsConfirm(cur)?`<div style="margin-top:6px"><button class="tbtn go" id="btnConfirmCat">✓ Confirm this category</button>
+       <span class="hint"> We picked this as the best match — confirm it, or choose a different one above.</span></div>`:'');
   const ranges=tierRanges(p.tiers), probs=tierProblems(p.tiers);
   const sug=suggestLadder(p.casepack);
   const sugSame=JSON.stringify(sug)===JSON.stringify([...p.tiers].sort((a,b)=>a[0]-b[0]));
@@ -2547,6 +2551,7 @@ function renderFields(){
   ['fPrice','fSale','fTgt'].forEach(id=>{const e=$('#'+id);if(e)e.oninput=recalc;});
   recalc();
 
+  if($('#btnConfirmCat'))$('#btnConfirmCat').onclick=()=>confirmCategory(cur);
   if($('#fCat'))$('#fCat').onchange=()=>{
     const nc=catOf($('#fCat').value)||[], V=isVendorView();
     const taxNow=taxOf(Object.assign({},p,{cat:$('#fCat').value}));
@@ -3205,6 +3210,22 @@ function renderOps(){
    check the never-populated `f._overridden`, which no payload flag has ever
    carried) now goes through this so a locally-actioned flag disappears from
    the UI THE SAME TURN it is actioned, not only after the next drain tick. */
+/* ⭐ 2026-09-30: the product still carries an unconfirmed (provisional) category */
+function catNeedsConfirm(i){
+  return !!(P[i] && P[i].cat && openFlags(i).some(function(f){ return f.k==='CATEGORY_LOW_CONFIDENCE'||f.k==='NO_CATEGORY_MATCH'; }));
+}
+function confirmCategory(i){
+  var p=P[i]; if(!p||!p.cat) return;
+  p._origin=Object.assign({}, p._origin||{}, {cat:'you'});            /* the SAME category, sent explicitly = confirmed */
+  st[i].flagAct=Object.assign({}, st[i].flagAct||{});
+  ['CATEGORY_LOW_CONFIDENCE','NO_CATEGORY_MATCH'].forEach(function(k){
+    if((p.flags||[]).some(function(f){ return f.k===k; }))
+      st[i].flagAct[k]={action:'resolve', answer:'', at:new Date().toISOString(), by:ACCOUNT||''};
+  });
+  markEdited('identity','Category confirmed');
+  toast('Category confirmed — '+p.cat);
+}
+window.confirmCategory=confirmCategory;
 function openFlags(i){
   const acted=st[i].flagAct||{};
   /* ⭐ 2026-09-30 (Jack's portal test): a PRICE_UNKNOWN is settled the moment a real price is on the product (the
