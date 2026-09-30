@@ -4528,6 +4528,15 @@ function isDrainedRow(row){
 }
 window.isDrainedRow=isDrainedRow;
 function scheduleAutosave(i, label){
+  /* ⛔⛔ 2026-09-30 (Chrome click-through): a VENDOR's approval is the publish consent (D1) for what they SAW. Every save
+     used to carry `approved` forward, so an edit made AFTER approving republished with no new approval. Any vendor
+     edit now puts the product back to "not yet approved" — they approve again to publish the change. (Staff keep
+     today's behaviour.) Before the IS_BROWSER guard, so the harness can test it. */
+  if(isVendorView() && st[i] && st[i].approved){
+    st[i].approved=false;
+    if(typeof renderAll==='function' && i===cur) renderAll();
+    toast('Changed after approval — press Approve again when you want this change to go live.');
+  }
   if(!IS_BROWSER) return;   /* test harness / no session — persist() would refuse anyway */
   _dirty[i]=true;
   clearTimeout(_autosaveTimer[i]);
