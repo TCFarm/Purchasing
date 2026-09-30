@@ -1275,7 +1275,7 @@ function _probeControls(){
       ||String(el.innerText||el.textContent||'').replace(/\s+/g,' ').trim()
       ||el.getAttribute('placeholder')||el.getAttribute('name')||el.id||'';
     out.push({i:out.length, tag:el.tagName.toLowerCase(), type:el.getAttribute('type')||el.getAttribute('role')||'',
-      label:String(lab).slice(0,80), disabled:!!el.disabled||el.getAttribute('aria-disabled')==='true',
+      label:String(lab).slice(0,80), disabled:(typeof el.matches==='function'&&el.matches(':disabled'))||!!el.disabled||el.getAttribute('aria-disabled')==='true',
       checked:el.type==='checkbox'||el.type==='radio'?!!el.checked:undefined,
       value:el.tagName==='SELECT'?String(el.value):undefined,
       options:el.tagName==='SELECT'?[].map.call(el.options,function(o){return o.value;}).slice(0,40):undefined,
