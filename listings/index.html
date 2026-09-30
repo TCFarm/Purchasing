@@ -371,7 +371,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
   <button class="tbtn" id="btnKeys" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
   <button class="tbtn" id="btnConsign" data-vhide="btnConsign" title="Upload a vendor's files and turn them into listings">Consignment</button>
-  <button class="tbtn" id="btnPortal" data-vhide="btnPortal" title="Invite a vendor to the vendor portal, or turn their login off">Vendor portal</button>
+  <button class="tbtn" id="btnPortal" data-vhide="btnPortal" title="Every vendor: onboard a new one, edit fees, invite and manage portal logins">Vendors</button>
   <button class="tbtn" id="btnRw" data-vhide="btnRw">Rework tray <span class="mono" id="rwN">0</span></button>
   <button class="tbtn" id="btnRunNow" data-vhide="btnRunNow" title="Save your comments and queue this product for the next run">Run now</button>
   <button class="tbtn" id="btnBulk">Approve all unblocked</button>
@@ -991,7 +991,8 @@ function isVendorView(){ return VIEW.mode==='vendor' || VIEW.mode==='as-vendor';
 /* ⭐ v3 Phase A (team roles, 2026-09-29): only a vendor ADMIN approves (publish consent, R3). ⛔ The page
    hiding it is NOT the control — the bridge downgrades a user's approval to pending from the token-derived
    role. An older portal that sends no role keeps today's behaviour; the bridge still decides. */
-function vendorCanApprove(){ return !isVendorView() || VIEW.vendorRole!=='user'; }
+/* ⭐ 2026-09-30 (Jack): every vendor login approves — admin vs user differs ONLY in managing the team */
+function vendorCanApprove(){ return true; }
 function activePolicy(){
   var p=VPOLICY;
   if(p && Array.isArray(p.edit) && Array.isArray(p.view) && Array.isArray(p.hide_ui)) return p;
@@ -5007,7 +5008,7 @@ if(document.querySelector('#btnConsign')){
    drive the buttons; the server decides. It sends no email: staff send the link. */
 var VP={list:null, jobs:null, poll:null};
 var VP_ACTIONS=['invite','disable','enable','set_role'];
-var VP_ROLES=['admin','user'];   /* v3 (plan PLAN_VENDOR_PORTAL_V3 §A): only an admin approves + manages the vendor's team */
+var VP_ROLES=['admin','user'];   /* 2026-09-30 (Jack): both edit and approve everything; only an ADMIN manages the vendor's team */
 var VP_PORTAL_URL='https://vendors.mnfood.club';   /* custom domain live 2026-09-28 (P-1774) */
 /* ⭐ The LIVE vendor directory (Vendor Master) first; the page's fixture list only if no payload is loaded. */
 function vpOwners(dir){
@@ -5124,8 +5125,8 @@ async function vpOpen(keepPolling){
       <label>Vendor<select id="vpOwner"><option value="">choose…</option>${owners
         .map(function(o){return `<option>${esc(o)}</option>`;}).join('')}</select></label>
       <label>Their email<input id="vpEmail" type="email" autocomplete="off" placeholder="name@theirfarm.com"></label>
-      <label>Role<select id="vpRole"><option value="admin">Admin — approves listings, manages their team</option>
-        <option value="user">User — edits and uploads; an admin approves</option></select></label>
+      <label>Role<select id="vpRole"><option value="admin">Admin — everything, plus adds and removes their team's logins</option>
+        <option value="user">User — edits, uploads and approves everything; cannot manage logins</option></select></label>
     </div>
     <div><button class="btn primary" id="vpInvite">Invite</button> <span class="note" id="vpWhy"></span></div>
     <h3 style="margin-top:16px">Portal logins</h3>
@@ -5158,7 +5159,222 @@ async function vpOpen(keepPolling){
   }
 }
 window.vpOpen=vpOpen; window.vpSubmit=vpSubmit;
-if(document.querySelector('#btnPortal')){ $('#btnPortal').onclick=function(){ vpOpen(); }; }
+/* ═══ VENDORS — ONE PLACE TO ONBOARD, EDIT AND INVITE (Jack, 2026-09-30) ═══════════════════════
+   "set up all of the vendor required information we have to track so that we can do it in one place to invite them".
+   Staff only (Microsoft sign-in; the mini refuses a row not created by a tc.farm / mnfood.club account).
+   ⛔⛔ THE PAGE ONLY WRITES A REQUEST ROW AND A JOB POINTER — a `VendorRequests` row (action create|update, owner_key,
+   fields_json = Vendor Master's OWN column names) and an AgentJobs `productpipeline.vendor_request` whose Subject is
+   that row id. vendor_requests.py on the mini re-validates everything (vendor_master.field_problem, EDITABLE_FIELDS)
+   and writes Vendor Master + Rate History (+ the Finale supplier for a new vendor). These checks only drive buttons. */
+var VD={list:null, jobs:null, poll:null, pendingInvite:{}};
+var VD_TYPES=['Shared Marketplace','Dedicated Store','Fundraising Partner','Internal','Nonprofit Pass-through'];
+var VD_RATE=['Platform Rate','Affiliate Rate','Consignment %'];
+/* Vendor Master's editable columns (vendor_master.EDITABLE_FIELDS) — the payload names them; this is the fallback. */
+var VD_EDITABLE_FALLBACK=['Invoice Abbrev','Type','Platform Rate','Affiliate Rate','Affiliate Basis','Monthly Fee',
+  'Consignment %','Email Override (blank = use Stripe account email)','QBO Name','Notes','CC Emails (semicolon-separated)'];
+function vdEditable(){ return (VDIR&&Array.isArray(VDIR.editable_fields)&&VDIR.editable_fields.length)?VDIR.editable_fields:VD_EDITABLE_FALLBACK; }
+/* '' when the value is acceptable — the SAME rule as vendor_master.field_problem (the server decides). */
+function vdFieldProblem(f, v){
+  if(v===''||v==null) return '';
+  if(f==='Type') return VD_TYPES.indexOf(v)>=0?'':'Type must be one of '+VD_TYPES.join(', ');
+  if(VD_RATE.indexOf(f)>=0){ var n=Number(v); if(!isFinite(n)) return f+' must be a number';
+    return (n>=0&&n<=1)?'':f+' is a FRACTION between 0 and 1 (35% is 0.35)'; }
+  if(f==='Monthly Fee'){ var m=Number(v); if(!isFinite(m)) return 'Monthly Fee must be a number'; return m>=0?'':'Monthly Fee cannot be negative'; }
+  if(f==='CC Emails (semicolon-separated)'||/^Email Override/.test(f)){
+    var bad=String(v).split(';').map(function(e){return e.trim();}).filter(function(e){return e&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e);});
+    return bad.length?'not an email address: '+bad.join(', '):''; }
+  return String(v).length<=500?'':f+' is too long';
+}
+function vdNum(f, v){ return (VD_RATE.indexOf(f)>=0||f==='Monthly Fee')&&v!==''&&v!=null?Number(v):v; }
+function vdPct(v){ return (v===''||v==null)?'—':(Math.round(Number(v)*1000)/10)+'%'; }
+function vdStatus(m){
+  if(!m) return 'not in Vendor Master';
+  if(m.onboarded) return '✓ onboarded';
+  var need=[]; if(!m.stripe_connected) need.push('Stripe account');
+  if(String(m.Active||'')!=='Yes') need.push('Active'); if(String(m['Payout Enabled']||'')!=='Yes') need.push('Payout Enabled');
+  return '⏳ needs '+need.join(', ');
+}
+/* A new vendor — '' when the form may be sent. */
+function vdCreateProblem(owner, fields){
+  var w=cnNewVendorProblem(owner, (fields||{})['Vendor Name']); if(w) return w;
+  var keys=Object.keys(fields||{});
+  for(var i=0;i<keys.length;i++){ var p=vdFieldProblem(keys[i], fields[keys[i]]); if(p) return p; }
+  if(!fields.Type) return 'choose the vendor type';
+  if(fields['Platform Rate']===''||fields['Platform Rate']==null) return 'enter the platform rate';
+  return '';
+}
+/* Only the fields that CHANGED, as Vendor Master values. */
+function vdChanges(before, after){
+  var out={}; vdEditable().forEach(function(f){
+    if(!(f in after)) return;
+    var a=after[f], b=(before||{})[f];
+    var same=(a===''&&(b==null||b==='')) || (a!==''&&b!=null&&String(Number(a))===String(Number(b))&&isFinite(Number(a))) || String(a)===String(b==null?'':b);
+    if(!same) out[f]=vdNum(f,a);
+  }); return out;
+}
+window.vdFieldProblem=vdFieldProblem; window.vdCreateProblem=vdCreateProblem; window.vdChanges=vdChanges;
+window.vdStatus=vdStatus; window.vdEditable=vdEditable;
+
+async function vdIds(){
+  if(VD.list) return;
+  var ls=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  var by={}; (ls.value||[]).forEach(function(l){by[l.displayName]=l.id;});
+  if(!by.VendorRequests||!by.AgentJobs) throw new Error('the vendor request list is not set up on this site (VendorRequests / AgentJobs)');
+  VD.list=by.VendorRequests; VD.jobs=by.AgentJobs;
+}
+async function vdRows(){
+  var out=[], url=`/sites/${CFG.siteId}/lists/${VD.list}/items?$expand=fields&$top=200`;
+  while(url){ var b=await graph(url);
+    (b.value||[]).forEach(function(x){ var cb=((x.createdBy||{}).user||{}); out.push(Object.assign({_id:x.id, _by:cb.email||cb.displayName||''}, x.fields)); });
+    var nx=b['@odata.nextLink']; url=nx?nx.replace(GRAPH,''):null; }
+  return out.sort(function(a,b){return (+b._id)-(+a._id);});
+}
+async function vdSubmit(action, owner, fields, finale, extra){
+  extra=extra||{};
+  var now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  await vdIds();
+  var made=await graph(`/sites/${CFG.siteId}/lists/${VD.list}/items`,{method:'POST',body:JSON.stringify({fields:{
+    Title:action+': '+owner, action:action, owner_key:owner, fields_json:JSON.stringify(fields||{}),
+    finale_json:JSON.stringify(finale||{}), effective_date:extra.effective||'', note:extra.note||'',
+    state:'requested', requested_by:ACCOUNT||'', requested_utc:now}})});
+  /* ⛔ EXACT AgentJobs fields (_shared/USING-THE-SUPERVISOR.md §3) */
+  await graph(`/sites/${CFG.siteId}/lists/${VD.jobs}/items`,{method:'POST',body:JSON.stringify({fields:{
+    Title:'productpipeline.vendor_request:'+made.id, Kind:'productpipeline.vendor_request', Subject:String(made.id),
+    Params:'{}', State:'queued', Attempts:0, RequestedUtc:now, RequestedBy:ACCOUNT||'listing-studio'}})});
+  return made.id;
+}
+function vdFieldInput(f, v, id){
+  if(f==='Type') return `<select id="${id}"><option value="">choose…</option>${VD_TYPES.map(function(t){return `<option${t===v?' selected':''}>${esc(t)}</option>`;}).join('')}</select>`;
+  var hint=VD_RATE.indexOf(f)>=0?' placeholder="0.35 = 35%"':(f==='Monthly Fee'?' placeholder="dollars"':'');
+  return `<input id="${id}" value="${esc(v==null?'':v)}"${hint}>`;
+}
+var VD_FORM_ID=function(f){ return 'vdf_'+String(f).replace(/[^A-Za-z0-9]+/g,'_'); };
+function vdReadForm(fields){ var o={}; fields.forEach(function(f){ var el=$('#'+VD_FORM_ID(f)); if(el) o[f]=String(el.value||'').trim(); }); return o; }
+
+async function vdOpen(){
+  if(VIEW.mode==='vendor') return;               /* ⛔ staff-only */
+  if(!IS_BROWSER){ toast('Vendors needs the live page (sign in)'); return; }
+  var reqs=[]; try{ await vdIds(); reqs=await vdRows(); }catch(e){ toast('⛔ '+e.message); }
+  var vendors=(VDIR&&VDIR.vendors)||{};
+  var owners=Object.keys(vendors).filter(function(o){return CN_NOT_VENDORS.indexOf(o)<0 && !/^zztest/i.test(o);})
+    .sort(function(a,b){return String(a).localeCompare(String(b));});
+  var recent=reqs.slice(0,12);
+  VD._reqs=reqs;
+  openSheet(`<h2>Vendors</h2>
+    <div class="sub">Every vendor, their fees and whether they can be paid — and their portal logins. Changes go to the
+    Vendor Master (fee changes are recorded in its Rate History) through the Mac mini, usually within a minute.
+    ${VDIR&&VDIR.built_at?`<span class="note">Values as of ${esc(fmtWhen(VDIR.built_at))}.</span>`:''}</div>
+    <div style="margin:8px 0"><button class="btn primary" id="vdNew">New vendor</button>
+      <button class="btn" id="vdLogins">Portal logins &amp; invites</button></div>
+    <table class="cn-tbl"><tr><th>Vendor</th><th>Type</th><th>Platform</th><th>Affiliate</th><th>Monthly</th><th>Consignment</th><th>Status</th><th></th></tr>
+    ${owners.map(function(o){ var m=(vendors[o]||{}).master;
+      return `<tr><td><b>${esc((m&&m['Vendor Name'])||vendors[o].display_name||o)}</b><div class="note mono">${esc(o)}</div></td>
+        <td>${esc((m&&m.Type)||'—')}</td><td>${m?vdPct(m['Platform Rate']):'—'}</td><td>${m?vdPct(m['Affiliate Rate']):'—'}</td>
+        <td>${m&&m['Monthly Fee']!=null?esc(money(Number(m['Monthly Fee']||0))):'—'}</td><td>${m?vdPct(m['Consignment %']):'—'}</td>
+        <td>${esc(vdStatus(m))}</td>
+        <td>${m?`<button class="tbtn" data-vd-edit="${esc(o)}">Edit</button> `:''}<button class="tbtn" data-vd-inv="${esc(o)}">Invite login</button></td></tr>`;
+    }).join('')||'<tr><td colspan="8">No vendors loaded — open a batch first (the directory rides on the batch data).</td></tr>'}</table>
+    <h3 style="margin-top:16px">Recent requests</h3>
+    <table class="cn-tbl"><tr><th>When</th><th>What</th><th>By</th><th>Status</th></tr>
+    ${recent.map(function(r){ var st=String(r.state||'');
+      return `<tr><td>${esc(fmtWhen(r.updated_utc||r.requested_utc||'',{utc:true}))}</td><td>${esc(r.action||'')} · ${esc(r.owner_key||'')}</td>
+        <td>${esc(r._by||'')}</td><td>${st==='done'?'✓ done':st==='requested'?'⏳ working…':st==='refused'?'⛔ refused':st==='failed'?'⚠ retrying':esc(st)}
+        <div class="note">${esc(r.state_note||'')}</div></td></tr>`; }).join('')||'<tr><td colspan="4">None yet.</td></tr>'}</table>
+    <div style="margin-top:12px"><button class="btn" onclick="closeSheet()">Close</button></div>`);
+  $('#sheet').classList.add('wide');
+  $('#vdNew').onclick=vdNewForm;
+  $('#vdLogins').onclick=function(){ vpOpen(); };
+  document.querySelectorAll('[data-vd-edit]').forEach(function(b){ b.onclick=function(){ vdEditForm(b.dataset.vdEdit); }; });
+  document.querySelectorAll('[data-vd-inv]').forEach(function(b){ b.onclick=function(){ vpOpen(); setTimeout(function(){
+    var s=$('#vpOwner'); if(s){ if(![].some.call(s.options,function(op){return op.value===b.dataset.vdInv;})){ var op=document.createElement('option'); op.textContent=b.dataset.vdInv; s.appendChild(op);} s.value=b.dataset.vdInv; s.onchange&&s.onchange(); } },50); }; });
+  vdWatch(reqs);
+}
+/* ⭐ a "first admin" typed on the New vendor form is invited as soon as the vendor exists (the mini checks it is in
+   Vendor Master, so the invite cannot be sent before). Only while this page is open. */
+function vdWatch(reqs){
+  clearTimeout(VD.poll);
+  var waiting=Object.keys(VD.pendingInvite);
+  if(!waiting.length && !(reqs||[]).some(function(r){return r.state==='requested';})) return;
+  VD.poll=setTimeout(async function(){
+    try{ var rows=await vdRows();
+      Object.keys(VD.pendingInvite).forEach(function(id){
+        var r=rows.find(function(x){return String(x._id)===String(id);}); if(!r) return;
+        if(r.state==='done'){ var p=VD.pendingInvite[id]; delete VD.pendingInvite[id];
+          vpSubmitDirect(p.owner, p.email, 'invite', 'admin'); }
+        else if(r.state==='refused'){ delete VD.pendingInvite[id]; toast('⛔ the new vendor was refused — the invite was not sent: '+(r.state_note||'')); }
+      });
+      if($('#vdNew')) vdOpen(); else vdWatch(rows);
+    }catch(e){ /* try again next time the sheet opens */ }
+  }, 5000);
+}
+function vdNewForm(){
+  var fields=['Vendor Name','Invoice Abbrev','Type','Platform Rate','Affiliate Rate','Affiliate Basis','Monthly Fee','Consignment %',
+              'QBO Name','Email Override (blank = use Stripe account email)','CC Emails (semicolon-separated)','Notes'];
+  openSheet(`<h2>New vendor</h2>
+    <div class="sub">Everything the Vendor Master needs to pay them, in one form. They are created <b>not yet payable</b> —
+    they become payable once their Stripe account is connected. Rates are fractions: <span class="mono">0.35</span> = 35%.</div>
+    <div class="cn-grid">
+      <label>Owner key<input id="vdOwner" placeholder="e.g. PrairieHollow" autocomplete="off"></label>
+      ${fields.map(function(f){ return `<label>${esc(f)}${vdFieldInput(f, f==='Consignment %'?'1':(f==='Monthly Fee'?'0':''), VD_FORM_ID(f))}</label>`; }).join('')}
+    </div>
+    <h3>Finale supplier</h3>
+    <div class="cn-grid">
+      <label>Supplier name in Finale<input id="vdFinName" placeholder="defaults to the Vendor Name"></label>
+      <label>Contact name<input id="vdFinContact"></label>
+      <label>Contact email<input id="vdFinEmail" type="email"></label>
+      <label>Lead days<input id="vdFinLead" type="number" min="0" step="1"></label>
+    </div>
+    <h3>First portal login (optional)</h3>
+    <div class="cn-grid"><label>Their email — invited as the vendor's <b>admin</b><input id="vdAdmin" type="email" placeholder="name@theirfarm.com"></label></div>
+    <div><button class="btn primary" id="vdCreate">Create vendor</button> <button class="btn" id="vdBack">Back</button> <span class="note" id="vdWhy"></span></div>`);
+  var read=function(){ var f=vdReadForm(fields), o={}; Object.keys(f).forEach(function(k){ if(f[k]!=='') o[k]=vdNum(k,f[k]); }); return o; };
+  var upd=function(){ var o=read(), w=vdCreateProblem(String($('#vdOwner').value||'').trim(), o);
+    var em=String($('#vdAdmin').value||'').trim(); if(!w && em && !vpEmailOk(em)) w='the first login needs one plain email address';
+    $('#vdCreate').disabled=!!w; $('#vdWhy').textContent=w; };
+  $('#sheet').querySelectorAll('input,select').forEach(function(el){ el.oninput=upd; el.onchange=upd; }); upd();
+  $('#vdBack').onclick=vdOpen;
+  $('#vdCreate').onclick=async function(){ this.disabled=true;
+    var owner=String($('#vdOwner').value).trim(), o=read(), em=String($('#vdAdmin').value||'').trim().toLowerCase();
+    try{ var id=await vdSubmit('create', owner, o, {supplier_name:String($('#vdFinName').value||'').trim(),
+          contact_name:String($('#vdFinContact').value||'').trim(), email:String($('#vdFinEmail').value||'').trim(),
+          lead_days:String($('#vdFinLead').value||'').trim()});
+      if(em) VD.pendingInvite[id]={owner:owner, email:em};
+      toast(em?'Creating the vendor — their admin login is invited as soon as it exists':'Creating the vendor — usually done within a minute');
+      vdOpen();
+    }catch(e){ toast('NOT SENT — '+e.message); this.disabled=false; }
+  };
+}
+function vdEditForm(owner){
+  var m=(((VDIR||{}).vendors||{})[owner]||{}).master||{}, fields=vdEditable();
+  openSheet(`<h2>Edit ${esc(m['Vendor Name']||owner)}</h2>
+    <div class="sub">Only what you change is sent. A fee change is recorded in the Vendor Master's Rate History (old value,
+    new value, the date it takes effect, and you). The name, owner key, Stripe account and payout switches are not
+    edited here.</div>
+    <div class="cn-grid">${fields.map(function(f){ return `<label>${esc(f)}${vdFieldInput(f, m[f], VD_FORM_ID(f))}</label>`; }).join('')}
+      <label>Takes effect<input id="vdEff" type="date" value="${new Date().toISOString().slice(0,10)}"></label>
+      <label>Why (goes on Rate History)<input id="vdNote" placeholder="e.g. renegotiated for 2027"></label></div>
+    <div><button class="btn primary" id="vdSave">Save changes</button> <button class="btn" id="vdBack">Back</button> <span class="note" id="vdWhy"></span></div>`);
+  var upd=function(){ var after=vdReadForm(fields), ch=vdChanges(m, after), w='';
+    Object.keys(ch).forEach(function(k){ if(!w) w=vdFieldProblem(k, ch[k]); });
+    if(!w && !Object.keys(ch).length) w='nothing changed yet';
+    $('#vdSave').disabled=!!w; $('#vdWhy').textContent=w; };
+  $('#sheet').querySelectorAll('input,select').forEach(function(el){ el.oninput=upd; el.onchange=upd; }); upd();
+  $('#vdBack').onclick=vdOpen;
+  $('#vdSave').onclick=async function(){ this.disabled=true;
+    var ch=vdChanges(m, vdReadForm(fields));
+    try{ await vdSubmit('update', owner, ch, {}, {effective:$('#vdEff').value, note:String($('#vdNote').value||'').trim()});
+      toast('Saved — the Mac mini applies it, usually within a minute'); vdOpen();
+    }catch(e){ toast('NOT SENT — '+e.message); this.disabled=false; }
+  };
+}
+/* The invite for a vendor this page just created — it is in Vendor Master (the row said done) but not yet in the
+   directory the page loaded, so it skips the page-side "known vendor" pre-check. ⛔ The mini re-checks Vendor Master. */
+async function vpSubmitDirect(owner, email, action, role){
+  var savedDir=VDIR; try{ VDIR=Object.assign({}, VDIR||{}, {vendors:Object.assign({}, (VDIR||{}).vendors||{}, {[owner]:{}})});
+    await vpSubmit(owner, email, action, role); } finally { VDIR=savedDir; }
+}
+window.vdOpen=vdOpen; window.vdNewForm=vdNewForm; window.vdEditForm=vdEditForm;
+if(document.querySelector('#btnPortal')){ $('#btnPortal').onclick=function(){ vdOpen(); }; }
 
 window.fromPayload=fromPayload; window.applyPayload=applyPayload;
 window.bootLive=bootLive;
