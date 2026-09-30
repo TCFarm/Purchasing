@@ -1504,7 +1504,9 @@ function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
     +'blank the page (an empty queue and a failed load look identical)');
-  IS_TEST=!!(payload&&payload.test_batch===true);
+  /* ⭐ 2026-09-30: a ZZTEST vendor's view is ALWAYS the test lane (their products reach the Dev store only) — an older
+     payload without the marker said "live on the stores" for a Dev-only item */
+  IS_TEST=!!(payload&&payload.test_batch===true) || (isVendorView() && /^ZZTEST/i.test(String((VIEW&&VIEW.vendorOwner)||'')));
   /* ⭐⭐ ADOPT THE REAL VOCABULARIES (2026-09-11). CATS/BRANDS/OWNERS shipped
      as FIXTURES — 45 invented category leaves against a real 156, nine brands
      that never included a real one, and a hand-typed owner list. ⛔ A value
