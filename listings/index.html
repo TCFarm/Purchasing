@@ -382,7 +382,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
   <div class="pubbar" id="pubBar" role="status" aria-live="polite" title="Approving a product publishes it to all three stores within a few minutes — this bar shows where each product is"></div>
 </div>
 
-<div class="filters">
+<div class="filters" id="srcFilters">
   <span class="lbl" style="margin-right:4px">Source</span>
   <button class="chip-f" data-f="all" aria-pressed="true">All<span class="n" id="fAll"></span></button>
   <button class="chip-f" data-f="newitem" aria-pressed="false">New items<span class="n" id="fNew"></span></button>
@@ -395,7 +395,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
 
 <div class="vwait" id="vendorWait" role="status">Loading your products…</div>
 <div class="shell">
-  <nav class="queue"><div class="queue-h"><span class="lbl">Prepared overnight</span><span class="lbl" id="qLeft"></span></div>
+  <nav class="queue"><div class="queue-h"><span class="lbl" id="qTitle">Prepared overnight</span><span class="lbl" id="qLeft"></span></div>
     <div id="queue"></div>
     <div class="queue-h" id="qFoot" style="padding-top:14px"><span class="lbl">this wireframe carries 4 of the queue's items</span></div></nav>
 
@@ -934,7 +934,7 @@ var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
-var VENDOR_ALWAYS_HIDE=['#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys'];
+var VENDOR_ALWAYS_HIDE=['#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
 
 function _qp(search, name){
   var s=String(search||'').replace(/^\?/,''); if(!s) return null;
@@ -1751,7 +1751,7 @@ function renderQueue(){
     return `<button class="qrow" data-i="${i}" aria-current="${i===cur}">
       <span class="qthumb">${esc(p.brand.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase())}</span>
       <span><span class="qname">${esc(p.name)}${isVendorView()&&p.vendorNote?'<span class="vdot" title="A note from us" aria-label="has a note from us">●</span>':''}</span><span class="qmeta">
-      <span class="src ${p.src}">${p.src==='newitem'?'new':p.src}</span>${tick}<span class="dots">${dots}</span>
+      <span class="src ${p.src}">${isVendorView()?(p.kind==='update'?'on our stores':'new'):(p.src==='newitem'?'new':p.src)}</span>${tick}<span class="dots">${dots}</span>
       </span></span></button>`;}).join('')||'<div style="padding:16px" class="lbl">nothing in this filter</div>';
   $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
     /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
@@ -4101,6 +4101,7 @@ function applyModeChrome(){
     const el=document.querySelector(sel); if(el&&el.dataset) el.dataset.vhOn=V?'1':'0';
   });
   const up=document.querySelector('#btnUpload'); if(up) up.hidden=!(HOST&&HOST.canUpload);
+  const qt=document.querySelector('#qTitle'); if(qt) qt.textContent=V?'Your products':'Prepared overnight';
   const mt=document.querySelector('#modeTag');
   if(mt) mt.textContent=VIEW.mode==='vendor'?'Vendor view'
     :VIEW.mode==='as-vendor'?'Viewing as '+VIEW.asOwner+' — what the vendor sees':'';
