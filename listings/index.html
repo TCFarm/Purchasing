@@ -1294,6 +1294,7 @@ function studioProbe(ev){
   else if(m.type==='act'){
     var c=_PROBE_LAST[m.i|0];
     if(!c || !c._el || !document.contains(c._el)) res={error:'stale index — enumerate again'};
+    else if(m.action==='set' && c._el.tagName==='SELECT'){ c._el.value=String(m.value); c._el.dispatchEvent(new Event('change',{bubbles:true})); res={ok:true, value:c._el.value}; }
     else { if(m.action==='scroll') c._el.scrollIntoView({block:'center'}); else c._el.click(); res={ok:true, label:c.label}; }
   } else res={error:'unknown probe type'};
   window.parent.postMessage({channel:'tcf-studio-probe', id:m.id, type:m.type, result:res,
@@ -3335,7 +3336,7 @@ function renderDecide(){
   const ed=SEC.filter(k=>s[k]==='edited').length;
   const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
   $('#decStatus').innerHTML=(pubState(cur)==='published'?(IS_TEST?'<b style="color:var(--ok)">✓ Published</b> — on the Dev store only (test item)':'<b style="color:var(--ok)">✓ Published</b> — live on the stores')
-      :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — '+(P[cur].kind==='update'?'the change goes live on our stores within a few minutes':'it will be published to our stores within a few minutes')
+      :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — '+(IS_TEST?'it will be published to the TEST store within a few minutes (never our real stores)':P[cur].kind==='update'?'the change goes live on our stores within a few minutes':'it will be published to our stores within a few minutes')
         :'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes')
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
