@@ -1873,7 +1873,7 @@ function sec(k,body,extra){
     :reworkedAt!==null?`<span class="chip ok">reworked${reworkedAt?' · '+esc(reworkedAt):''}</span>`
     :s==='rework'?'<span class="chip rw">rework queued</span>':'';
   const by=st[cur].by[k]?`<span class="byline">${esc(st[cur].by[k])}</span>`:'';
-  const note=st[cur].cm[k]?`<div class="cnote"><b>${isVendorView()?'You asked us to rewrite this':'Queued for the next run'}</b>${esc(st[cur].cm[k])}</div>`:'';
+  const note=st[cur].cm[k]?`<div class="cnote"><b>${isVendorView()?(k==='gallery'?'You asked for different photos — our team will find them':k==='price'?'You asked us about the price — our team will reply':'You asked us to rewrite this'):'Queued for the next run'}</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
   /* ⭐ vendor view: Edit only on a section with at least one field the policy lets them edit */
   const _lock=vRewriting(cur);            /* ⭐ Jack 2026-09-29: no changes while a rewrite is in progress */
