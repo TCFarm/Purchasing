@@ -368,7 +368,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
   <span class="modetag" id="modeTag"></span>
   <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
-  <button class="tbtn" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
+  <button class="tbtn" id="btnKeys" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
   <div class="spacer"></div>
   <button class="tbtn" id="btnConsign" data-vhide="btnConsign" title="Upload a vendor's files and turn them into listings">Consignment</button>
   <button class="tbtn" id="btnPortal" data-vhide="btnPortal" title="Invite a vendor to the vendor portal, or turn their login off">Vendor portal</button>
@@ -830,13 +830,24 @@ async function populateBatchSel(){
   if(!rows.length) return _batchFromUI();
   return _fillBatchSel(sel, rows);
 }
+/* ⭐ 2026-09-30 (UX hunt M1): a vendor never sees a raw batch id — their own title, "On our stores" for the live batch,
+   else a tidied id. Staff keep the raw id they know. */
+function batchLabel(r){
+  var t=String(r.title||''), b=String(r.batch||'');
+  if(t && t!==b) return t;
+  if(!isVendorView()) return 'Queue · '+b;
+  if(/^live_/i.test(b)) return 'On our stores — your live products';
+  var m=b.match(/^(\d{4})-(\d{2})-(\d{2})_/);
+  var nice=b.replace(/^\d{4}-\d{2}-\d{2}_/,'').replace(/_/g,' ').replace(/\b(zztest|consignment|newitem|adds)\b/gi,'').replace(/\s+/g,' ').trim();
+  return (nice?nice.charAt(0).toUpperCase()+nice.slice(1):'Your products')+(m?' — '+m[2]+'/'+m[3]:'');
+}
 function _fillBatchSel(sel, rows){
   let want='';
   try{ want=new URLSearchParams(location.search).get('batch')||''; }catch(_){}
   sel.innerHTML=rows.map(r=>
     /* ⭐ Jack, 2026-09-29: show what the batch IS — the vendor's own name (or a readable id) + a short date, from
        the bridge's `title`. Staff rows carry no title (or title == batch) and keep the raw id they know. */
-    `<option value="${esc(r.batch)}">${(r.title&&r.title!==r.batch)?esc(r.title):'Queue · '+esc(r.batch)}</option>`).join('');
+    `<option value="${esc(r.batch)}">${esc(batchLabel(r))}</option>`).join('');
   /* ⭐ `?batch=` still wins when it names something real; otherwise NEWEST. */
   sel.value=(want&&rows.some(r=>r.batch===want))?want:rows[0].batch;
   return sel.value;
@@ -923,7 +934,7 @@ var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
-var VENDOR_ALWAYS_HIDE=['#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag'];
+var VENDOR_ALWAYS_HIDE=['#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys'];
 
 function _qp(search, name){
   var s=String(search||'').replace(/^\?/,''); if(!s) return null;
@@ -999,6 +1010,8 @@ function vpAccess(key){
     /* a LIVE product: only the policy's `live_edit` subset is editable (absent list = none — fail closed); the rest of
        `edit` (UPC, category, tax, storage, case pack, dimensions, tiers) is shown read-only */
     if(vpLive() && !(Array.isArray(p.live_edit) && p.live_edit.indexOf(key)>=0)) return 'view';
+    /* ⭐ 2026-09-30 (UX hunt M4): while a rewrite is in progress EVERY field is read-only (All details + Images too) */
+    if(typeof P!=='undefined' && typeof vRewriting==='function' && vRewriting(cur)) return 'view';
     return 'edit';
   }
   if(p.view.indexOf(key)>=0) return 'view';
@@ -1132,9 +1145,10 @@ function makePortalHost(parentWin, parentOrigin, opts){
         var rows=Array.isArray(r)?r:((r&&r.batches)||[]);
         return sortBatches(rows.map(function(x){
           /* ⭐ fix 4: the portal index stamps `updated_at`; `created`/`mod` may be absent. */
+          /* ⭐ 2026-09-30 (UX hunt M1): keep the vendor-facing TITLE — without it the picker showed raw batch ids */
           return typeof x==='string'?{batch:x, mod:'', created:''}
             :{batch:String(x.batch||''), mod:String(x.mod||x.updated_at||''),
-              created:String(x.created||x.updated_at||'')};
+              created:String(x.created||x.updated_at||''), title:String(x.title||'')};
         }).filter(function(x){return x.batch;}));
       });
     },
@@ -1197,7 +1211,7 @@ function makePortalHost(parentWin, parentOrigin, opts){
     },
     listMemos:function(sku){ return request('memos',{sku:sku}).then(function(r){ return (r&&r.memos)||[]; }); },
     /* the vendor's choice after recording: rewrite this description with the story once it is transcribed? */
-    storyRequest:function(batch, sku, session, rewrite){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true}); }
+    storyRequest:function(batch, sku, session, rewrite, parts){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true, parts:(parts|0)}); }
   };
 }
 var HOST=GraphHost;
@@ -1754,7 +1768,7 @@ var VENDOR_APPROVED_MSG='Approved — it will be published to our stores within 
 /* ⭐ Phase C (ruling D1): the admin's approval of a change to a product that is ALREADY on our stores IS the go-ahead —
    there is no second review, so the wording says so plainly. Wording only; the mechanism is the existing approve. */
 var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores as soon as our system picks it up (within a few minutes). There is no further review.';
-function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
+function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; if(IS_TEST) return 'Approved — it will be published to the TEST store within a few minutes (a test batch never reaches our real stores)'; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
 var SAVED_QUEUED_MSG='Saved — we\'ll apply it within about 2 minutes';
 /* ⭐ fix 3: an in-page confirmation (the sheet), used in a vendor view instead of confirm(). */
 function askConfirm(o){
@@ -2783,6 +2797,9 @@ let lbIdx=null;
 window.lbOpen=lbOpen;window.lbClose=lbClose;
 
 function togglePick(i){
+  /* ⛔ 2026-09-30 (UX hunt M3): a LIVE product's gallery is not published from here, and a locked product is read-only */
+  if(vpLive()){ toast('Photos on a live product are changed by our team — tell us in a comment what you would like.'); return; }
+  if(vRewriting(cur)){ toast('Editing is paused while we rewrite this description.'); return; }
   const pk=st[cur].picks,at=pk.indexOf(i);
   st[cur].picksTouched=true;
   if(at>=0)pk.splice(at,1);else pk.push(i);
@@ -3330,7 +3347,7 @@ function renderDecide(){
     :skuBad?'SKU is not final'
     :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule'
-    :isVendorView()?(P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'):'Approve product';
+    :isVendorView()?(IS_TEST?'Approve — publish to the TEST store':P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'):'Approve product';
   const readyN=P.filter((p,i)=>productApproved(i)).length;
   $('#progText').textContent=readyN+' / '+P.length;$('#progBar').style.width=(readyN/P.length*100)+'%';
   renderPubBar();
@@ -3656,7 +3673,7 @@ $('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].
   ${P[cur].kind==='update'?'<br>Only the fields you changed are updated; the item code, UPC, category and tax are never touched.'
     :(P[cur].published?'It is already live, so the live listing is updated with your changes.':'')}</div>
   <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||VIEW.vendorName||'you')}</p></div>
-  <button class="btn primary" onclick="approveProduct()">${P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'}</button>
+  <button class="btn primary" onclick="approveProduct()">${IS_TEST?'Approve — publish to the TEST store':P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'}</button>
   <button class="btn" onclick="closeSheet()">Cancel</button>`)
   :openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
   ${P[cur].published?`<div class="rwitem" style="border-left:4px solid var(--bad,#9b2c2c)">
@@ -3765,37 +3782,70 @@ function renderVendorExtras(){
 var STORY_MAX_S=300;
 function _vsClear(t){ if(t && typeof clearInterval==='function') clearInterval(t); }
 var STORY={phase:'idle', stream:null, rec:null, sess:'', n:1, t0:0, timer:null, sku:'', batch:'', parts:[], memos:{}, open:false, err:'', fetched:{},
-           pending:{}, poll:null};
+           pending:{}, poll:null, unlocked:{}, starting:false};
+/* ⭐ 2026-09-30 (UX hunt B3): a lock is never forever — it lapses after this long, and the vendor can always end it */
+var STORY_LOCK_MAX_MS=20*60*1000;
 /* ⭐ Jack 2026-09-29: while a rewrite of this listing is in progress (the vendor said "rewrite it when ready", or a
    rework is queued), the vendor view LOCKS editing and checks every 30 s; the new description appears on its own. */
 function vRewriting(i){
   if(!isVendorView() || !P[i]) return false;
-  if(STORY.pending[P[i].sku]) return true;
+  var sku=P[i].sku;
+  if(STORY.unlocked[sku]) return false;                          /* the vendor chose "Stop waiting — let me edit" */
+  /* ⛔ a LIVE product is never rewritten from here (the bridge turns the request into a question for our team) */
+  if(P[i].kind==='update') return false;
+  var pd=STORY.pending[sku];
+  if(pd){ if(Date.now()-pd.at<STORY_LOCK_MAX_MS) return true; delete STORY.pending[sku]; }
   var s=(st[i]&&st[i].sec)||{}, d=P[i]._decision||{};
   /* ⛔ a PARKED (the drain refused it) or HELD listing is never locked — the vendor may need to fix it */
   if(d.parked || d.held) return false;
   return Object.keys(s).some(function(k){ return s[k]==='rework'; }) && !!(+d.revision);
 }
 window.vRewriting=vRewriting;
+window.storyUnlock=function(){
+  var p=P[cur]; if(!p) return;
+  STORY.unlocked[p.sku]=true; delete STORY.pending[p.sku];
+  toast('Editing is back on. If our rewrite arrives later, it will show here.');
+  renderAll();
+};
+function _itemSig(p){
+  return JSON.stringify(Object.keys(p||{}).filter(function(k){ return k.charAt(0)!=='_' && k!=='vendorNote'; }).sort()
+    .map(function(k){ return [k, p[k]]; }));
+}
 function storyPollTick(){
-  if(!isVendorView() || !P.some(function(_,i){ return vRewriting(i); })){ _vsClear(STORY.poll); STORY.poll=null; return; }
+  if(!isVendorView() || !P.some(function(_,i){ return vRewriting(i); })){ _vsClear(STORY.poll); STORY.poll=null; renderStory(); return; }
   storyRefresh(true);
-  var batch=_batchFromUI(), keep=P[cur]&&P[cur].sku, was={};
-  P.forEach(function(p,i){ if(vRewriting(i)) was[p.sku]=1; });
+  /* ⭐ (B3) a recording that could not be used ends the wait — nothing will be rewritten from it */
+  Object.keys(STORY.pending).forEach(function(sku){
+    var pd=STORY.pending[sku], ms=(STORY.memos[sku]||[]).filter(function(m){ return String(m.id||'').indexOf(pd.sess+'-')===0; });
+    if(ms.length && ms.every(function(m){ return m.status==='failed'; })){
+      delete STORY.pending[sku];
+      STORY.err='We could not use that recording, so this description was not rewritten. You can record it again, or edit it yourself.';
+    }
+  });
+  /* ⛔ (M15) never reload the batch over an edit the vendor is making */
+  if(editing!==null || pendingAutosave()) return;
+  var batch=_batchFromUI(), keep=P[cur]&&P[cur].sku, was={}, before={};
+  P.forEach(function(p,i){ if(vRewriting(i)){ was[p.sku]=1; before[p.sku]=_itemSig(p); } });
   if(!batch || !HOST || typeof HOST.loadBatch!=='function') return;
   HOST.loadBatch(batch).then(function(payload){
-    var handed=false, landed=false;
+    if(editing!==null || pendingAutosave()) return;
+    var handed=false, done=[];
     (payload.items||[]).forEach(function(it){
       var d=it._decision||{}, secs=d.sections||{};
       var rw=Object.keys(secs).some(function(k){ return secs[k]==='rework'; });
       if(STORY.pending[it.sku] && rw){ delete STORY.pending[it.sku]; handed=true; }   /* the server has it: the rework holds the lock */
-      else if(was[it.sku] && !rw && !STORY.pending[it.sku]) landed=true;              /* the rewrite landed */
+      else if(was[it.sku] && !rw && !STORY.pending[it.sku]) done.push(it.sku);        /* the lock ended on the server */
     });
-    if(!handed && !landed) return;
+    if(!handed && !done.length) return;
     applyPayload(payload);                   /* ⛔ also on a hand-over, or the lock would drop for a moment */
     var j=P.findIndex(function(p){ return p.sku===keep; }); if(j>=0) cur=j;
     renderAll();
-    if(landed) toast('✍️ Your new description is ready — take a look.');
+    /* ⭐ (M2) "ready" only when the product really changed — otherwise say the request did not go through */
+    var changed=done.filter(function(sku){ var q=P.find(function(p){ return p.sku===sku; }); if(!q) return false;
+      var sec=(q._decision&&q._decision.sections)||{};
+      return _itemSig(q)!==before[sku] || Object.keys(sec).some(function(k){ return /^reworked/.test(String(sec[k])); }); });
+    if(changed.length) toast('✍️ Your new description is ready — take a look.');
+    else if(done.length) toast('We could not rewrite this description automatically — our team has your note, and you can edit it now.');
   }).catch(function(){});
 }
 function storyCanRecord(){
@@ -3848,15 +3898,18 @@ function _storyPart(){
 function storyStopMic(){ _vsClear(STORY.timer); if(STORY.stream) STORY.stream.getTracks().forEach(function(t){t.stop();}); STORY.stream=null; }
 window.storyStart=function(){
   STORY.err='';
-  if(!storyCanRecord()){ STORY.err='This browser cannot record audio here. You can record on the Upload tab instead.'; renderStory(); return; }
+  if(!storyCanRecord()){ STORY.err='This browser cannot record audio here. Try the latest Chrome or Safari — or record on your phone and upload the file on the Upload products tab ("or upload a recording").'; renderStory(); return; }
   var p=P[cur]; if(!p) return;
+  if(STORY.starting || STORY.phase==='recording') return;          /* ⛔ (M8) a double click never opens a second microphone */
+  STORY.starting=true; renderStory();
   navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+    STORY.starting=false;
     if(!STORY.sess || STORY.sku!==p.sku){
       STORY.sess='s'+new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14)+'-'+Math.random().toString(36).slice(2,6);
       STORY.n=1;
     }
     STORY.sku=p.sku; STORY.batch=_batchFromUI(); STORY.stream=stream; _storyPart();
-  }).catch(function(){ STORY.err='We could not use your microphone. Allow microphone access for this page and try again.'; renderStory(); });
+  }).catch(function(){ STORY.starting=false; STORY.err='We could not use your microphone. Allow microphone access for this page and try again.'; renderStory(); });
 };
 window.storyPause=function(){
   _vsClear(STORY.timer);
@@ -3868,6 +3921,15 @@ window.storyFinish=function(){
   window.storyPause(); STORY.sess=''; STORY.phase='idle'; STORY.open=true; renderStory();
   if(!sess) return;
   STORY._ask={sess:sess, sku:sku, batch:batch};
+  var q=P.find(function(x){ return x.sku===sku; });
+  if(q && q.kind==='update'){
+    /* ⭐ (B3) a LIVE product: the story is saved and our team uses it — no automatic rewrite, so no lock */
+    openSheet(`<h2>Thanks — we have your story</h2>
+      <div class="sub">We're sending your recording and turning it into text now.</div>
+      <p>This product is already on our stores, so our team will use your story to update its description with you. Nothing else to do.</p>
+      <button class="btn primary" onclick="storyAnswer(false)">OK</button>`);
+    return;
+  }
   openSheet(`<h2>Thanks — we have your story</h2>
     <div class="sub">We're sending your recording and turning it into text now (usually a few minutes).</div>
     <p>Would you like us to <b>rewrite this product's description with your story</b> as soon as it's ready? While we rewrite it,
@@ -3878,8 +3940,21 @@ window.storyFinish=function(){
 window.storyAnswer=function(yes){
   var a=STORY._ask; STORY._ask=null; closeSheet();
   if(!a) return;
-  if(yes){ STORY.pending[a.sku]={sess:a.sess, at:Date.now()}; }
-  Promise.resolve(HOST.storyRequest(a.batch, a.sku, a.sess, !!yes)).then(function(){
+  if(yes){ STORY.pending[a.sku]={sess:a.sess, at:Date.now()}; delete STORY.unlocked[a.sku]; }
+  /* ⭐ (M6) the request goes only after every part of this recording has finished SENDING (so the rewrite never
+     starts without the last part); it carries the part count so the server can wait for all of them */
+  var SKIP={};
+  var mineParts=function(){ return STORY.parts.filter(function(x){ return x.id.indexOf(a.sess+'-')===0; }); };
+  var waitSent=new Promise(function(res){
+    var t0=Date.now();
+    (function chk(){ if(!mineParts().some(function(x){ return x.state==='sending'; }) || Date.now()-t0>180000) res(); else setTimeout(chk, 1000); })();
+  });
+  waitSent.then(function(){
+    var ps=mineParts(), sent=ps.filter(function(x){ return x.state==='sent'; }).length;
+    if(yes && ps.length && !sent){ delete STORY.pending[a.sku];
+      STORY.err='Your recording did not send, so nothing will be rewritten. Try recording again.'; renderAll(); return SKIP; }
+    return HOST.storyRequest(a.batch, a.sku, a.sess, !!yes, sent);
+  }).then(function(r){ if(r===SKIP) return;
     toast(yes?'Got it — we will rewrite this description as soon as your story is ready.':'Your story is saved.');
   }).catch(function(e){
     if(yes) delete STORY.pending[a.sku];
@@ -3903,9 +3978,16 @@ function renderStory(){
   else if(STORY.phase==='paused' && recHere)
     ctl=`<b>Paused</b> <span class="note">— what you said so far is saved.</span>
       <button class="btn" onclick="storyStart()">Continue recording</button><button class="btn primary" onclick="storyFinish()">I'm done — send it</button>`;
-  else if(STORY.phase!=='idle')
-    ctl=`<span class="note">You are recording a story for another product — finish that one first.</span>`;
-  else ctl=`<button class="btn primary" onclick="storyStart()">Start recording</button>`;
+  else if(STORY.phase!=='idle'){
+    /* ⭐ (M10) the recording belongs to ANOTHER product — say which, and give the controls here too */
+    var other=P.find(function(x){ return x.sku===STORY.sku; });
+    ctl=`<span class="note">You are ${STORY.phase==='recording'?'recording':'partway through'} a story for <b>${esc(other?other.name:'another product')}</b>.</span>
+      ${STORY.phase==='recording'?'<button class="btn" onclick="storyPause()">Pause</button>':''}
+      <button class="btn primary" onclick="storyFinish()">I'm done — send it</button>
+      ${other?`<button class="btn" onclick="vGoTo(${P.indexOf(other)})">Go to that product</button>`:''}`;
+  }
+  else ctl=STORY.starting?`<button class="btn primary" disabled>Starting the microphone…</button>`
+    :`<button class="btn primary" onclick="storyStart()">Start recording</button>`;
   var locked=vRewriting(cur), pend=STORY.pending[sku];
   if(locked && !STORY.poll) STORY.poll=(typeof setInterval==='function'?setInterval(storyPollTick, 30000):1);
   var prog='';
@@ -3914,7 +3996,8 @@ function renderStory(){
     var txt=parts.length && parts.every(function(m){ return m.status==='done'||m.status==='failed'; });
     prog=`<div class="vs-memo" role="status"><b>✍️ We're rewriting this description with your story.</b>
       <div class="note">Editing this product is paused until it's ready — this page updates by itself.</div>
-      <div class="note">${pend?'✓ recording sent':'✓ rewrite requested'} · ${pend?(txt?'✓ turned into text':'⏳ turning it into text…'):'✓ turned into text'} · ⏳ rewriting the description…</div></div>`;
+      <div class="note">${pend?'✓ recording sent':'✓ rewrite requested'} · ${pend?(txt?'✓ turned into text':'⏳ turning it into text…'):'✓ turned into text'} · ⏳ rewriting the description…</div>
+      <div class="note">This usually takes 10–30 minutes. <button class="btn" onclick="storyUnlock()">Stop waiting — let me edit</button></div></div>`;
   }
   el.innerHTML=`<details class="vstory" ${STORY.open||recHere||locked?'open':''} ontoggle="STORY.open=this.open;if(this.open)storyRefresh()">
     <summary>🎙 Enhance this description — tell us its story${mine.length?` <span class="chip ok">${mine.length} recording${mine.length===1?'':'s'}</span>`:''}</summary>
@@ -3930,7 +4013,7 @@ function renderStory(){
       ${here.map(function(x){return `<div class="note">Part ${x.n}${x.seconds?' · '+_storyMmss(x.seconds):''} · ${x.state==='sending'?'sending…':x.state==='sent'?'sent ✓':'did not send'}</div>`;}).join('')}
       ${STORY.err?`<div class="note" style="color:var(--stop)">${esc(STORY.err)}</div>`:''}
       ${mine.map(function(m){ return `<div class="vs-memo"><span class="note">${esc(m.at?fmtWhen(m.at):'')}${m.duration_s?' · '+_storyMmss(m.duration_s):''} ·
-        ${m.status==='done'?'✓ turned into text — we are rewriting this description with it':m.status==='failed'?'could not use this recording':'turning it into text…'}</span>
+        ${m.status==='done'?('✓ turned into text'+(locked?' — we are rewriting this description with it':' — saved with this product')):m.status==='failed'?'could not use this recording':'turning it into text…'}</span>
         ${m.status==='done'&&m.text?`<p>${esc(m.text)}</p>`:''}${m.status==='failed'&&m.reason?`<p class="note">${esc(m.reason)}</p>`:''}</div>`; }).join('')}
     </div></details>`;
 }
