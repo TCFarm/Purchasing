@@ -1060,7 +1060,10 @@ var VFLAG_LABEL={NO_CATEGORY_MATCH:'We could not place this in a category',
   CATEGORY_LOW_CONFIDENCE:'Please check the category', SIZE_NEEDED:'We need the size',
   INGREDIENTS_UNVERIFIED:'Please confirm the ingredients', IMAGES_NEED_SOURCING:'We need photos of this item',
   VENDOR_CHANGE_REQUEST:'Your change request', TAX_CLASS_UNVERIFIED:'Please confirm whether it is taxable',
-  TAX_CLASS_DISAGREES:'Please check whether it is taxable'};
+  TAX_CLASS_DISAGREES:'Please check whether it is taxable',
+  PRICE_UNKNOWN:'Please set your price'};   /* ⭐ 2026-09-30 (Jack's portal test): the raw code showed to the vendor */
+/* a flag with no label reads as words, never as an internal CODE */
+function vFlagLabel(k){ return VFLAG_LABEL[k] || String(k||'').replace(/_/g,' ').toLowerCase().replace(/^./, function(c){ return c.toUpperCase(); }); }
 /* flag text is HTML from the pipeline; a vendor view shows it as plain text */
 function _plain(h){
   return String(h==null?'':h).replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<')
@@ -2363,7 +2366,7 @@ function renderFields(){
     const types=vpFlagTypes(), fl=openFlags(cur).filter(f=>types.indexOf(f.k)>=0);
     if(!fl.length) return '';
     return `<div class="fgroup" id="vFlags"><h3>Please check</h3><div class="body">${fl.map(f=>
-      `<div class="cascade" style="margin-bottom:6px"><b>${esc(VFLAG_LABEL[f.k]||f.k.replace(/_/g,' ').toLowerCase())}</b> ${esc(_plain(f.t))}</div>`).join('')}</div></div>`;
+      `<div class="cascade" style="margin-bottom:6px"><b>${esc(vFlagLabel(f.k))}</b> ${esc(_plain(f.t))}</div>`).join('')}</div></div>`;
   })();
   $('#fields').innerHTML=notesHtml+vendorTopHtml+vgrp(`
   <div class="fgroup"><h3>Identity</h3><div class="body">
@@ -3192,7 +3195,10 @@ function renderOps(){
    the UI THE SAME TURN it is actioned, not only after the next drain tick. */
 function openFlags(i){
   const acted=st[i].flagAct||{};
-  return (P[i].flags||[]).filter(f=>!acted[f.k]);
+  /* ⭐ 2026-09-30 (Jack's portal test): a PRICE_UNKNOWN is settled the moment a real price is on the product (the
+     vendor typed one) — the drain's apply_price_answer then drops the flag too; until it runs the page must not keep
+     the product blocked on a question it has already answered */
+  return (P[i].flags||[]).filter(f=>!acted[f.k] && !(f.k==='PRICE_UNKNOWN' && +P[i].price>0));
 }
 function productApproved(i){return !!st[i].approved;}
 /* ⭐⭐ 2026-09-27 (P-1716, operator: "a check mark that says published with the quantity … more of a
@@ -3330,7 +3336,7 @@ function renderDecide(){
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
     +(blk&&isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> thing${blk>1?'s':''} to settle first`
         +(function(){const t=vpFlagTypes(),mine=openFlags(cur).filter(f=>f.sev==='stop'&&t.indexOf(f.k)>=0);
-           return mine.length?': '+mine.map(f=>esc(VFLAG_LABEL[f.k]||f.k)).join(', ')
+           return mine.length?': '+mine.map(f=>esc(vFlagLabel(f.k))).join(', ')
              +` — <a href="#" onclick="selectTab('fields');return false" style="color:var(--stop)">see details</a>`
              :' on our side — we will sort it out';})()+'</span>':'')
     +(blk&&!isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
