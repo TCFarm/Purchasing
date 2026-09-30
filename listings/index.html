@@ -923,7 +923,7 @@ var VENDOR_POLICY_FALLBACK={
   overall_allowed:['approved','pending','rework'],
   vendor_flag_types:['NO_CATEGORY_MATCH','CATEGORY_LOW_CONFIDENCE','SIZE_NEEDED','INGREDIENTS_UNVERIFIED',
                      'IMAGES_NEED_SOURCING','VENDOR_CHANGE_REQUEST','TAX_CLASS_UNVERIFIED','TAX_CLASS_DISAGREES',
-                     'PRICE_UNKNOWN']
+                     'PRICE_UNKNOWN','VENDOR_RIVIR_IDENTITY_CONFLICT']
 };
 var VPOLICY=null;          /* payload.vendor_policy, set by applyPayload */
 /* the static elements a hide_ui name refers to (render-template names are
@@ -1010,12 +1010,21 @@ function vpAccess(key){
     /* a LIVE product: only the policy's `live_edit` subset is editable (absent list = none — fail closed); the rest of
        `edit` (UPC, category, tax, storage, case pack, dimensions, tiers) is shown read-only */
     if(vpLive() && !(Array.isArray(p.live_edit) && p.live_edit.indexOf(key)>=0)) return 'view';
+    /* ⭐ P-1816: a live product WITH OPTIONS prices each variant — the price fields are read-only (see vpVariantNote) */
+    if(vpLive() && P[cur] && P[cur].liveVariants && VARIANT_PRICE_KEYS.indexOf(key)>=0) return 'view';
     /* ⭐ 2026-09-30 (UX hunt M4): while a rewrite is in progress EVERY field is read-only (All details + Images too) */
     if(typeof P!=='undefined' && typeof vRewriting==='function' && vRewriting(cur)) return 'view';
     return 'edit';
   }
   if(p.view.indexOf(key)>=0) return 'view';
   return 'hide';
+}
+var VARIANT_PRICE_KEYS=['price','salePrice','saleEnds'];
+/* ⭐ P-1816: the line a vendor sees on a live product with options, instead of a refusal after saving */
+function vpVariantNote(){
+  return (vpLive() && P[cur] && P[cur].liveVariants)
+    ? '<div class="hint" id="variantPriceNote">This product comes in options (sizes or flavours), and each one has its own price. '
+      +'Our team changes those prices: leave a comment on the price saying what you would like.</div>' : '';
 }
 function vpHides(name){ return isVendorView() && activePolicy().hide_ui.indexOf(name)>=0; }
 function vpOverallOk(o){
@@ -1061,7 +1070,8 @@ var VFLAG_LABEL={NO_CATEGORY_MATCH:'We could not place this in a category',
   INGREDIENTS_UNVERIFIED:'Please confirm the ingredients', IMAGES_NEED_SOURCING:'We need photos of this item',
   VENDOR_CHANGE_REQUEST:'Your change request', TAX_CLASS_UNVERIFIED:'Please confirm whether it is taxable',
   TAX_CLASS_DISAGREES:'Please check whether it is taxable',
-  PRICE_UNKNOWN:'Please set your price'};   /* ⭐ 2026-09-30 (Jack's portal test): the raw code showed to the vendor */
+  PRICE_UNKNOWN:'Please set your price',
+  VENDOR_RIVIR_IDENTITY_CONFLICT:'Your file and the barcode disagree'};   /* ⭐ 2026-09-30 (Jack's portal test): the raw code showed to the vendor */
 /* a flag with no label reads as words, never as an internal CODE */
 function vFlagLabel(k){ return VFLAG_LABEL[k] || String(k||'').replace(/_/g,' ').toLowerCase().replace(/^./, function(c){ return c.toUpperCase(); }); }
 /* flag text is HTML from the pipeline; a vendor view shows it as plain text */
@@ -1355,7 +1365,7 @@ function fromPayload(it){
   });
   var riv=it.rivir||{};
   return {
-    sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create', liveEdit:!!it.live_edit,
+    sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create', liveEdit:!!it.live_edit, liveVariants:!!it.live_variants,
     upc:it.upc||'', brand:it.brand||'',
     name:it.name||'', badge:it.badge||'', badgeAlts:it.badge_alts||[],
     kehe:it.kehe_line||'',
@@ -1955,8 +1965,9 @@ function renderShop(){
         <input class="ctl w-sm mono" id="edSale" type="number" step="0.01" min="0" value="${p.salePrice}"></div>
     </div>
     ${wasNow('Price', p.wasPrice, p.price, v=>money(v))}
+    ${vpVariantNote()}
     <div class="hint">Set a sale end date on the <b>All details</b> tab — a sale needs one.</div>`
-  : isVendorView() ? `<div class="p-price">${p.salePrice>0?`<s>${money(p.price)}</s>${money(p.salePrice)}`:money(p.price)}</div>`
+  : isVendorView() ? `<div class="p-price">${p.salePrice>0?`<s>${money(p.price)}</s>${money(p.salePrice)}`:money(p.price)}</div>${vpVariantNote()}`
   : E==='price' ? `
     <div class="inline">
       <div class="fld"><span class="lbl">Price</span><input class="ctl w-sm mono" id="edPrice" type="number" step="0.01" min="0" value="${p.price}"></div>
