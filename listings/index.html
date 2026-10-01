@@ -347,6 +347,8 @@ body[data-viewonly="1"] textarea, body[data-viewonly="1"] input:not(#batchSel):n
 body[data-viewonly="1"] #btnApprove, body[data-viewonly="1"] #btnSendRw { pointer-events:none; opacity:.55; }
 body[data-viewonly="1"]::before { content:"View only — switch on “Act as this vendor” in the portal to make changes";
   display:block; background:#e7eef9; color:#1d3b66; padding:6px 12px; font-size:13px; text-align:center; }
+
+.pubbar .ps[role=button]{cursor:pointer} .pubbar .ps.on{outline:2px solid currentColor; outline-offset:1px}
 </style>
 
 <div class="top">
@@ -920,7 +922,7 @@ var PORTAL_TIMEOUT_MS=30000;
 var VENDOR_POLICY_FALLBACK={
   version:1,
   edit:['name','badge','prose','warranty','cq','kws','upc','storage','cat','cat2','taxOverride',
-        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack'],
+        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder'],
   live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc'],
   view:['sku','brand','published','taxAssessment','flags'],
   hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred','btnClone',
@@ -1457,6 +1459,12 @@ function fromPayload(it){
     imgs:imgs, pre:(it.preread||[]).filter(function(n){return n<imgs.length;}),
     preNote:it.preread_note||'',
     /* ⭐ fix 7: {text, at} — a refused save, a staff hold, a photo added/refused */
+    /* ⭐ 2026-10-01: every OPEN publish-blocking flag as ONE plain line — something the vendor fixes (with its field) or
+       something we fix (vendor_policy.blocker_summary). A product with either is never "Ready". */
+    actionNeeded:(it.action_needed||[]).map(function(a){ return {k:String(a.k||''), field:String(a.field||''), text:String(a.text||'')}; }),
+    waitingOnUs:(it.waiting_on_us||[]).map(String),
+    /* ⭐ 2026-10-01 (all products view): the batch this product belongs to — every write uses it */
+    _batch:String(it._batch||''),
     vendorNote:(it.vendor_note&&it.vendor_note.text)
       ?{text:String(it.vendor_note.text), at:String(it.vendor_note.at||'')}:null,
     /* ⭐ (2026-09-29) the vendor's own save still waiting for the bridge — carried through so the note says
@@ -1623,7 +1631,18 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const money=v=>'$'+Number(v||0).toFixed(2);
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2400);}
-const visible=()=>P.map((p,i)=>i).filter(i=>filter==='all'||P[i].src===filter);
+/* ⭐ 2026-10-01 (operator: "do these buttons even click or filter?" — they did not): the status chips FILTER the list */
+var CHIP=null;
+function chipMatch(i){
+  if(!CHIP) return true;
+  var ps=pubState(i), g=productBlocked(i);
+  return CHIP==='pub'?ps==='published':CHIP==='wait'?ps==='waiting':CHIP==='park'?(ps==='parked'||ps==='held')
+    :CHIP==='act'?(ps!=='published'&&!st[i].approved&&g.blk>0):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
+    :CHIP==='review'?ps==='review':true;
+}
+function setChip(c){ CHIP=(CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
+window.setChip=setChip; window.chipMatch=chipMatch;
+const visible=()=>P.map((p,i)=>i).filter(i=>(filter==='all'||P[i].src===filter)&&chipMatch(i));
 const catOf=k=>CATS.find(c=>c[0]===k)||null;
 function targetMargin(p){
   /* precedence: an operator override → the PIPELINE's own target for this row
@@ -1774,7 +1793,9 @@ function renderQueue(){
     const tick=ps==='published'?'<span class="chip ok" style="padding:1px 5px">✓ published</span>'
       :ps==='parked'||ps==='held'?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">'+(ps==='held'?'held':'parked')+'</span>'
       :st[i].approved?'<span class="chip ok" style="padding:1px 5px">⏳ approved</span>'
+      :g.act&&isVendorView()?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">action needed</span>'
       :g.blk?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">blocked</span>'
+      :g.wait?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">'+(isVendorView()?'waiting on us':'blocked (staff)')+'</span>'
       :g.rw?'<span class="chip rw" style="padding:1px 5px">rework</span>'
       :g.noImgs?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">no images</span>'
       :g.nameBad?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">name</span>'
@@ -2543,7 +2564,8 @@ function renderFields(){
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Ordering':'Ordering &amp; Finale'}</h3><div class="body">
     ${vrow('casepack',null,frow('Case pack',isVendorView()?'units in one case':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" value="${p.casepack}">`,'⛔ Never appears in the product Name.'))}
-    ${vrow(null,'finaleRows',frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`))}
+    ${isVendorView()?vrow('reorder',null,frow('Reorder quantity','how many units we order at a time — usually your case size',`<input class="ctl w-sm mono" id="fRO" type="number" min="1" value="${p.reorder||''}">`))
+      :vrow(null,'finaleRows',frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`))}
     ${vrow(null,'supplierRow',frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" value="${esc(p.supplier)}">`,
       p.supplier==='KEHE'?'A KeHE row must leave Supplier Name blank on the input CSV — that is the whole signal.':''))}
     ${p.sourcingType==='kehe_distributor'?vrow(null,'freeFillRow',frow('KeHE free fill','on by default',
@@ -2896,7 +2918,7 @@ function addUpload(files){
     return false;
   }
   if(!files||!files.length){ const inp=$('#upFile'); if(inp&&inp.click) inp.click(); return false; }
-  const i=cur, sku=P[i].sku, batch=_batchFromUI(), good=[], bad=[];
+  const i=cur, sku=P[i].sku, batch=_itemBatch(i), good=[], bad=[];
   Array.from(files).forEach(f=>{ const why=uploadProblem(f); if(why) bad.push((f&&f.name||'file')+': '+why); else good.push(f); });
   if(bad.length) toast('⛔ Not uploaded — '+bad.join('; '));
   if(!good.length) return false;
@@ -3295,12 +3317,19 @@ window.pubCounts=pubCounts;
 function renderPubBar(){
   const el=document.querySelector('#pubBar'); if(!el) return;
   const c=pubCounts();
-  const chip=(cls,icon,n,label,extra)=>`<span class="ps ${cls}${n?'':' zero'}"${extra||''}>${icon} ${label} <b>${n}</b></span>`;
-  el.innerHTML=chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published')
-    +chip('wait','⏳',c.waiting,'Waiting to publish')
-    +chip('park','⛔',c.parked+c.held,'Parked')
+  const chip=(cls,icon,n,label,extra,key)=>`<span class="ps ${cls}${n?'':' zero'}${key&&CHIP===key?' on':''}"${
+      extra||(key?` role="button" tabindex="0" onclick="setChip('${key}')" title="${CHIP===key?'Show everything':'Show only these'}"`:'')}>${icon} ${label} <b>${n}</b></span>`;
+  var act=0, us=0;
+  P.forEach(function(p,i){ var ps=pubState(i), g=productBlocked(i);
+    if(ps!=='published'&&!st[i].approved){ if(g.blk>0) act++; else if(g.wait>0) us++; } });
+  el.innerHTML=chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published','', 'pub')
+    +chip('wait','⏳',c.waiting,'Waiting to publish','', 'wait')
+    +chip('park','⛔',c.parked+c.held,'Parked','', 'park')
+    +(isVendorView()?chip('park','❗',act,'Action needed','', 'act')+chip('wait','🕓',us,'Waiting on us','', 'us')
+                    :chip('park','❗',act,'Blocked','', 'act'))
     +chip('ask','❓',c.needs,'Needs your answer',c.needs?' onclick="showNeeds()" title="Products that could not be identified or categorised — answer to restart them"':'')
-    +chip('','✎',c.review,'To review');
+    +chip('','✎',c.review,'To review','', 'review')
+    +(CHIP?' <span class="ps" role="button" tabindex="0" onclick="setChip(null)">✕ Show all</span>':'');
 }
 window.renderPubBar=renderPubBar;
 
@@ -3354,7 +3383,7 @@ async function saveAnswer(i, skip){
   if(ap.error){ toast(ap.error); return; }
   if(!IS_BROWSER){ toast('not signed in'); return; }
   try{
-    const res=await HOST.saveAnswer(_batchFromUI(), NEEDS[i].key, ap.patch);
+    const res=await HOST.saveAnswer((NEEDS[i]&&NEEDS[i]._batch)||_batchFromUI(), NEEDS[i].key, ap.patch);
     if(res&&res.ok){ NEEDS[i]._state='saved'; toast(skip?'Skipped — it leaves this batch':'Answer saved — the product restarts shortly'); showNeeds(); renderPubBar(); }
     else toast('Not saved — '+((res&&res.message)||'unknown error'));
   }catch(e){ toast('Not saved — '+(e&&e.message?e.message:e)); }
@@ -3379,8 +3408,9 @@ function productBlocked(i){
      having raised one, and this row failed precisely because a step did not
      finish. */
   const skuBad=String(P[i].sku||'').indexOf('?')>=0 || !String(P[i].sku||'').trim();
-  return {rw,blk,noImgs,nameBad,skuBad,
-          ok:!rw&&!blk&&!noImgs&&!nameBad&&!skuBad};
+  const act=(P[i].actionNeeded||[]).length, wait=(P[i].waitingOnUs||[]).length;   /* ⭐ 2026-10-01 */
+  return {rw,blk:blk+act,act,wait,noImgs,nameBad,skuBad,
+          ok:!rw&&!blk&&!act&&!wait&&!noImgs&&!nameBad&&!skuBad};
 }
 /* ⭐ Phase C: on a LIVE listing the photo controls do nothing (the live gallery is changed by our team) — hide them */
 function applyLiveImageChrome(){
@@ -3831,13 +3861,25 @@ document.addEventListener('keydown',e=>{
 function vStatusOf(i){
   const ps=pubState(i), g=productBlocked(i);
   return ps==='published'?['Published','ok']:ps==='parked'||ps==='held'?['Waiting on us','stop']
-    :st[i].approved?['Approved','ok']:g.blk?['Needs your attention','stop']:g.rw?['Rewrite asked','rw']
+    :st[i].approved?['Approved','ok']:g.act?['Needs your action','stop']:g.blk?['Needs your attention','stop']
+    :g.wait?['Waiting on us','warn']:g.rw?['Rewrite asked','rw']
     :g.noImgs?['No photos chosen','warn']:g.nameBad?['Check the name','warn']:['Ready to approve','ok'];
 }
+/* ⭐ 2026-10-01 (operator: "how do we alert them of missing info they need to fix/fill in in the app itself?") */
+function actionBoxHtml(p){
+  var a=p.actionNeeded||[], w=p.waitingOnUs||[];
+  if(!a.length && !w.length) return '';
+  return (a.length?`<div class="rwitem" style="border-left:4px solid var(--stop);margin-bottom:8px"><b>Before this can be published, please:</b><ul style="margin:4px 0 0 18px">${
+      a.map(function(x){ return '<li>'+esc(x.text)+'</li>'; }).join('')}</ul></div>`:'')
+    +(w.length?`<div class="rwitem" style="border-left:4px solid var(--warn);margin-bottom:8px"><b>Waiting on us</b> — nothing for you to do here:<ul style="margin:4px 0 0 18px">${
+      w.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')}</ul></div>`:'');
+}
+window.actionBoxHtml=actionBoxHtml;
 function renderVendorExtras(){
   const V=isVendorView(), nEl=$('#vNote'), kEl=$('#vPick');
   if(nEl){ const vn=V&&P[cur]?P[cur].vendorNote:null;
-    nEl.innerHTML=vn||(V&&P[cur]&&(P[cur]._savedAt||P[cur]._pending_at))?vendorNoteHtml(P[cur], st[cur]):''; }
+    nEl.innerHTML=(V&&P[cur]?actionBoxHtml(P[cur]):'')
+      +(vn||(V&&P[cur]&&(P[cur]._savedAt||P[cur]._pending_at))?vendorNoteHtml(P[cur], st[cur]):''); }
   if(!kEl) return;
   if(!V){ kEl.innerHTML=''; return; }
   const [lbl,cls]=vStatusOf(cur);
@@ -3989,7 +4031,7 @@ window.storyStart=function(){
       STORY.sess='s'+new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,14)+'-'+Math.random().toString(36).slice(2,6);
       STORY.n=1;
     }
-    STORY.sku=p.sku; STORY.batch=_batchFromUI(); STORY.stream=stream; _storyPart();
+    STORY.sku=p.sku; STORY.batch=_itemBatch(); STORY.stream=stream; _storyPart();
   }).catch(function(){ STORY.starting=false; STORY.err='We could not use your microphone. Allow microphone access for this page and try again.'; renderStory(); });
 };
 window.storyPause=function(){
@@ -4119,6 +4161,9 @@ renderAll();
 var IS_BROWSER = (typeof location!=='undefined' && typeof fetch!=='undefined'
                   && typeof crypto!=='undefined');
 
+/* ⭐ 2026-10-01 (all products view): a write about ONE product goes to THAT product's batch */
+function _itemBatch(i){ var p=P[i==null?cur:i]; return (p&&p._batch)||_batchFromUI(); }
+window._itemBatch=_itemBatch;
 function _batchFromUI(){
   /* ?batch=2026-09-06_kehe_order_new wins; else the selector's own value. */
   try{
@@ -4618,7 +4663,7 @@ window.scheduleAutosave=scheduleAutosave; window.pendingAutosave=pendingAutosave
 
 async function persist(i, label){
   if(!IS_BROWSER) return {ok:false, reason:'not a browser'};
-  var batch=_batchFromUI();
+  var batch=_itemBatch(i);
   try{
     var _patch=decisionPatch(i);
     var res=await HOST.saveDecision(batch, P[i].sku, _patch);
