@@ -2781,7 +2781,13 @@ function renderFields(){
     if(v.length!==12){toast(`⛔ A UPC is 12 digits — that is ${v.length}`);$('#fUpc').value=p.upc;return;}
     p.upc=v;markEdited('identity','UPC saved as 12 digits, leading zeros preserved');};
   [['fPrice','price'],['fSale','salePrice'],['fW','weightG'],['fCP','casepack'],['fRO','reorder']]
-    .forEach(([id,key])=>{const e=$('#'+id);if(e)e.onchange=()=>{p[key]=+e.value||0;markEdited('price');};});
+    .forEach(([id,key])=>{const e=$('#'+id);if(!e)return;
+      e.onchange=()=>{p[key]=+e.value||0;markEdited('price');};
+      /* ⭐ 2026-10-01 (Sean, NorthStar: "it's still showing issue with the restock level … can't seem to get it to
+         unflag"): re-check AS THEY TYPE — the flag clears and Approve unlocks at once; the save still happens when they
+         leave the box. Enter also leaves it. */
+      e.oninput=()=>{p[key]=+e.value||0; refreshStatusOnly();};
+      e.onkeydown=ev=>{ if(ev&&ev.key==='Enter'){ try{e.blur();}catch(_){} } };});
   {const e=$('#fSaleEnds');if(e)e.onchange=()=>{p.saleEnds=e.value||'';markEdited('price',
     p.saleEnds?`Sale ends ${p.saleEnds} — badge and takedown set`:'Sale end date cleared');};}
   if(p.variants&&p.variants.length&&$('#varBox')){
@@ -3501,6 +3507,29 @@ function qthumbHtml(p,s){
     onerror="this.parentNode.classList.add('none');this.parentNode.innerHTML='no<br>photo'"></span>`;
 }
 window.qthumbHtml=qthumbHtml;
+/* ⭐⭐ 2026-10-01 (Sean): an action the vendor has ALREADY fixed on this page is not shown again while the save is on its
+   way (the server applies it within a minute or two, and the next refresh confirms it). ⛔ Only for the fields the page
+   can check itself; anything else waits for the server. If the server refuses the value, the product is held with the
+   reason — so clearing early never lets a bad value publish. */
+function localFixed(i,x){
+  var p=P[i]; if(!p||!x) return false;
+  switch(x.field){
+    case 'reorder':  return +p.reorder>0;
+    case 'casepack': return +p.casepack>0;
+    case 'price':    return +p.price>0;
+    case 'name':     return hasSizeSuffix(p.name);
+    case 'images':   return ((st[i]&&st[i].picks)||[]).length>0;
+    case 'taxOverride': return !!p.taxOverride;
+    default: return false;
+  }
+}
+function actionsOf(i){ return ((P[i]&&P[i].actionNeeded)||[]).filter(function(x){ return !localFixed(i,x); }); }
+window.actionsOf=actionsOf; window.localFixed=localFixed;
+function refreshStatusOnly(){
+  /* re-render everything EXCEPT the field panels, so the box being typed in keeps its focus */
+  try{ renderQueue(); renderDecide(); renderVendorExtras(); if(typeof renderPubBar==='function') renderPubBar(); markNeedFix(); }catch(_){}
+}
+window.refreshStatusOnly=refreshStatusOnly;
 function productBlocked(i){
   /* ⛔ Derived from the QUEUED JOB (cm), not the section chip — the chip is
      cosmetic and an edit used to clear it while the rewrite stayed scheduled. */
@@ -3520,7 +3549,7 @@ function productBlocked(i){
      having raised one, and this row failed precisely because a step did not
      finish. */
   const skuBad=String(P[i].sku||'').indexOf('?')>=0 || !String(P[i].sku||'').trim();
-  const act=(P[i].actionNeeded||[]).length, wait=(P[i].waitingOnUs||[]).length;   /* ⭐ 2026-10-01 */
+  const act=actionsOf(i).length, wait=(P[i].waitingOnUs||[]).length;   /* ⭐ 2026-10-01 — fixed-here actions excluded */
   /* ⭐ 2026-10-01: staff SEE the same missing fields (decision bar) but they do not block staff — the pipeline fills
      some of them itself (a KeHE case size). For a vendor they are theirs to fix, so they block. */
   const V=isVendorView(), vAct=V?act:0, vWait=V?wait:0;
@@ -3545,17 +3574,17 @@ function renderDecide(){
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
-    +(isVendorView()&&(P[cur].actionNeeded||[]).length?` · <span style="color:var(--stop)"><b>${P[cur].actionNeeded.length}</b> thing${P[cur].actionNeeded.length>1?'s':''} for you to fix — `
-        +P[cur].actionNeeded.map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--stop)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>'
+    +(isVendorView()&&actionsOf(cur).length?` · <span style="color:var(--stop)"><b>${actionsOf(cur).length}</b> thing${actionsOf(cur).length>1?'s':''} for you to fix — `
+        +actionsOf(cur).map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--stop)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>'
       :isVendorView()&&(P[cur].waitingOnUs||[]).length&&!blk?` · <span style="color:var(--warn)">waiting on us — nothing for you to do</span>`:'')
-    +(blk&&isVendorView()&&!(P[cur].actionNeeded||[]).length?` · <span style="color:var(--stop)"><b>${blk}</b> thing${blk>1?'s':''} to settle first`
+    +(blk&&isVendorView()&&!actionsOf(cur).length?` · <span style="color:var(--stop)"><b>${blk}</b> thing${blk>1?'s':''} to settle first`
         +(function(){const t=vpFlagTypes(),mine=openFlags(cur).filter(f=>f.sev==='stop'&&t.indexOf(f.k)>=0);
            return mine.length?': '+mine.map(f=>esc(vFlagLabel(f.k))).join(', ')
              +` — <a href="#" onclick="selectTab('fields');return false" style="color:var(--stop)">see details</a>`
              :' on our side — we will sort it out';})()+'</span>':'')
     /* ⭐ 2026-10-01 parity: staff see the vendor's missing-field list too, with the same "take me there" links */
-    +(!isVendorView()&&(P[cur].actionNeeded||[]).length?` · <span style="color:var(--warn)">missing: `
-        +P[cur].actionNeeded.map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--warn)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>':'')
+    +(!isVendorView()&&actionsOf(cur).length?` · <span style="color:var(--warn)">missing: `
+        +actionsOf(cur).map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--warn)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>':'')
     +(blk&&!isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
         +openFlags(cur).filter(f=>f.sev==='stop').map(f=>esc(f.k)).join(', ')
         +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a></span>`:'')
@@ -3989,7 +4018,7 @@ function vStatusOf(i){
 }
 /* ⭐ 2026-10-01 (operator: "how do we alert them of missing info they need to fix/fill in in the app itself?") */
 function actionBoxHtml(p){
-  var a=p.actionNeeded||[], w=p.waitingOnUs||[];
+  var _ix=P.indexOf(p), a=_ix>=0?actionsOf(_ix):(p.actionNeeded||[]), w=p.waitingOnUs||[];
   /* ⭐ 2026-10-01 parity: STAFF get the same box — the missing fields (Take me there) AND the blocking flags that are
      ours to settle (Open flags), so nothing staff must do is buried in a tab */
   if(!isVendorView()){
@@ -4027,7 +4056,7 @@ function markNeedFix(){
     document.querySelectorAll('.needfix').forEach(function(e){ e.classList.remove('needfix'); });
     document.querySelectorAll('.needfix-tag').forEach(function(e){ e.remove(); });
     if(!P[cur]) return;                    /* ⭐ 2026-10-01: highlight the field for staff too */
-    (P[cur].actionNeeded||[]).forEach(function(x){
+    actionsOf(cur).forEach(function(x){
       var nav=FIELD_NAV[x.field]; if(!nav) return;
       var el=document.querySelector(nav.sel); if(!el) return;
       var row=(el.closest&&el.closest('.frow'))||el;
@@ -4352,6 +4381,13 @@ function startLiveRefresh(){
   LIVE.timer=setInterval(function(){ try{ if(document.hidden) return; }catch(_){} liveRefresh(false); },
                          isVendorView()?60000:120000);
 }
+var _confirmTimers=[];
+function scheduleConfirmRefresh(){
+  if(!IS_BROWSER || typeof setTimeout!=='function') return;
+  _confirmTimers.forEach(function(t){ try{ clearTimeout(t); }catch(_){} });
+  _confirmTimers=[30000, 90000].map(function(ms){ return setTimeout(function(){ liveRefresh(false); }, ms); });
+}
+window.scheduleConfirmRefresh=scheduleConfirmRefresh;
 window.liveRefresh=liveRefresh; window._payloadSig=_payloadSig;
 if(document.querySelector('#btnRefresh')) $('#btnRefresh').onclick=function(){ liveRefresh(true); };
 function renderAll(){
@@ -4906,6 +4942,9 @@ async function persist(i, label){
     if(res && res.queued){
       toast(isVendorView()&&label==='Approved'?vendorApprovedMsg(i):SAVED_QUEUED_MSG);
       /* ⭐ the note now says "Saved — updating" until the bridge's own note catches up */
+      /* ⭐ 2026-10-01: after a save, check back SOON (30 s, then 90 s) so the server's confirmation — the flag gone, the
+         applied value — shows without waiting for the minute-by-minute refresh or a reload */
+      if(res && res.ok!==false && typeof scheduleConfirmRefresh==='function') scheduleConfirmRefresh();
       if(isVendorView() && res.ok!==false){ P[i]._savedAt=new Date().toISOString();
         if(i===cur && typeof renderVendorExtras==='function') renderVendorExtras(); }
     }
