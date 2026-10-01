@@ -1175,7 +1175,9 @@ function makePortalHost(parentWin, parentOrigin, opts){
           return typeof x==='string'?{batch:x, mod:'', created:''}
             :{batch:String(x.batch||''), mod:String(x.mod||x.updated_at||''),
               created:String(x.created||x.updated_at||''), title:String(x.title||'')};
-        }).filter(function(x){return x.batch;}));
+        }).filter(function(x){return x.batch;})).sort(function(a,b){
+          /* ⭐ 2026-10-01: "All my products" has no date — it is always FIRST (the default view) */
+          return (b.batch==='__all__')-(a.batch==='__all__'); });
       });
     },
     /* → what mergeState() returns, exactly like loadLive() */
