@@ -1666,7 +1666,7 @@ function chipMatch(i){
   if(!CHIP) return true;
   var ps=pubState(i), g=productBlocked(i);
   return CHIP==='pub'?ps==='published':CHIP==='wait'?ps==='waiting':CHIP==='park'?(ps==='parked'||ps==='held')
-    :CHIP==='act'?(ps!=='published'&&!st[i].approved&&g.blk>0):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
+    :CHIP==='act'?(ps!=='published'&&!st[i].approved&&(g.blk>0||(!isVendorView()&&g.act>0))):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
     :CHIP==='review'?ps==='review':true;
 }
 function setChip(c){ CHIP=(CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
@@ -1832,7 +1832,7 @@ function renderQueue(){
     const tick=ps==='published'?'<span class="chip ok" style="padding:1px 5px">✓ published</span>'
       :ps==='parked'||ps==='held'?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">'+(ps==='held'?'held':'parked')+'</span>'
       :st[i].approved?'<span class="chip ok" style="padding:1px 5px">⏳ approved</span>'
-      :g.act&&isVendorView()?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">action needed</span>'
+      :g.act?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">action needed</span>'
       :g.blk?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">blocked</span>'
       :g.wait?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">'+(isVendorView()?'waiting on us':'blocked (staff)')+'</span>'
       :g.rw?'<span class="chip rw" style="padding:1px 5px">rework</span>'
@@ -3418,12 +3418,14 @@ function renderPubBar(){
       extra||(key?` role="button" tabindex="0" onclick="setChip('${key}')" title="${CHIP===key?'Show everything':'Show only these'}"`:'')}>${icon} ${label} <b>${n}</b></span>`;
   var act=0, us=0;
   P.forEach(function(p,i){ var ps=pubState(i), g=productBlocked(i);
-    if(ps!=='published'&&!st[i].approved){ if(g.blk>0) act++; else if(g.wait>0) us++; } });
+    /* ⭐ 2026-10-01 (operator: "if there are actions required on staff side, we should do that flagging too"): for
+       staff, "Action needed" = a blocking flag OR a missing field — anything a person on our side must do */
+    if(ps!=='published'&&!st[i].approved){ if(g.blk>0||(!isVendorView()&&g.act>0)) act++; else if(g.wait>0) us++; } });
   el.innerHTML=chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published','', 'pub')
     +chip('wait','⏳',c.waiting,'Waiting to publish','', 'wait')
     +chip('park','⛔',c.parked+c.held,'Parked','', 'park')
     +(isVendorView()?chip('park','❗',act,'Action needed','', 'act')+chip('wait','🕓',us,'Waiting on us','', 'us')
-                    :chip('park','❗',act,'Blocked','', 'act'))
+                    :chip('park','❗',act,'Action needed','', 'act'))
     +chip('ask','❓',c.needs,'Needs your answer',c.needs?' onclick="showNeeds()" title="Products that could not be identified or categorised — answer to restart them"':'')
     +chip('','✎',c.review,'To review','', 'review')
     +(CHIP?' <span class="ps" role="button" tabindex="0" onclick="setChip(null)">✕ Show all</span>':'');
@@ -3988,6 +3990,17 @@ function vStatusOf(i){
 /* ⭐ 2026-10-01 (operator: "how do we alert them of missing info they need to fix/fill in in the app itself?") */
 function actionBoxHtml(p){
   var a=p.actionNeeded||[], w=p.waitingOnUs||[];
+  /* ⭐ 2026-10-01 parity: STAFF get the same box — the missing fields (Take me there) AND the blocking flags that are
+     ours to settle (Open flags), so nothing staff must do is buried in a tab */
+  if(!isVendorView()){
+    var i=P.indexOf(p), stops=i>=0?openFlags(i).filter(function(f){return f.sev==='stop';}):[];
+    if(!a.length && !stops.length) return '';
+    return `<div class="rwitem" style="border-left:4px solid var(--stop);margin-bottom:8px"><b>Action needed before this can publish:</b><ul style="margin:4px 0 0 18px">${
+      a.map(function(x){ var nav=FIELD_NAV[x.field]||FIELD_NAV._comment;
+        return '<li>Missing: '+esc((nav.where||'').split(' › ').pop())+` <button class="tbtn" style="margin-left:6px" onclick="goToField('${esc(x.field||'')}')">Take me there → ${esc(nav.where)}</button></li>`; }).join('')
+      +stops.map(function(f){ return '<li><span class="mono">'+esc(f.k)+'</span> — '+esc(String(f.t||'').slice(0,140))
+        +` <button class="tbtn" style="margin-left:6px" onclick="selectTab('flags')">Open flags →</button></li>`; }).join('')}</ul></div>`;
+  }
   if(!a.length && !w.length) return '';
   return (a.length?`<div class="rwitem" style="border-left:4px solid var(--stop);margin-bottom:8px"><b>Before this can be published, please:</b><ul style="margin:4px 0 0 18px">${
       a.map(function(x){ var nav=FIELD_NAV[x.field]||FIELD_NAV._comment;
@@ -4013,7 +4026,7 @@ function markNeedFix(){
   try{
     document.querySelectorAll('.needfix').forEach(function(e){ e.classList.remove('needfix'); });
     document.querySelectorAll('.needfix-tag').forEach(function(e){ e.remove(); });
-    if(!isVendorView() || !P[cur]) return;
+    if(!P[cur]) return;                    /* ⭐ 2026-10-01: highlight the field for staff too */
     (P[cur].actionNeeded||[]).forEach(function(x){
       var nav=FIELD_NAV[x.field]; if(!nav) return;
       var el=document.querySelector(nav.sel); if(!el) return;
@@ -4035,7 +4048,7 @@ window.goToField=goToField; window.markNeedFix=markNeedFix; window.FIELD_NAV=FIE
 function renderVendorExtras(){
   const V=isVendorView(), nEl=$('#vNote'), kEl=$('#vPick');
   if(nEl){ const vn=V&&P[cur]?P[cur].vendorNote:null;
-    nEl.innerHTML=(V&&P[cur]?actionBoxHtml(P[cur]):'')
+    nEl.innerHTML=(P[cur]?actionBoxHtml(P[cur]):'')      /* ⭐ 2026-10-01: staff too (their own wording) */
       +(vn||(V&&P[cur]&&(P[cur]._savedAt||P[cur]._pending_at))?vendorNoteHtml(P[cur], st[cur]):''); }
   if(!kEl) return;
   if(!V){ kEl.innerHTML=''; return; }
