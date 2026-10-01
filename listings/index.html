@@ -341,6 +341,12 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
 @media (max-width:880px){body[data-mode="vendor"] .vpick,body[data-mode="as-vendor"] .vpick{display:flex}}
 .taxr{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:5px}
 .taxr label{display:inline-flex;gap:6px;align-items:center;font-size:13px}
+
+/* ⭐ P-1904 (2026-10-01): portal "View as" (read only) — editing looks and is inert; navigation still works */
+body[data-viewonly="1"] textarea, body[data-viewonly="1"] input:not(#batchSel):not([type=search]),
+body[data-viewonly="1"] #btnApprove, body[data-viewonly="1"] #btnSendRw { pointer-events:none; opacity:.55; }
+body[data-viewonly="1"]::before { content:"View only — switch on “Act as this vendor” in the portal to make changes";
+  display:block; background:#e7eef9; color:#1d3b66; padding:6px 12px; font-size:13px; text-align:center; }
 </style>
 
 <div class="top">
@@ -992,7 +998,11 @@ function isVendorView(){ return VIEW.mode==='vendor' || VIEW.mode==='as-vendor';
    hiding it is NOT the control — the bridge downgrades a user's approval to pending from the token-derived
    role. An older portal that sends no role keeps today's behaviour; the bridge still decides. */
 /* ⭐ 2026-09-30 (Jack): every vendor login approves — admin vs user differs ONLY in managing the team */
-function vendorCanApprove(){ return true; }
+function vendorCanApprove(){ return !(VIEW&&VIEW.viewOnly); }
+/* ⭐ P-1904 (2026-10-01): staff "View as" in the portal (read only until "Act as this vendor") — the portal says so in
+   hello.view_only, and ALSO refuses every write itself; this only stops the page offering what will be refused. */
+window.vendorCanApprove=vendorCanApprove;
+var VIEW_ONLY_NOTE='View only — switch on “Act as this vendor” at the top of the portal to make changes.';
 function activePolicy(){
   var p=VPOLICY;
   if(p && Array.isArray(p.edit) && Array.isArray(p.view) && Array.isArray(p.hide_ui)) return p;
@@ -3404,7 +3414,7 @@ function renderDecide(){
         storage area or category was never resolved. This cannot be approved
         until it is fixed.</span>`:'');
   const b=$('#btnApprove');b.disabled=!ok||st[cur].approved||!vendorCanApprove();
-  b.textContent=st[cur].approved?'Approved':!vendorCanApprove()?'Your admin approves listings'
+  b.textContent=st[cur].approved?'Approved':!vendorCanApprove()?(VIEW&&VIEW.viewOnly?'View only':'Your admin approves listings')
     :skuBad?'SKU is not final'
     :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule'
@@ -3443,7 +3453,7 @@ window.approveProduct=async function(){
      so `decisionPatch` sends 'approved', and rolled back if the save fails:
      an approval that looks accepted but was never stored is the worst of the
      available outcomes. */
-  if(!vendorCanApprove()){ toast('Your admin approves listings for publishing — your changes are saved.'); return; }
+  if(!vendorCanApprove()){ toast(VIEW&&VIEW.viewOnly?VIEW_ONLY_NOTE:'Your admin approves listings for publishing — your changes are saved.'); return; }
   var i=cur, was=st[i].approved, wasBy=st[i].approvedBy;
   st[i].approved=true; st[i].approvedBy=ACCOUNT||'unknown';
   closeSheet(); renderAll();
@@ -3748,7 +3758,8 @@ $('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].
    BigCommerce since, publishing stops and lists exactly which fields would be overwritten, so you
    can confirm them first.</p></div>`:''}
   <div class="sub">Approving is the publish consent. The next publish run will
-  ${P[cur].published?'update the live product on all three stores, snapshot-first (it can be rolled back)'
+  ${IS_TEST?'publish it to the <b>Dev store only</b> — a TEST batch never reaches our real stores, Finale or the free fill (P-1907)'
+  :P[cur].published?'update the live product on all three stores, snapshot-first (it can be rolled back)'
   :P[cur].kind==='update'?'update this product on all three stores via <b>bc_publish</b>, snapshot-first'
   :'create it on all three stores via <b>bc_create</b>, create it in Finale, then run <b>product_compliance.gate()</b>'}.</div>
   <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||'the signed-in reviewer')} · every section, with what you edited.</p></div>
@@ -4285,6 +4296,8 @@ async function bootVendor(){
     VIEW.vendorName=String(hi.vendor_name||hi.display_name||'');
     VIEW.vendorRole=(hi.role==='admin'||hi.role==='user')?hi.role:'';
     VIEW.vendorOwner=String(hi.owner||'');
+    VIEW.viewOnly=!!hi.view_only;
+    try{ document.body.setAttribute('data-viewonly', VIEW.viewOnly?'1':''); }catch(_){}
     ACCOUNT=String(hi.who||hi.email||'');
     _setWho(_whoHtml(), true);
     _vendorWait('Loading your products…');
