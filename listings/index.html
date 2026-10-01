@@ -1827,7 +1827,7 @@ function renderQueue(){
       :g.rw?'<span class="chip rw" style="padding:1px 5px">rework</span>'
       :g.noImgs?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">no images</span>'
       :g.nameBad?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">name</span>'
-      :'<span class="chip ok" style="padding:1px 5px">ready</span>';
+      :'<span class="chip ok" style="padding:1px 5px" title="Nothing is missing — press Approve to publish it">ready to approve</span>';
     return `<button class="qrow" data-i="${i}" aria-current="${i===cur}">
       ${qthumbHtml(p,st[i])}
       <span><span class="qname">${esc(p.name)}${isVendorView()&&p.vendorNote?'<span class="vdot" title="A note from us" aria-label="has a note from us">●</span>':''}</span><span class="qmeta">
@@ -3107,11 +3107,24 @@ async function uploadPollTick(){
   return out;
 }
 
+function imgMeasured(i,el){
+  try{ const p=P[cur], im=p&&p.imgs[i]; if(!im||!el.naturalWidth) return;
+    if(!(im[2]>0&&im[3]>0)){ im[2]=el.naturalWidth; im[3]=el.naturalHeight; }
+    const c=el.closest('.cand'); const d=c&&c.querySelector('.cap .dim'); if(d) d.textContent=im[2]+'×'+im[3];
+    if(c) c.dataset.small=(im[2]<250||im[3]<250)?'1':'0';
+  }catch(_){}
+}
+window.imgMeasured=imgMeasured;
 function renderGrid(){
   const p=P[cur],pk=st[cur].picks;
-  $('#gridSub').innerHTML=`<span class="mono">${p.imgs.length}</span> candidates · ${esc(p.preNote)}`;
+  $('#gridSub').innerHTML=`<span class="mono">${p.imgs.length}</span> candidates · ${esc(p.preNote)}`
+    /* ⭐ 2026-10-01: say plainly that a LIVE product's photos are not changed from here yet (they are not republished) */
+    +(p.liveEdit?`<div class="hint" style="margin-top:6px">These are the photos on our stores now. Changing the photos of a product that is already live is not available here yet — leave a comment on this product with what you want changed and our team will update it.</div>`:'');
   $('#grid').innerHTML=p.imgs.map((im,i)=>{
-    const n=pk.indexOf(i),small=(im[2]<250||im[3]<250)?1:0,verif=canVerify(im);
+    /* ⭐ 2026-10-01: an UNKNOWN size (0×0 — live store photos carry none) is not "too small"; the tile measures the
+       photo when it loads (imgMeasured) instead of greying it out */
+    const unk=!(im[2]>0&&im[3]>0);
+    const n=pk.indexOf(i),small=(!unk&&(im[2]<250||im[3]<250))?1:0,verif=canVerify(im);
     return `<div class="cand" data-i="${i}" role="button" tabindex="0"
       aria-pressed="${n>=0?'true':'false'}"
       aria-label="${esc(im[1])}, ${im[2]} by ${im[3]}${n>=0?', chosen as image '+(n+1):''}"
@@ -3123,12 +3136,12 @@ function renderGrid(){
         ? `<img data-sp="${esc(im[5])}" alt="${esc(im[1])}"
              style="width:100%;height:100%;object-fit:contain">`
         : `<img src="${esc(im[5])}" alt="${esc(im[1])}" loading="lazy"
-             style="width:100%;height:100%;object-fit:contain"
+             style="width:100%;height:100%;object-fit:contain" ${unk?`onload="imgMeasured(${i},this)"`:''}
              onerror="this.parentNode.innerHTML='<span>'+${JSON.stringify(esc(im[0]))}+'<\\/span>'">`}</span>
       <button type="button" class="zoom" data-zoom="${i}"
         title="open full size" aria-label="Open ${esc(im[1])} full size">⤢</button>
-      <span class="cap"><b>${esc(im[1])}</b><em><span>${im[2]}×${im[3]}</span>
-        <span>${isVendorView()&&im[4]==='vendor_upload'?'Your photo':im[4]==='upload'?'yours':small?'too small':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
+      <span class="cap"><b>${esc(im[1])}</b><em><span class="dim">${unk?'size —':im[2]+'×'+im[3]}</span>
+        <span>${isVendorView()&&im[4]==='vendor_upload'?'Your photo':im[4]==='upload'?'yours':im[4]==='bc_existing'?'on our stores':small?'too small':unk?'':verif?'scrape':'low-res'}</span></em></span></div>`;}).join('')
     +uploadTiles(p.sku);
   hydrateSp($('#grid'));
   /* ⛔⛔ P-851 item 2 (2026-09-10). The zoom was a <span> INSIDE the tile's
