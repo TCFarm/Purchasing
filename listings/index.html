@@ -3885,15 +3885,16 @@ function renderVendorExtras(){
   if(!kEl) return;
   if(!V){ kEl.innerHTML=''; return; }
   const [lbl,cls]=vStatusOf(cur);
-  kEl.innerHTML=`<button class="tbtn" id="vPrev" ${cur<=0?'disabled':''} aria-label="Previous product">‹ Prev</button>
-    <select class="ctl" id="vPickSel" aria-label="Choose a product">${P.map((p,i)=>
-      `<option value="${i}" ${i===cur?'selected':''}>${i+1}. ${esc(p.name)} — ${esc(vStatusOf(i)[0])}</option>`).join('')}</select>
+  const _vv=visible(), _vp=_vv.indexOf(cur);   /* ⭐ 2026-10-01: Prev/Next/picker follow the chip filter */
+  kEl.innerHTML=`<button class="tbtn" id="vPrev" ${_vp<=0?'disabled':''} aria-label="Previous product">‹ Prev</button>
+    <select class="ctl" id="vPickSel" aria-label="Choose a product">${visible().map((i,n)=>
+      `<option value="${i}" ${i===cur?'selected':''}>${n+1}. ${esc(P[i].name)} — ${esc(vStatusOf(i)[0])}</option>`).join('')}</select>
     <span class="chip ${cls}" id="vPickChip">${esc(lbl)}</span>
-    <button class="tbtn" id="vNext" ${cur>=P.length-1?'disabled':''} aria-label="Next product">Next ›</button>`;
+    <button class="tbtn" id="vNext" ${_vp<0||_vp>=_vv.length-1?'disabled':''} aria-label="Next product">Next ›</button>`;
   const sel=$('#vPickSel'), pv=$('#vPrev'), nx=$('#vNext');
   if(sel) sel.onchange=()=>vGoTo(+sel.value);
-  if(pv) pv.onclick=()=>vGoTo(cur-1);
-  if(nx) nx.onclick=()=>vGoTo(cur+1);
+  if(pv) pv.onclick=()=>{ if(_vp>0) vGoTo(_vv[_vp-1]); };
+  if(nx) nx.onclick=()=>{ if(_vp>=0&&_vp<_vv.length-1) vGoTo(_vv[_vp+1]); };
 }
 /* ═══ per-listing story recorder (Jack, 2026-09-29) ══════════════════════════
    Vendor view only. Records in PARTS of up to 5 minutes (auto-continue), Pause/Continue, each part sent through the
