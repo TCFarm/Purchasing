@@ -349,6 +349,11 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
   display:block; background:#e7eef9; color:#1d3b66; padding:6px 12px; font-size:13px; text-align:center; }
 
 .pubbar .ps[role=button]{cursor:pointer} .pubbar .ps.on{outline:2px solid currentColor; outline-offset:1px}
+
+/* ⭐ 2026-10-01: the field a vendor must fix */
+.needfix{outline:3px solid var(--stop); outline-offset:4px; border-radius:8px; background:var(--stop-soft); animation:needfixPulse 1.6s ease-in-out 3}
+.needfix-tag{color:var(--stop); font-weight:600; font-size:13px; margin-top:6px}
+@keyframes needfixPulse{50%{outline-color:transparent}}
 </style>
 
 <div class="top">
@@ -374,6 +379,8 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
   </select>
   <span class="mocktag" id="mockTag">Wireframe</span>
   <span class="modetag" id="modeTag"></span>
+  <button class="tbtn" id="btnRefresh" title="Load the latest changes (never throws away what you are editing)">↻ Refresh</button>
+  <span id="refreshNote" class="note" style="font-size:12px"></span>
   <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
   <button class="tbtn" id="btnKeys" onclick="openSheet('<h2>Keyboard</h2><div class=\'sub\'>Press ? any time.</div><button class=\'btn\' onclick=\'closeSheet()\'>Close</button>')" title="keyboard shortcuts">?</button>
@@ -922,8 +929,8 @@ var PORTAL_TIMEOUT_MS=30000;
 var VENDOR_POLICY_FALLBACK={
   version:1,
   edit:['name','badge','prose','warranty','cq','kws','upc','storage','cat','cat2','taxOverride',
-        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder'],
-  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc'],
+        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder','visible'],
+  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible'],
   view:['sku','brand','published','taxAssessment','flags'],
   hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred','btnClone',
            'costRow','marginRow','finaleRows','ownerRow','supplierRow','itemTypeRow','freeFillRow','visibleRow',
@@ -1805,7 +1812,7 @@ function renderQueue(){
     return `<button class="qrow" data-i="${i}" aria-current="${i===cur}">
       <span class="qthumb">${esc(p.brand.replace(/[^A-Za-z]/g,'').slice(0,2).toUpperCase())}</span>
       <span><span class="qname">${esc(p.name)}${isVendorView()&&p.vendorNote?'<span class="vdot" title="A note from us" aria-label="has a note from us">●</span>':''}</span><span class="qmeta">
-      <span class="src ${p.src}">${isVendorView()?(p.kind==='update'?'on our stores':'new'):(p.src==='newitem'?'new':p.src)}</span>${tick}<span class="dots">${dots}</span>
+      <span class="src ${p.src}">${isVendorView()?(p.kind==='update'?(p.visible===false?'not offered':'on our stores'):'new'):(p.src==='newitem'?'new':p.src)}</span>${tick}<span class="dots">${dots}</span>
       </span></span></button>`;}).join('')||'<div style="padding:16px" class="lbl">nothing in this filter</div>';
   $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
     /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
@@ -2566,6 +2573,9 @@ function renderFields(){
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Ordering':'Ordering &amp; Finale'}</h3><div class="body">
     ${vrow('casepack',null,frow('Case pack',isVendorView()?'units in one case':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" value="${p.casepack}">`,'⛔ Never appears in the product Name.'))}
+    ${isVendorView()?vrow('visible',null,frow('Offered on our stores','turn off to stop selling it (all stores)',
+      `<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Yes — offered</option><option value="0" ${!p.visible?'selected':''}>No — not offered (hidden)</option></select>`,
+      'Hidden products cannot be bought or found in search. You can turn it back on any time.')):''}
     ${isVendorView()?vrow('reorder',null,frow('Reorder quantity','how many units we order at a time — usually your case size',`<input class="ctl w-sm mono" id="fRO" type="number" min="1" value="${p.reorder||''}">`))
       :vrow(null,'finaleRows',frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`))}
     ${vrow(null,'supplierRow',frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" value="${esc(p.supplier)}">`,
@@ -3303,6 +3313,13 @@ function pubState(i){
   const p=P[i]||{}, d=p._decision||{}, pub=p.published;
   const rev=+(d.revision||0);
   if(pub && (pub.revision==null || rev<=+pub.revision)) return 'published';
+  /* ⭐ 2026-10-01 (operator: "the live products show up as 'to review' but they are not"): a product that is already ON
+     OUR STORES and that nobody has changed is live, not "to review". Only a saved-but-unapproved change makes it review;
+     the daily live refresh's own revision row (system:live-refresh) is not a change. */
+  if(p.kind==='update' && !(st[i]&&st[i].approved) && !d.parked && !d.held){
+    var _ed=p._edits&&Object.keys(p._edits).length, _sys=String(d.decided_by||'').indexOf('system:')===0;
+    if(!rev || _sys || !_ed) return 'published';
+  }
   if(d.parked) return 'parked';
   if(d.held) return 'held';
   if(st[i]&&st[i].approved) return 'waiting';
@@ -3431,7 +3448,10 @@ function renderDecide(){
       :'<b>Not yet approved</b>')
     +(ed?` · <b>${ed}</b> section${ed>1?'s':''} you edited`:'')
     +(rw?` · <span style="color:var(--warn)"><b>${rw}</b> queued for rework</span>`:'')
-    +(blk&&isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> thing${blk>1?'s':''} to settle first`
+    +(isVendorView()&&(P[cur].actionNeeded||[]).length?` · <span style="color:var(--stop)"><b>${P[cur].actionNeeded.length}</b> thing${P[cur].actionNeeded.length>1?'s':''} for you to fix — `
+        +P[cur].actionNeeded.map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--stop)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>'
+      :isVendorView()&&(P[cur].waitingOnUs||[]).length&&!blk?` · <span style="color:var(--warn)">waiting on us — nothing for you to do</span>`:'')
+    +(blk&&isVendorView()&&!(P[cur].actionNeeded||[]).length?` · <span style="color:var(--stop)"><b>${blk}</b> thing${blk>1?'s':''} to settle first`
         +(function(){const t=vpFlagTypes(),mine=openFlags(cur).filter(f=>f.sev==='stop'&&t.indexOf(f.k)>=0);
            return mine.length?': '+mine.map(f=>esc(vFlagLabel(f.k))).join(', ')
              +` — <a href="#" onclick="selectTab('fields');return false" style="color:var(--stop)">see details</a>`
@@ -3872,11 +3892,48 @@ function actionBoxHtml(p){
   var a=p.actionNeeded||[], w=p.waitingOnUs||[];
   if(!a.length && !w.length) return '';
   return (a.length?`<div class="rwitem" style="border-left:4px solid var(--stop);margin-bottom:8px"><b>Before this can be published, please:</b><ul style="margin:4px 0 0 18px">${
-      a.map(function(x){ return '<li>'+esc(x.text)+'</li>'; }).join('')}</ul></div>`:'')
+      a.map(function(x){ var nav=FIELD_NAV[x.field]||FIELD_NAV._comment;
+        return '<li>'+esc(x.text)+` <button class="tbtn" style="margin-left:6px" onclick="goToField('${esc(x.field||'')}')">Take me there → ${esc(nav.where)}</button></li>`; }).join('')}</ul></div>`:'')
     +(w.length?`<div class="rwitem" style="border-left:4px solid var(--warn);margin-bottom:8px"><b>Waiting on us</b> — nothing for you to do here:<ul style="margin:4px 0 0 18px">${
       w.map(function(x){ return '<li>'+esc(x)+'</li>'; }).join('')}</ul></div>`:'');
 }
 window.actionBoxHtml=actionBoxHtml;
+/* ⭐ 2026-10-01 (operator: "highlight or somehow call attention to the field they need to click and the navigation
+   they need to do in order to get there"): each action's field → the tab it is on and the control to highlight. */
+var FIELD_NAV={
+  reorder:{tab:'fields', sel:'#fRO', where:'All details › Ordering'},
+  casepack:{tab:'fields', sel:'#fCP', where:'All details › Ordering'},
+  price:{tab:'fields', sel:'#fPrice', where:'All details › Price'},
+  name:{tab:'fields', sel:'#fName', where:'All details › Product name'},
+  cat:{tab:'fields', sel:'#fCat', where:'All details › Category'},
+  taxOverride:{tab:'fields', sel:'#fTax', where:'All details › Taxable'},
+  images:{tab:'images', sel:'#grid', where:'Images'},
+  prose:{tab:'listing', sel:'[data-sec="description"]', where:'Listing › Description'},
+  _comment:{tab:'listing', sel:'#pane-listing', where:'Listing — leave a comment'}
+};
+function markNeedFix(){
+  try{
+    document.querySelectorAll('.needfix').forEach(function(e){ e.classList.remove('needfix'); });
+    document.querySelectorAll('.needfix-tag').forEach(function(e){ e.remove(); });
+    if(!isVendorView() || !P[cur]) return;
+    (P[cur].actionNeeded||[]).forEach(function(x){
+      var nav=FIELD_NAV[x.field]; if(!nav) return;
+      var el=document.querySelector(nav.sel); if(!el) return;
+      var row=(el.closest&&el.closest('.frow'))||el;
+      row.classList.add('needfix');
+      if(!row.querySelector('.needfix-tag')){ var t=document.createElement('div'); t.className='needfix-tag';
+        t.textContent='⬅ Fix this: '+x.text; (row.querySelector('.v')||row).appendChild(t); }
+    });
+  }catch(_){}
+}
+function goToField(field){
+  var nav=FIELD_NAV[field]||FIELD_NAV._comment;
+  selectTab(nav.tab); markNeedFix();
+  setTimeout(function(){ try{ var el=document.querySelector(nav.sel); if(!el) return;
+    var row=(el.closest&&el.closest('.frow'))||el; row.scrollIntoView({block:'center', behavior:'smooth'});
+    if(el.focus && /^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) el.focus({preventScroll:true}); }catch(_){} }, 60);
+}
+window.goToField=goToField; window.markNeedFix=markNeedFix; window.FIELD_NAV=FIELD_NAV;
 function renderVendorExtras(){
   const V=isVendorView(), nEl=$('#vNote'), kEl=$('#vPick');
   if(nEl){ const vn=V&&P[cur]?P[cur].vendorNote:null;
@@ -4144,10 +4201,52 @@ function renderStory(){
     </div></details>`;
 }
 window.renderStory=renderStory; window.storyRefresh=storyRefresh;
+/* ⭐⭐ 2026-10-01 (operator: "a refresh button or have the page monitoring and refresh the changed data when changes occur
+   … without losing anyone's pending work"). Every minute (vendor) / two minutes (staff), and on ↻ Refresh, the batch is
+   re-read; it is applied ONLY when something changed AND nothing would be lost (_unsaved: an open editor, an unconfirmed
+   save, a focused field, an open sheet). Otherwise a note says new changes are waiting. The current product, the source
+   filter and the chip filter are kept. */
+var LIVE={timer:null, waiting:false, sig:''};
+function _payloadSig(pl){
+  try{ return JSON.stringify(((pl&&pl.items)||[]).map(function(it){ var d=it._decision||{};
+    return [it.sku,it.name,it.price,it.sale_price,it.visible,it.published,it.vendor_note,it.action_needed,it.waiting_on_us,
+            d.revision,d.overall,d.drain_state]; })); }catch(_){ return String(Math.random()); }
+}
+async function liveRefresh(manual){
+  var batch=_batchFromUI(); if(!batch||!HOST) return 'nobatch';
+  if(_unsaved()){
+    LIVE.waiting=true; var n=$('#refreshNote');
+    if(n) n.textContent=manual?'Finish or cancel your edit first — then press Refresh.':'New changes may be waiting — they load when you finish your edit.';
+    return 'held';
+  }
+  try{
+    var payload=await HOST.loadBatch(batch);
+    if(VIEW.mode==='as-vendor') payload=_asVendorFilter(payload, VIEW.asOwner);
+    if(_unsaved()){ LIVE.waiting=true; return 'held'; }          /* ⛔ an edit started while it was in flight */
+    var sig=_payloadSig(payload);
+    if(!manual && sig===LIVE.sig){ return 'same'; }
+    var sku=P[cur]&&P[cur].sku, f=filter, c=CHIP;
+    applyPayload(payload); LIVE.sig=sig; LIVE.waiting=false;
+    var j=P.findIndex(function(p){ return p.sku===sku; }); cur=j>=0?j:0; filter=f; CHIP=c;
+    if(!visible().includes(cur)){ var v=visible(); if(v.length) cur=v[0]; }
+    reconcileUploads(); renderAll();
+    var n2=$('#refreshNote'); if(n2) n2.textContent='Up to date · '+new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+    if(manual) toast('Up to date');
+    return 'reloaded';
+  }catch(e){ if(manual) toast('Could not refresh just now — try again in a minute'); return 'failed'; }
+}
+function startLiveRefresh(){
+  if(LIVE.timer!=null || typeof setInterval!=='function' || !IS_BROWSER) return;
+  LIVE.sig=_payloadSig({items:P.map(function(p){ return {sku:p.sku}; })});
+  LIVE.timer=setInterval(function(){ try{ if(document.hidden) return; }catch(_){} liveRefresh(false); },
+                         isVendorView()?60000:120000);
+}
+window.liveRefresh=liveRefresh; window._payloadSig=_payloadSig;
+if(document.querySelector('#btnRefresh')) $('#btnRefresh').onclick=function(){ liveRefresh(true); };
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();
-  renderVendorExtras(); renderStory();
+  renderVendorExtras(); renderStory(); markNeedFix();
 }
 applyModeChrome();
 renderAll();
@@ -4234,6 +4333,7 @@ async function bootLive(){
     if(VIEW.mode==='vendor' && document.body && document.body.dataset) document.body.dataset.loaded='1';
     renderAll();
     ensureUploadPoll();
+    startLiveRefresh();
     toast(n+' product'+(n===1?'':'s')+' loaded'
           +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':'')
           +(NEEDS.length?' · ❓ '+NEEDS.length+' need your answer':''));
