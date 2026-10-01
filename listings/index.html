@@ -2119,8 +2119,9 @@ function renderShop(){
      product listing main page at the top"). The same field as All details › "Offered on our stores" (p.visible),
      here as a switch. ⛔ Only where the policy lets this viewer edit it; otherwise the state is shown, not offered. */
   if($('#visBar')) $('#visBar').innerHTML='';
-  if(isVendorView() && vpAccess('visible')!=='hide' && $('#visBar')){
-    const canV=vpAccess('visible')==='edit';
+  /* ⭐ 2026-10-01 parity: staff get the same switch (staff may always edit visibility) */
+  if((!isVendorView() || vpAccess('visible')!=='hide') && $('#visBar')){
+    const canV=!isVendorView() || vpAccess('visible')==='edit';
     $('#visBar').innerHTML = `<div class="vistog${p.visible?'':' off'}">
       <label><input type="checkbox" role="switch" id="lgVis" ${p.visible?'checked':''} ${canV?'':'disabled'}>
       <span class="knob" aria-hidden="true"></span>
@@ -3518,8 +3519,11 @@ function productBlocked(i){
      finish. */
   const skuBad=String(P[i].sku||'').indexOf('?')>=0 || !String(P[i].sku||'').trim();
   const act=(P[i].actionNeeded||[]).length, wait=(P[i].waitingOnUs||[]).length;   /* ⭐ 2026-10-01 */
-  return {rw,blk:blk+act,act,wait,noImgs,nameBad,skuBad,
-          ok:!rw&&!blk&&!act&&!wait&&!noImgs&&!nameBad&&!skuBad};
+  /* ⭐ 2026-10-01: staff SEE the same missing fields (decision bar) but they do not block staff — the pipeline fills
+     some of them itself (a KeHE case size). For a vendor they are theirs to fix, so they block. */
+  const V=isVendorView(), vAct=V?act:0, vWait=V?wait:0;
+  return {rw,blk:blk+vAct,act,wait,noImgs,nameBad,skuBad,
+          ok:!rw&&!blk&&!vAct&&!vWait&&!noImgs&&!nameBad&&!skuBad};
 }
 /* ⭐ Phase C: on a LIVE listing the photo controls do nothing (the live gallery is changed by our team) — hide them */
 function applyLiveImageChrome(){
@@ -3547,6 +3551,9 @@ function renderDecide(){
            return mine.length?': '+mine.map(f=>esc(vFlagLabel(f.k))).join(', ')
              +` — <a href="#" onclick="selectTab('fields');return false" style="color:var(--stop)">see details</a>`
              :' on our side — we will sort it out';})()+'</span>':'')
+    /* ⭐ 2026-10-01 parity: staff see the vendor's missing-field list too, with the same "take me there" links */
+    +(!isVendorView()&&(P[cur].actionNeeded||[]).length?` · <span style="color:var(--warn)">missing: `
+        +P[cur].actionNeeded.map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--warn)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>':'')
     +(blk&&!isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
         +openFlags(cur).filter(f=>f.sev==='stop').map(f=>esc(f.k)).join(', ')
         +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a></span>`:'')
