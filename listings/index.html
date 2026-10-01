@@ -84,7 +84,8 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .qrow[aria-current="true"]{background:var(--shop);border-left-color:var(--accent)}
 .qthumb{width:34px;height:34px;border-radius:4px;display:grid;place-items:center;background:var(--tile);color:var(--ink-3);font-size:9px;font-weight:700;border:1px solid var(--line-soft)}
 .taxr{display:flex;gap:10px;flex-wrap:wrap}.taxr label{display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border:1.5px solid var(--line);border-radius:8px;background:var(--shop);cursor:pointer;font-weight:600;color:var(--ink)}.taxr input{width:17px;height:17px;accent-color:var(--accent);margin:0}.taxr label:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
-.vistog{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px;padding:9px 12px;border:1.5px solid var(--ok);border-radius:8px;background:var(--ok-soft)}.vistog.off{border-color:var(--warn);background:var(--warn-soft)}.vistog label{display:inline-flex;align-items:center;gap:9px;cursor:pointer;color:var(--ink)}.vistog input{position:absolute;opacity:0;width:1px;height:1px}.vistog .knob{width:38px;height:22px;border-radius:99px;background:var(--ink-3);position:relative;flex:none;transition:background .15s}.vistog .knob::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}.vistog input:checked+.knob{background:var(--ok)}.vistog input:checked+.knob::after{left:19px}.vistog input:focus-visible+.knob{outline:2px solid var(--accent);outline-offset:2px}.vistog input:disabled+.knob{opacity:.5}.vistog .hint{color:var(--ink-2)}
+.vistog{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;padding:9px 12px;border:1.5px solid var(--ok);border-radius:8px;background:var(--ok-soft)}.vistog.off{border-color:var(--warn);background:var(--warn-soft)}.vistog label{display:inline-flex;align-items:center;gap:9px;cursor:pointer;color:var(--ink)}.vistog input{position:absolute;opacity:0;width:1px;height:1px}.vistog .knob{width:38px;height:22px;border-radius:99px;background:var(--ink-3);position:relative;flex:none;transition:background .15s}.vistog .knob::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}.vistog input:checked+.knob{background:var(--ok)}.vistog input:checked+.knob::after{left:19px}.vistog input:focus-visible+.knob{outline:2px solid var(--accent);outline-offset:2px}.vistog input:disabled+.knob{opacity:.5}.vistog .hint{color:var(--ink-2)}
+.livimg{margin-top:8px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink-2);display:flex;align-items:center;gap:10px;flex-wrap:wrap}.livimg.on{border-color:var(--accent);background:var(--accent-soft);color:var(--ink)}
 .qthumb{overflow:hidden}.qthumb img{width:100%;height:100%;object-fit:cover;display:block}.qthumb.none{font-size:8.5px;font-weight:600;line-height:1.1;text-align:center;color:var(--ink-2)}
 .qname{font-size:12.5px;font-weight:600;line-height:1.3;margin-bottom:3px}
 .qmeta{display:flex;align-items:center;gap:6px}
@@ -440,6 +441,8 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
         a rewrite for tonight instead.</div>
       <!-- ⭐ Jack 2026-09-29: "Enhance this description — tell us its story" (vendor view only, collapsible) -->
       <div id="vStory"></div>
+      <!-- ⭐ 2026-10-01 (operator, with a screenshot): the "on our stores" switch sits ABOVE the preview, not at the bottom -->
+      <div id="visBar"></div>
       <div class="shopfront">
         <div class="shop-rail"><span class="lbl">Storefront preview</span><span class="lbl" id="railKind" data-vhide="rail" style="margin-left:auto"></span></div>
         <div class="shop-body" id="shopBody"></div>
@@ -936,7 +939,7 @@ var VENDOR_POLICY_FALLBACK={
   version:1,
   edit:['name','badge','prose','warranty','cq','kws','upc','storage','cat','cat2','taxOverride',
         'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder','visible'],
-  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible'],
+  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible','images'],
   view:['sku','brand','published','taxAssessment','flags'],
   hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred','btnClone',
            'costRow','marginRow','finaleRows','ownerRow','supplierRow','itemTypeRow','freeFillRow','visibleRow',
@@ -1028,6 +1031,13 @@ function activePolicy(){
 function vpLive(){
   return isVendorView() && typeof P!=='undefined' && Array.isArray(P) && !!P[cur] && P[cur].kind==='update';
 }
+/* ⭐ P-1931 (2026-10-01): a vendor may change a LIVE product's photos once they press "Edit photos" (the policy's
+   live_edit must include 'images'). Until then the tiles are read-only, so a stray tap never re-orders the store. */
+function liveImgAllowed(){ var p=activePolicy(); return Array.isArray(p.live_edit) && p.live_edit.indexOf('images')>=0; }
+function liveImgEditing(){ return vpLive() && liveImgAllowed() && !!(st[cur]&&st[cur].liveImgEdit); }
+function startLiveImgEdit(){ if(!vpLive()||!liveImgAllowed()) return; st[cur].liveImgEdit=true; renderAll(); selectTab('images');
+  toast('Tap the photos in the order you want — the first is the thumbnail. Approve to put them on our stores.'); }
+window.startLiveImgEdit=startLiveImgEdit; window.liveImgEditing=liveImgEditing;
 /* 'edit' | 'view' | 'hide' for a PAGE field key. Staff edits everything. */
 function vpAccess(key){
   if(!isVendorView()) return 'edit';
@@ -1404,6 +1414,7 @@ function fromPayload(it){
   var riv=it.rivir||{};
   return {
     sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create', liveEdit:!!it.live_edit, liveVariants:!!it.live_variants,
+    liveGalleryPending:!!it.live_gallery_pending,
     upc:it.upc||'', brand:it.brand||'',
     name:it.name||'', badge:it.badge||'', badgeAlts:it.badge_alts||[],
     kehe:it.kehe_line||'',
@@ -1965,7 +1976,7 @@ function sec(k,body,extra){
   const isEd=editing===k;
   /* ⭐ vendor view: Edit only on a section with at least one field the policy lets them edit */
   const _lock=vRewriting(cur);            /* ⭐ Jack 2026-09-29: no changes while a rewrite is in progress */
-  const canEdit=!_lock&&((k==='gallery'&&!vpLive())||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit'));
+  const canEdit=!_lock&&((k==='gallery'&&(!vpLive()||liveImgEditing()))||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit'));
   /* ⭐ RULING (Jack, 2026-09-08): APPROVAL IS WHOLE-PRODUCT, not per section.
      Sections still track CHANGE (edited / rework queued) because the rework
      comments must attach somewhere — but there is no per-section Approve.
@@ -2107,9 +2118,10 @@ function renderShop(){
   /* ⭐ 2026-10-01 (operator: "I don't see where I can enable or disable visibility — that should be a toggle on the
      product listing main page at the top"). The same field as All details › "Offered on our stores" (p.visible),
      here as a switch. ⛔ Only where the policy lets this viewer edit it; otherwise the state is shown, not offered. */
-  if(isVendorView() && vpAccess('visible')!=='hide'){
+  if($('#visBar')) $('#visBar').innerHTML='';
+  if(isVendorView() && vpAccess('visible')!=='hide' && $('#visBar')){
     const canV=vpAccess('visible')==='edit';
-    $('#listLegend').innerHTML += `<div class="vistog${p.visible?'':' off'}">
+    $('#visBar').innerHTML = `<div class="vistog${p.visible?'':' off'}">
       <label><input type="checkbox" role="switch" id="lgVis" ${p.visible?'checked':''} ${canV?'':'disabled'}>
       <span class="knob" aria-hidden="true"></span>
       <b>${p.visible?'Offered on our stores':'Not offered — hidden on our stores'}</b></label>
@@ -2927,7 +2939,11 @@ window.lbOpen=lbOpen;window.lbClose=lbClose;
 
 function togglePick(i){
   /* ⛔ 2026-09-30 (UX hunt M3): a LIVE product's gallery is not published from here, and a locked product is read-only */
-  if(vpLive()){ toast('Photos on a live product are changed by our team — tell us in a comment what you would like.'); return; }
+  if(vpLive() && !liveImgEditing()){
+    toast(liveImgAllowed()?'Press “✎ Edit photos” first to change the photos on our stores.'
+      :'Photos on a live product are changed by our team — tell us in a comment what you would like.'); return; }
+  if(vpLive() && st[cur].picks.length===1 && st[cur].picks[0]===i){
+    toast('A product on our stores keeps at least one photo — pick another first.'); return; }
   if(vRewriting(cur)){ toast('Editing is paused while we rewrite this description.'); return; }
   const pk=st[cur].picks,at=pk.indexOf(i);
   st[cur].picksTouched=true;
@@ -3119,7 +3135,12 @@ function renderGrid(){
   const p=P[cur],pk=st[cur].picks;
   $('#gridSub').innerHTML=`<span class="mono">${p.imgs.length}</span> candidates · ${esc(p.preNote)}`
     /* ⭐ 2026-10-01: say plainly that a LIVE product's photos are not changed from here yet (they are not republished) */
-    +(p.liveEdit?`<div class="hint" style="margin-top:6px">These are the photos on our stores now. Changing the photos of a product that is already live is not available here yet — leave a comment on this product with what you want changed and our team will update it.</div>`:'');
+    /* ⭐ P-1931: a LIVE product — its store photos, read-only until "Edit photos" */
+    +(p.liveEdit&&isVendorView()&&liveImgAllowed()
+      ? (liveImgEditing()
+        ? `<div class="hint livimg on">Editing the photos on our stores. Tap photos in the order you want — <b>the first is the thumbnail</b>; tap again to remove one. <b>Upload photo</b> adds a new one. Nothing changes on our stores until you <b>Approve</b>.</div>`
+        : `<div class="hint livimg">These are the photos on our stores now${p.liveGalleryPending?' — <b>your new photo order is waiting for approval</b>':''}. <button type="button" class="tbtn go" id="btnLiveImg" onclick="startLiveImgEdit()">✎ Edit photos</button></div>`)
+      : p.liveEdit?`<div class="hint" style="margin-top:6px">These are the photos on our stores now. To change them, leave a comment on this product and our team will update it.</div>`:'');
   $('#grid').innerHTML=p.imgs.map((im,i)=>{
     /* ⭐ 2026-10-01: an UNKNOWN size (0×0 — live store photos carry none) is not "too small"; the tile measures the
        photo when it loads (imgMeasured) instead of greying it out */
@@ -3504,7 +3525,8 @@ function productBlocked(i){
 function applyLiveImageChrome(){
   var L=vpLive();
   ['#btnNone','#btnClear'].forEach(function(sel){ var e=document.querySelector(sel); if(e) e.hidden=L; });
-  var up=document.querySelector('#btnUpload'); if(up) up.hidden=L||!(HOST&&HOST.canUpload);
+  /* ⭐ P-1931: Upload comes back on a live product once "Edit photos" is pressed */
+  var up=document.querySelector('#btnUpload'); if(up) up.hidden=(L&&!liveImgEditing())||!(HOST&&HOST.canUpload);
 }
 function renderDecide(){
   applyLiveImageChrome();
