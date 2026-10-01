@@ -1087,9 +1087,9 @@ var GraphHost={
   hello:function(){ return Promise.resolve({who:ACCOUNT}); },
   listBatches:function(){ return listBatches(); },
   loadBatch:function(batch){ return loadLive(batch); },
-  saveDecision:function(batch, sku, patch){ return saveDecision(batch, sku, patch); },
+  saveDecision:function(batch, sku, patch){ return asVendorReadOnly()||saveDecision(batch, sku, patch); },
   /* ⭐ an answer row is keyed `ask:<key>` — exactly what saveAnswer sent before */
-  saveAnswer:function(batch, key, body){ return saveDecision(batch, 'ask:'+key, body); },
+  saveAnswer:function(batch, key, body){ return asVendorReadOnly()||saveDecision(batch, 'ask:'+key, body); },
   imageSrc:function(ref){
     if(String(ref||'').indexOf('vp:')===0)
       return Promise.reject(new Error('this photo opens only in the vendor portal'));
@@ -1229,6 +1229,16 @@ function makePortalHost(parentWin, parentOrigin, opts){
   };
 }
 var HOST=GraphHost;
+/* ⛔⛔ 2026-10-01 (P-1785 follow-up; operator: "staff log in as vendors to see their experience"): the ?as=<Owner>
+   preview is READ ONLY. It used to save through the staff host for real — so "just looking" could approve and publish.
+   Staff who need to ACT for a vendor do it in the vendor portal (Staff → View as → "Act as this vendor"), where every
+   change is recorded as staff:<email>:as:<Owner>. */
+var AS_VENDOR_RO_MSG='Preview only — nothing here is saved. To make changes for this vendor, use the vendor portal '
+  +'(sign in with Microsoft → Vendors → View as → "Act as this vendor"), or open the Studio without ?as=.';
+function asVendorReadOnly(){
+  return (typeof VIEW!=='undefined' && VIEW && VIEW.mode==='as-vendor') ? Promise.reject(new Error(AS_VENDOR_RO_MSG)) : null;
+}
+window.asVendorReadOnly=asVendorReadOnly;
 var IMG_URL_TTL_MS=50*60*1000;
 /* ⭐ fix 12: some browsers hand over a file with an empty `type` — infer it from the name. */
 function uploadMime(f){
@@ -5252,6 +5262,18 @@ var VD_FORM_ID=function(f){ return 'vdf_'+String(f).replace(/[^A-Za-z0-9]+/g,'_'
 function vdReadForm(fields){ var o={}; fields.forEach(function(f){ var el=$('#'+VD_FORM_ID(f)); if(el) o[f]=String(el.value||'').trim(); }); return o; }
 
 async function vdOpen(){
+  if(VIEW.mode==='vendor') return;               /* ⛔ staff-only */
+  /* ⭐⭐ 2026-10-01 (operator, D4 of docs/PLAN_PORTAL_STAFF_ADMIN_2026-10-01.md): vendor management MOVED to the vendor
+     portal — New vendor, Edit (fees → Rate History), logins, and View as / Act as — for Vendor Admins members.
+     The old screen below is kept only as code (vdOpenLegacy) for the page's tests; nothing opens it. */
+  openSheet(`<h2>Vendors moved to the vendor portal</h2>
+    <div class="sub">Onboarding a new vendor, editing fees (recorded in the Rate History), inviting and managing logins,
+    and seeing exactly what a vendor sees (“View as”) now live in the vendor portal. Sign in there with your Microsoft
+    account — you need to be in the <b>Vendor Admins</b> group.</div>
+    <div style="margin:12px 0"><a class="btn primary" href="${esc(VP_PORTAL_URL)}" target="_blank" rel="noopener">Open the vendor portal</a>
+    <button class="btn" onclick="closeSheet()">Close</button></div>`);
+}
+async function vdOpenLegacy(){
   if(VIEW.mode==='vendor') return;               /* ⛔ staff-only */
   if(!IS_BROWSER){ toast('Vendors needs the live page (sign in)'); return; }
   var reqs=[]; try{ await vdIds(); reqs=await vdRows(); }catch(e){ toast('⛔ '+e.message); }
