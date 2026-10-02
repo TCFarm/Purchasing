@@ -254,7 +254,8 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .xcheck{font-size:11.5px;color:var(--ink-3);background:var(--ground);border:1px solid var(--line-soft);border-radius:var(--r);padding:9px 11px}
 .xcheck b{color:var(--ink-2)}
 
-.decide{position:sticky;bottom:0;display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:12px 22px;background:var(--panel);border-top:1px solid var(--line);z-index:20}
+/* ⭐ 2026-10-02 (operator: the Approve / rework bar was missed at the very bottom) — floats at the TOP, pinned just under the tabs */
+.decide{position:sticky;top:calc(96px + var(--tabsH,44px));display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:10px 22px;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 3px 8px -6px rgba(0,0,0,.25);z-index:29}
 .decide .status{font-size:12.5px;color:var(--ink-3);margin-right:auto}
 .decide .status b{color:var(--ink)}
 .btn{padding:8px 15px;border-radius:var(--r);font-weight:600;font-size:13px;border:1px solid var(--line);background:var(--shop)}
@@ -433,6 +434,12 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
       <button class="tab" role="tab" aria-selected="false" data-pane="flags" id="tabFlags" data-vhide="tabFlags">Open flags<span class="n" id="tabFlagN"></span></button>
       <button class="tab" role="tab" aria-selected="false" data-pane="log" id="tabLog" data-vhide="tabLog">Overnight log</button>
     </div>
+    <div class="decide" id="decideBar">
+      <div class="status" id="decStatus"></div>
+      <button class="btn ghost" id="btnDefer">Defer</button>
+      <button class="btn" id="btnSendRw">Send rework</button>
+      <button class="btn primary" id="btnApprove">Approve product</button>
+    </div>
 
     <div class="pane" id="pane-listing" role="tabpanel">
       <div class="note"><b>The storefront preview is the shopper's view, and it is editable in place.</b>
@@ -478,12 +485,6 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
     <div class="pane" id="pane-flags" role="tabpanel" hidden><div id="flags"></div></div>
     <div class="pane" id="pane-log" role="tabpanel" hidden><div id="log"></div></div>
 
-    <div class="decide">
-      <div class="status" id="decStatus"></div>
-      <button class="btn ghost" id="btnDefer">Defer</button>
-      <button class="btn" id="btnSendRw">Send rework</button>
-      <button class="btn primary" id="btnApprove">Approve product</button>
-    </div>
   </main>
 
   <aside class="ops" id="ops" data-vhide="ops"></aside>
@@ -494,6 +495,8 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
 <div class="toast" id="toast"></div>
 
 <script>
+(function(){try{function m(){var t=document.querySelector('.centre .tabs');if(t)document.documentElement.style.setProperty('--tabsH',t.offsetHeight+'px');}
+if(window.addEventListener){window.addEventListener('load',m);window.addEventListener('resize',m);}setTimeout(m,300);setTimeout(m,1500);}catch(e){}})();
 /* ═══ category registry — real leaves from config/category_rules.json ═══
    [key, parent, sku_code, target_margin, tax_class, finale_category,
     sales_acct, cogs_acct, inventory_acct]
@@ -2177,9 +2180,9 @@ function renderShop(){
     $('#visBar').innerHTML = `<div class="vistog${p.visible?'':' off'}">
       <label><input type="checkbox" role="switch" id="lgVis" ${p.visible?'checked':''} ${canV?'':'disabled'}>
       <span class="knob" aria-hidden="true"></span>
-      <b>${p.visible?'Offered on our stores':'Not offered — hidden on our stores'}</b></label>
-      <span class="hint">${p.visible?'Turn off to stop selling it on all our stores. Nothing is deleted.':'Shoppers cannot buy it or find it in search. Turn on to sell it again.'}
-      ${p.kind==='update'?' Takes effect when you approve.':''}</span></div>`;
+      <span class="vtxt"><b>${p.visible?'Offered on our stores':'Not offered — hidden on our stores'}</b>
+      <span class="hint" style="display:block">${p.visible?'Turn off to stop selling this item.':'Shoppers cannot buy it or find it in search. Turn on to sell it again.'}
+      ${p.kind==='update'?' Takes effect when you approve.':''}</span></span></label></div>`;
     const t=$('#lgVis');
     if(t&&canV) t.onchange=()=>{ p.visible=!!t.checked;
       markEdited('identity', p.visible?'Will be offered on our stores':'Will be hidden on our stores'); };
