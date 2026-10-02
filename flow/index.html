@@ -381,7 +381,7 @@
         <summary>why continuous, and what "prepared" means</summary>
         <ul>
           <li>It's a continuous worker, not a scheduled run: it picks up a chunk of 7 products whenever there is work, any time of day or night. It stays within half the day's capacity during the day (06:00–20:00) and most of the night's capacity overnight, and it never starts a chunk 22:45–23:30 or 05:30–06:00.</li>
-          <li>The Listing Studio no longer has a "Publish N" button — a status bar shows Published / Waiting to publish / Parked / Needs your answer / To review, updating as chunks finish.</li>
+          <li>The Listing Studio no longer has a "Publish N" button — a status bar shows Published / Publishing / Parked / Needs your answer / To review, updating as chunks finish. "Publishing" means you have approved it and it is on its way to the stores: the page keeps showing it that way, and checks every 10 seconds while anything is publishing. It can take several minutes to go live after you press Approve.</li>
           <li>A product the worker can't identify or categorise lands in a <b>Needs your answer</b> section instead of stalling silently; answering it restarts that product automatically.</li>
           <li>It works on <b>whatever isn't finished yet</b>, so nothing is done twice and nothing is skipped if a run is interrupted.</li>
           <li>It checks the page it found genuinely shows <em>that</em> product — a brand's homepage is not a product page, and copy written from one describes whatever the brand happened to be promoting that day.</li>
