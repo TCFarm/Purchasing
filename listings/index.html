@@ -2693,7 +2693,7 @@ function renderFields(){
         : ' · <b>ESTIMATED</b> — check it')))}
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Ordering':'Ordering &amp; Finale'}</h3><div class="body">
-    ${vrow('casepack',null,frow('Case pack',isVendorView()?'how many units come in one case you ship us':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" value="${+p.casepack>0?p.casepack:''}" placeholder="${isVendorView()?'e.g. 12':''}">`,isVendorView()?'Just how they are packed. It is not the order minimum — that is “Reorder quantity” below. Never shown in the product name.':'⛔ Never appears in the product Name.'))}
+    ${vrow('casepack',null,frow('Case pack',isVendorView()?'how many units come in one case you ship us':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" min="1" step="1" value="${+p.casepack>0?p.casepack:''}" placeholder="${isVendorView()?'e.g. 12':''}">`,isVendorView()?'Just how they are packed. It is not the order minimum — that is “Reorder quantity” below. Never shown in the product name.':'⛔ Never appears in the product Name.'))}
     ${isVendorView()?vrow('visible',null,frow('Offered on our stores','turn off to stop selling it (all stores)',
       `<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Yes — offered</option><option value="0" ${!p.visible?'selected':''}>No — not offered (hidden)</option></select>`,
       'Hidden products cannot be bought or found in search. You can turn it back on any time.')):''}
@@ -2856,7 +2856,12 @@ function renderFields(){
     p.upc=v;markEdited('identity','UPC saved as 12 digits, leading zeros preserved');};
   [['fPrice','price'],['fSale','salePrice'],['fW','weightG'],['fCP','casepack'],['fRO','reorder']]
     .forEach(([id,key])=>{const e=$('#'+id);if(!e)return;
-      e.onchange=()=>{p[key]=+e.value||0;markEdited('price');};
+      e.onchange=()=>{
+        /* ⭐ 2026-10-02 (vf16: a case pack of -1 was saved and the whole save refused): a count is a whole number ≥ 1 */
+        if((key==='casepack'||key==='reorder') && e.value!=='' && !(Number.isInteger(+e.value) && +e.value>=1)){
+          toast('⛔ '+(key==='casepack'?'Case pack':'Reorder quantity')+' must be a whole number, 1 or more');
+          e.value=+p[key]>0?p[key]:''; return; }
+        p[key]=+e.value||0;markEdited('price');};
       /* ⭐ 2026-10-01 (Sean, NorthStar: "it's still showing issue with the restock level … can't seem to get it to
          unflag"): re-check AS THEY TYPE — the flag clears and Approve unlocks at once; the save still happens when they
          leave the box. Enter also leaves it. */
