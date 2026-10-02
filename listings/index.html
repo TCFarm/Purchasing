@@ -4405,7 +4405,27 @@ function _payloadSig(pl){
     return [it.sku,it.name,it.price,it.sale_price,it.visible,it.published,it.vendor_note,it.action_needed,it.waiting_on_us,
             d.revision,d.overall,d.drain_state]; })); }catch(_){ return String(Math.random()); }
 }
+/* ⭐ 2026-10-02 (operator: "I am not sure this refresh button does anything"): Refresh used to reload ONLY the batch on
+   screen, never the LIST of batches — so a new batch (Sted Foods' 46 new products) could not appear until a full page
+   reload. Now the list is re-read too: the current choice is kept, and anything new is announced. */
+var _BATCH_LIST_TICK=0;
+async function refreshBatchList(manual){
+  var sel=document.querySelector('#batchSel'); if(!sel||!HOST||typeof HOST.listBatches!=='function') return [];
+  var rows; try{ rows=await HOST.listBatches(); }catch(_){ return []; }
+  if(!rows||!rows.length) return [];
+  var have=Array.prototype.map.call(sel.options,function(o){ return o.value; });
+  var fresh=rows.filter(function(r){ return have.indexOf(r.batch)<0; });
+  var gone=have.some(function(v){ return v && !rows.some(function(r){ return r.batch===v; }); });
+  if(!fresh.length && !gone) return [];
+  var keep=sel.value;
+  sel.innerHTML=rows.map(function(r){ return '<option value="'+esc(r.batch)+'">'+esc(batchLabel(r))+'</option>'; }).join('');
+  sel.value=rows.some(function(r){ return r.batch===keep; })?keep:rows[0].batch;
+  var named=fresh.filter(function(r){ return r.batch!=='__all__'; });
+  if(named.length) toast('New: '+named.map(batchLabel).join(', ')+' — pick it in the list above');
+  return fresh;
+}
 async function liveRefresh(manual){
+  if(manual || (++_BATCH_LIST_TICK % 5)===0){ try{ await refreshBatchList(manual); }catch(_){} }
   var batch=_batchFromUI(); if(!batch||!HOST) return 'nobatch';
   if(_unsaved()){
     LIVE.waiting=true; var n=$('#refreshNote');
