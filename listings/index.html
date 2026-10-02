@@ -1628,6 +1628,24 @@ var NEEDS=[];
 var VDIR={vendors:{}, finale_suppliers:[]};
 /* ⭐ 2026-09-29 test lane: a test batch publishes to the Dev store ONLY — say so, never "Live". */
 var IS_TEST=false;
+/* ⭐⭐ 2026-10-02 (operator: "I clicked Approve and they go back to Ready to approve"): an approval is QUEUED and the
+   background drain applies it up to ~20 minutes later, but the page only re-reads what the drain has APPLIED — so a
+   refresh in that window showed a product the reviewer had just approved as un-approved, inviting a second click.
+   ⭐ The page now remembers its own saved approvals (per browser tab) until the server's row confirms them.
+   ⛔ A confirmed server row always wins: the memory is dropped the moment the row says approved, an edit un-approves,
+   and it expires after 30 minutes so it can never mask a refused or withdrawn approval for long. */
+var _MYAPPR={};
+try{ _MYAPPR=JSON.parse(sessionStorage.getItem('tcf_myappr')||'{}')||{}; }catch(_){ _MYAPPR={}; }
+function _myApprSave(){ try{ sessionStorage.setItem('tcf_myappr',JSON.stringify(_MYAPPR)); }catch(_){} }
+function _myApprSet(sku,rev){ if(!sku) return; _MYAPPR[sku]={rev:+rev||0,at:Date.now()}; _myApprSave(); }
+function _myApprDrop(sku){ if(sku&&_MYAPPR[sku]){ delete _MYAPPR[sku]; _myApprSave(); } }
+function _myApprReapply(){
+  P.forEach(function(p,i){ var m=_MYAPPR[p.sku]; if(!m) return;
+    var d=p._decision||{};
+    if(Date.now()-m.at>1800000 || d.overall==='approved' || +(d.revision||0)>m.rev){ _myApprDrop(p.sku); return; }
+    st[i].approved=true; if(!st[i].approvedBy) st[i].approvedBy=ACCOUNT||'you'; });
+}
+window._myApprSet=_myApprSet; window._myApprDrop=_myApprDrop; window._myApprReapply=_myApprReapply;
 function applyPayload(payload){
   var items=(payload&&payload.items)||[];
   if(!items.length) throw new Error('the payload has no items — refusing to '
@@ -1707,6 +1725,7 @@ function applyPayload(payload){
                Object.keys(p._comments||{}).forEach(function(k){if(a[k])o[k]=a[k];});return o;})(),
              picks:p.pre.slice(), by:{}});
   });
+  try{ _myApprReapply(); }catch(_){}
   cur=0; filter='all'; editing=null;
   return P.length;
 }
@@ -1886,7 +1905,7 @@ function renderQueue(){
     const ps=pubState(i);
     const tick=ps==='published'?'<span class="chip ok" style="padding:1px 5px">✓ published</span>'
       :ps==='parked'||ps==='held'?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">'+(ps==='held'?'held':'parked')+'</span>'
-      :st[i].approved?'<span class="chip ok" style="padding:1px 5px">⏳ approved</span>'
+      :st[i].approved?'<span class="chip ok" style="padding:1px 5px">⏳ publishing</span>'
       :g.act?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">action needed</span>'
       :g.blk?'<span class="chip" style="padding:1px 5px;background:var(--stop-soft);color:var(--stop)">blocked</span>'
       :g.wait?'<span class="chip" style="padding:1px 5px;background:var(--warn-soft);color:var(--warn)">'+(isVendorView()?'waiting on us':'blocked (staff)')+'</span>'
@@ -3484,7 +3503,7 @@ function renderPubBar(){
        staff, "Action needed" = a blocking flag OR a missing field — anything a person on our side must do */
     if(ps!=='published'&&!st[i].approved){ if(g.blk>0||(!isVendorView()&&g.act>0)) act++; else if(g.wait>0) us++; } });
   el.innerHTML=chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published','', 'pub')
-    +chip('wait','⏳',c.waiting,'Waiting to publish','', 'wait')
+    +chip('wait','⏳',c.waiting,'Publishing','', 'wait')
     +chip('park','⛔',c.parked+c.held,'Parked','', 'park')
     +(isVendorView()?chip('park','❗',act,'Action needed','', 'act')+chip('wait','🕓',us,'Waiting on us','', 'us')
                     :chip('park','❗',act,'Action needed','', 'act'))
@@ -3699,6 +3718,7 @@ window.approveProduct=async function(){
     st[i].approved=was; st[i].approvedBy=wasBy; renderAll();
     return;
   }
+  _myApprSet(P[i].sku, res&&res.revision);
   toast(isVendorView()?vendorApprovedMsg(i):'Approved — enters tonight\'s publish queue');
 };
 
@@ -4068,7 +4088,7 @@ document.addEventListener('keydown',e=>{
 function vStatusOf(i){
   const ps=pubState(i), g=productBlocked(i);
   return ps==='published'?['Published','ok']:ps==='parked'||ps==='held'?['Waiting on us','stop']
-    :st[i].approved?['Approved','ok']:g.act?['Needs your action','stop']:g.blk?['Needs your attention','stop']
+    :st[i].approved?['Publishing','ok']:g.act?['Needs your action','stop']:g.blk?['Needs your attention','stop']
     :g.wait?['Waiting on us','warn']:g.rw?['Rewrite asked','rw']
     :g.noImgs?['No photos chosen','warn']:g.nameBad?['Check the name','warn']:['Ready to approve','ok'];
 }
@@ -4454,14 +4474,20 @@ async function liveRefresh(manual){
 function startLiveRefresh(){
   if(LIVE.timer!=null || typeof setInterval!=='function' || !IS_BROWSER) return;
   LIVE.sig=_payloadSig({items:P.map(function(p){ return {sku:p.sku}; })});
-  LIVE.timer=setInterval(function(){ try{ if(document.hidden) return; }catch(_){} liveRefresh(false); },
-                         isVendorView()?60000:120000);
+  /* ⭐ 2026-10-02 (operator: "how do we get that to show more in real time?"): a save is queued and applied a minute or
+     so later, so the page used to lag the real state by up to a full interval. Now it checks every 10 s WHILE anything
+     is publishing (approved, not yet live) and at the old pace otherwise. ⛔ A tick costs one read, and liveRefresh
+     already skips when nothing changed or an edit is in progress. */
+  var _base=isVendorView()?60000:120000, _last=Date.now();
+  LIVE.timer=setInterval(function(){ try{ if(document.hidden) return; }catch(_){}
+    var busy=P.some(function(p,i){ return pubState(i)==='waiting'; }), now=Date.now();
+    if(busy || now-_last>=_base){ _last=now; liveRefresh(false); } }, 10000);
 }
 var _confirmTimers=[];
 function scheduleConfirmRefresh(){
   if(!IS_BROWSER || typeof setTimeout!=='function') return;
   _confirmTimers.forEach(function(t){ try{ clearTimeout(t); }catch(_){} });
-  _confirmTimers=[30000, 90000].map(function(ms){ return setTimeout(function(){ liveRefresh(false); }, ms); });
+  _confirmTimers=[5000, 15000, 30000, 60000, 90000].map(function(ms){ return setTimeout(function(){ liveRefresh(false); }, ms); });
 }
 window.scheduleConfirmRefresh=scheduleConfirmRefresh;
 window.liveRefresh=liveRefresh; window._payloadSig=_payloadSig;
@@ -4967,7 +4993,7 @@ function scheduleAutosave(i, label){
      edit now puts the product back to "not yet approved" — they approve again to publish the change. (Staff keep
      today's behaviour.) Before the IS_BROWSER guard, so the harness can test it. */
   if(isVendorView() && st[i] && st[i].approved){
-    st[i].approved=false;
+    st[i].approved=false; _myApprDrop(P[i].sku);
     if(typeof renderAll==='function' && i===cur) renderAll();
     toast('Changed after approval — press Approve again when you want this change to go live.');
   }
