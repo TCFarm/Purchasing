@@ -1143,6 +1143,50 @@ var GraphHost={
    origin is in PORTAL_ORIGINS AND equals the origin we post to, its type is a
    known type, and its id matches a request still waiting for that type.
    Anything else is ignored — never an error, never a partial answer. */
+/* ⭐ 2026-10-01 — in-app feedback screenshots. A copy of Inventory management/Freezer Restock/app/domshot.js
+   (MIT © 2026 TC Farm; the SVG <foreignObject> technique) and its domSnapshot(): this page's CSS is all <style> tags,
+   so the freezer's capture works here unchanged. ⛔ It rejects on any failure; the portal sends the feedback anyway. */
+function studioContext(){
+  try{ var p=(typeof P!=='undefined'&&P[cur])||{}; var t=document.querySelector('.tab[aria-selected="true"]');
+    return {batch:String(_itemBatch?_itemBatch(cur):''), sku:String(p.sku||''), name:String(p.name||'').slice(0,120),
+            tab:t?String(t.textContent||'').trim().slice(0,40):'', kind:String(p.kind||'')}; }catch(e){ return {}; }
+}
+function studioScreenshot(){
+  return new Promise(function(resolve, reject){
+    try{
+      var W=window.innerWidth, H=window.innerHeight, sy=window.scrollY||0;
+      var css=[].slice.call(document.querySelectorAll('style')).map(function(x){return x.textContent;}).join('\n');
+      var live=[].slice.call(document.body.querySelectorAll('*')), clone=document.body.cloneNode(true);
+      var cl=[].slice.call(clone.querySelectorAll('*'));
+      live.forEach(function(el,i){ var c=cl[i]; if(!c) return;
+        if(el.tagName==='INPUT' && el.type!=='file') c.setAttribute('value', el.value||'');
+        if(el.tagName==='TEXTAREA') c.textContent=el.value||'';
+        if(el.tagName==='SELECT') [].slice.call(c.querySelectorAll('option')).forEach(function(o,k){
+          if(k===el.selectedIndex) o.setAttribute('selected',''); else o.removeAttribute('selected'); });
+        if(el.tagName==='DIALOG' && !el.open) c.remove(); });
+      [].slice.call(clone.querySelectorAll('script,video,audio,iframe')).forEach(function(x){ x.remove(); });
+      var wrap=document.createElement('div'); wrap.style.cssText='position:relative;width:'+W+'px;margin-top:'+(-sy)+'px';
+      var body=document.createElement('div'); body.className=document.body.className;
+      var bcs=getComputedStyle(document.body);
+      body.style.cssText='margin:0;font-family:'+bcs.fontFamily.replace(/"/g,"'")+';font-size:'+bcs.fontSize+';color:'+bcs.color+';background:'+bcs.backgroundColor+';line-height:'+bcs.lineHeight;
+      while(clone.firstChild) body.appendChild(clone.firstChild);
+      wrap.appendChild(body);
+      var html=new XMLSerializer().serializeToString(wrap), bg=bcs.backgroundColor||'#ffffff';
+      var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'"><foreignObject x="0" y="0" width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="width:'+W+'px;height:'+H+'px;overflow:hidden;position:relative;background:'+bg+'"><style>'+css.replace(/<\/style/gi,'<\\/style')+'</style>'+html+'</div></foreignObject></svg>';
+      var done=false, timer=setTimeout(function(){ if(!done){ done=true; reject(new Error('screenshot timed out')); } }, 8000);
+      var img=new Image();
+      img.onload=function(){ try{
+          var scale=Math.min(1, 1280/W); var cv=document.createElement('canvas');
+          cv.width=Math.max(1,Math.round(W*scale)); cv.height=Math.max(1,Math.round(H*scale));
+          var g=cv.getContext('2d'); g.fillStyle=bg; g.fillRect(0,0,cv.width,cv.height); g.drawImage(img,0,0,cv.width,cv.height);
+          clearTimeout(timer); if(!done){ done=true; resolve(cv.toDataURL('image/png')); }
+        }catch(e){ clearTimeout(timer); if(!done){ done=true; reject(e); } } };
+      img.onerror=function(){ clearTimeout(timer); if(!done){ done=true; reject(new Error('the snapshot could not be decoded')); } };
+      img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+    }catch(e){ reject(e); }
+  });
+}
+window.studioScreenshot=studioScreenshot; window.studioContext=studioContext;
 function makePortalHost(parentWin, parentOrigin, opts){
   opts=opts||{};
   if(PORTAL_ORIGINS.indexOf(parentOrigin)<0)
@@ -1177,6 +1221,14 @@ function makePortalHost(parentWin, parentOrigin, opts){
     if(PORTAL_ORIGINS.indexOf(ev.origin)<0 || ev.origin!==parentOrigin) return false;
     var m=ev.data;
     if(!m || typeof m!=='object' || m.channel!=='tcf-studio') return false;
+    /* ⭐ 2026-10-01 (in-app feedback): the portal asks for a picture of THIS page (it cannot capture a cross-origin frame).
+       Reply with a PNG of what is on screen + which product/tab — nothing else. */
+    if(m.type==='snapshot_request' && typeof m.id==='string'){
+      studioScreenshot().then(function(png){ return {png:png}; }, function(e){ return {error:String((e&&e.message)||e).slice(0,200)}; })
+        .then(function(r){ r.ctx=studioContext();
+          parentWin.postMessage({channel:'tcf-studio', id:m.id, type:'snapshot_result', result:r}, parentOrigin); });
+      return true;
+    }
     if(PORTAL_TYPES.indexOf(m.type)<0) return false;
     var w=waiting[m.id];
     if(!w || w.type!==m.type) return false;
