@@ -3487,15 +3487,17 @@ function _kehepoAppendTick(sunday){
 async function startKehePoAppend(){
   const sunday=kehepoSunday();
   if(!confirm(
-    `Append the newly-resolvable item(s) onto the Finale purchase order already committed for `+
-    `week ${sunday}?\n\nThis reopens, edits and RE-LOCKS a live Finale order. It cannot be undone `+
+    `Update the Finale purchase order already committed for week ${sunday} from the latest KeHE `+
+    `file?\n\nIt adds any item that is now in Finale, and refreshes the unit cost on lines still `+
+    `at the price we sent (a price someone changed by hand in Finale is left alone). Quantities are `+
+    `not changed.\n\nThis reopens, edits and RE-LOCKS a live Finale order. It cannot be undone `+
     `from here — cancelling a mistake afterward is a separate manual step in Finale.`)) return;
   KEHEPO_APPEND_STATE="queued"; KEHEPO_APPEND_MSG="queuing…"; KEHEPO_APPEND_RESULT=null;
   renderKehePo();
   try{
     const jobId=await postAgentJob("kehe.append_finale_po",sunday,{});
     KEHEPO_APPEND_JOB=jobId; KEHEPO_APPEND_STATE="polling";
-    KEHEPO_APPEND_MSG="appending to the order in Finale…"; renderKehePo();
+    KEHEPO_APPEND_MSG="updating the order in Finale…"; renderKehePo();
     await pollAgentJob(jobId, _kehepoAppendTick(sunday));
   }catch(e){
     KEHEPO_APPEND_STATE="failed"; KEHEPO_APPEND_MSG="⛔ "+(e.message||String(e));
@@ -3659,7 +3661,15 @@ function renderKehePo(){
        the review's OWN resolvable-line count, which only grows as items get created. */
     const looksLikeSomethingNew=hasOrder && reviewForThisWeek &&
       Number(KEHEPO_REVIEW.finale_po_lines||0) > committedLines.length;
-    const appendReady=hasOrder && looksLikeSomethingNew &&
+    /* ⭐ PM-2149 — a LATER KeHE file can carry real prices for lines already on the PO (the first
+       download often has $0 on every line). Same line count, so the count gate above cannot see it;
+       compare the review's fresh per-SKU price with what the order holds. Heuristic again — the
+       handler's own price_plan() decides what may really change (never a human-edited price). */
+    const freshPrices=(reviewForThisWeek && KEHEPO_REVIEW.po_prices) || {};
+    const pricesToRefresh=committedLines.filter(c=>{
+      const np=Number(freshPrices[c.sku]); const op=Number(c.unit_price||0);
+      return np>0 && Math.abs(np-op)>0.005; }).length;
+    const appendReady=hasOrder && (looksLikeSomethingNew || pricesToRefresh>0) &&
       KEHEPO_APPEND_STATE!=="queued" && KEHEPO_APPEND_STATE!=="polling";
     step3=`
     <div class="kstep">
@@ -3669,6 +3679,7 @@ function renderKehePo(){
         <span>Finale order <b>${esc(String(KEHEPO_STATUS.order_id))}</b></span>
         ${KEHEPO_STATUS.order_url?`<span><a href="${escAttr(KEHEPO_STATUS.order_url)}" target="_blank" rel="noopener">open in Finale</a></span>`:""}
         <span>committed lines <b>${committedLines.length}</b></span>
+        ${pricesToRefresh?`<span>new KeHE price on <b>${pricesToRefresh}</b> line(s)</span>`:""}
       </div>`:`<div class="mut small">No Finale PO committed yet for this week — this section
         will track excluded items once you tap Create in Finale above.</div>`}
       ${unknownRows.length?`
@@ -3682,12 +3693,16 @@ function renderKehePo(){
       <div style="margin-top:9px;display:flex;gap:9px;flex-wrap:wrap">
         <button id="kehecheck" ${checkReady?"":"disabled"}>Check for missing items</button>
         <button class="primary" id="kehappend" ${appendReady?"":"disabled"}
-          >Add to Finale PO</button>
+          >Update Finale PO</button>
       </div>
       <div class="mut small" style="margin-top:6px">${KEHEPO_CHECK_MSG||""}</div>
       <div class="mut small" style="margin-top:2px">${KEHEPO_APPEND_MSG||""}</div>
       ${KEHEPO_APPEND_RESULT?`<div class="kstats"><span>result <b>${esc(String(KEHEPO_APPEND_RESULT.result||""))}</b></span>
         ${(KEHEPO_APPEND_RESULT.appended_skus||[]).length?`<span>appended <b>${KEHEPO_APPEND_RESULT.appended_skus.length}</b> SKU(s)</span>`:""}
+        ${(KEHEPO_APPEND_RESULT.price_updated||[]).length?`<span>prices updated <b>${KEHEPO_APPEND_RESULT.price_updated.length}</b></span>`:""}
+        ${(KEHEPO_APPEND_RESULT.price_conflicts||[]).length?`<span>⚠️ left alone — price changed by hand in Finale: <b>${KEHEPO_APPEND_RESULT.price_conflicts.map(c=>esc(String(c.sku))).join(", ")}</b></span>`:""}
+        ${(KEHEPO_APPEND_RESULT.price_not_applied||[]).length?`<span>⛔ Finale did not take the new price on <b>${KEHEPO_APPEND_RESULT.price_not_applied.length}</b> line(s)</span>`:""}
+        ${(KEHEPO_APPEND_RESULT.qty_differs||[]).length?`<span>quantity differs from KeHE on <b>${KEHEPO_APPEND_RESULT.qty_differs.length}</b> line(s) (not changed)</span>`:""}
         ${KEHEPO_APPEND_RESULT.detail?`<span>${esc(String(KEHEPO_APPEND_RESULT.detail))}</span>`:""}</div>`:""}
       `:""}
       ${KEHEPO_STATUS_ERR?`<div class="kalert">⛔ ${esc(KEHEPO_STATUS_ERR)}</div>`:""}
