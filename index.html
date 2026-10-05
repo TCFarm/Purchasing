@@ -3668,7 +3668,7 @@ function renderKehePo(){
     const freshPrices=(reviewForThisWeek && KEHEPO_REVIEW.po_prices) || {};
     const pricesToRefresh=committedLines.filter(c=>{
       const np=Number(freshPrices[c.sku]); const op=Number(c.unit_price||0);
-      return np>0 && Math.abs(np-op)>0.005; }).length;
+      return Number.isFinite(np) && Math.abs(np)>0.005 && Math.abs(np-op)>0.005; }).length;  /* a negative IS a price (INFRA deal) */
     const appendReady=hasOrder && (looksLikeSomethingNew || pricesToRefresh>0) &&
       KEHEPO_APPEND_STATE!=="queued" && KEHEPO_APPEND_STATE!=="polling";
     step3=`
