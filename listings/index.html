@@ -89,6 +89,8 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .qthumb{overflow:hidden}.qthumb img{width:100%;height:100%;object-fit:cover;display:block}.qthumb.none{font-size:8.5px;font-weight:600;line-height:1.1;text-align:center;color:var(--ink-2)}
 .qname{font-size:12.5px;font-weight:600;line-height:1.3;margin-bottom:3px}
 .qmeta{display:flex;align-items:center;gap:6px}
+.qsearch{padding:0 14px 8px}.qsearch input{width:100%;box-sizing:border-box;font:inherit;font-size:12.5px;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg,#fff);color:inherit}
+.qbatch{display:block;font-size:10.5px;color:var(--mute,#888);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .src{font-size:9px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:3px;white-space:nowrap}
 .src.newitem{background:var(--accent-soft);color:var(--accent)}
 .src.enhance{background:var(--plum-soft);color:var(--plum)}
@@ -419,6 +421,9 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
 <div class="vwait" id="vendorWait" role="status">Loading your products…</div>
 <div class="shell">
   <nav class="queue"><div class="queue-h"><span class="lbl" id="qTitle">Prepared overnight</span><span class="lbl" id="qLeft"></span></div>
+    <!-- ⭐ 2026-10-05 (Jack): find a product by name, SKU, brand or UPC. Pick "All queues" above to search every batch. -->
+    <div class="qsearch"><input type="search" id="qSearch" placeholder="Search name, SKU, brand, UPC…"
+      aria-label="Search the products in this list" autocomplete="off" spellcheck="false"></div>
     <div id="queue"></div>
     <div class="queue-h" id="qFoot" style="padding-top:14px"><span class="lbl">this wireframe carries 4 of the queue's items</span></div></nav>
 
@@ -876,9 +881,16 @@ function _fillBatchSel(sel, rows){
        the bridge's `title`. Staff rows carry no title (or title == batch) and keep the raw id they know. */
     `<option value="${esc(r.batch)}">${esc(batchLabel(r))}</option>`).join('');
   /* ⭐ `?batch=` still wins when it names something real; otherwise NEWEST. */
-  sel.value=(want&&rows.some(r=>r.batch===want))?want:rows[0].batch;
+  sel.value=(want&&rows.some(r=>r.batch===want))?want:_defaultBatch(rows);
   return sel.value;
 }
+/* ⭐ 2026-10-05: the first row not marked `notDefault`. Staff "All queues" carries the mark (it loads every payload,
+   so the reviewer's default stays the newest real batch); the vendor's "All my products" does not, so stays theirs. */
+function _defaultBatch(rows){
+  var r=rows.find(function(x){ return !x.notDefault; });
+  return (r||rows[0]).batch;
+}
+window._defaultBatch=_defaultBatch;
 
 async function loadLive(batch){
   const path=encodeURIComponent(`/${CFG.payloadDir}/payload_${batch}.json`).replace(/%2F/g,'/');
@@ -915,6 +927,61 @@ async function loadLive(batch){
   return mergeState(payload, rows);
 }
 window.loadLive=loadLive;
+
+/* ⭐⭐ 2026-10-05 (Jack: "can we get a search to find items by name, SKU, brand, etc in ALL of the queues or a way
+   to just see ALL items and filter from there?"). The staff twin of the vendor portal's `__all__` view: every
+   published payload in the payload folder (⛔ the "complete" subfolder is not listed, so closed batches stay out;
+   ⛔ test batches are left out too — IS_TEST is one flag for the whole page and a test item must never read
+   "live"), each merged with ITS OWN decision rows, every item stamped `_batch` so every write goes to that
+   product's own batch (`_itemBatch`). ⛔ One payload that fails to load is SKIPPED AND NAMED, never silently
+   dropped — `_skipped` is reported in a toast by bootLive. ⭐ The SharePoint list is read ONCE, not once per batch. */
+var ALL_BATCHES='__all__';
+function mergeAll(parts){
+  var out=null, skipped=[];
+  parts.forEach(function(pt){
+    if(pt.error){ skipped.push(pt.batch); return; }
+    var pl=pt.payload||{};
+    (pl.items||[]).forEach(function(it){ it._batch=pt.batch; });
+    ((pl.needs_input)||[]).forEach(function(n){ n._batch=pt.batch; });
+    ((pl.deferred)||[]).forEach(function(d){ d._batch=pt.batch; });
+    if(!out){ out=Object.assign({}, pl, {items:[], needs_input:[], deferred:[], _ask:{}, _decisions_found:0}); }
+    out.items=out.items.concat(pl.items||[]);
+    out.needs_input=out.needs_input.concat(pl.needs_input||[]);
+    out.deferred=out.deferred.concat(pl.deferred||[]);
+    Object.assign(out._ask, pl._ask||{});
+    out._decisions_found+=+(pl._decisions_found||0);
+  });
+  out=out||{items:[]};
+  out.test_batch=false; out._skipped=skipped;
+  return out;
+}
+window.mergeAll=mergeAll;
+async function loadAllLive(){
+  var batches=(await listBatches()).map(function(r){ return r.batch; })
+    .filter(function(b){ return b!==ALL_BATCHES && !(/(^|_)test$/i.test(b)||/_test_/i.test(b)); });
+  var lists=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  var l=(lists.value||[]).find(function(x){ return x.displayName===CFG.listName; });
+  if(!l) throw new Error(`the ${CFG.listName} list is missing — decisions cannot be saved`);
+  var byBatch={}, url=`/sites/${CFG.siteId}/lists/${l.id}/items?expand=fields&$top=500`;
+  while(url){
+    var b=await graph(url);
+    (b.value||[]).forEach(function(it){ var f=it.fields||{}; f._sp_id=it.id; f._drained=isDrainedRow(f);
+      var k=String(f.batch||''); (byBatch[k]=byBatch[k]||[]).push(f); });
+    url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
+  }
+  /* ⭐ four payloads at a time — some are several MB, and the page is only usable once all have arrived */
+  var parts=[], q=batches.slice();
+  async function worker(){ while(q.length){ var bt=q.shift();
+    try{ var path=encodeURIComponent(`/${CFG.payloadDir}/payload_${bt}.json`).replace(/%2F/g,'/');
+         var pl=await graph(`/sites/${CFG.siteId}/drive/root:${path}:/content`);
+         parts.push({batch:bt, payload:mergeState(pl, byBatch[bt]||[])}); }
+    catch(e){ parts.push({batch:bt, error:String((e&&e.message)||e)}); } } }
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  /* newest queue first, the order the selector shows */
+  parts.sort(function(a,b){ return batches.indexOf(a.batch)-batches.indexOf(b.batch); });
+  return mergeAll(parts);
+}
+window.loadAllLive=loadAllLive;
 
 /* ═══ MODES AND HOSTS (vendor mode, plan §1/§2/§7, 2026-09-28) ══════════════
    ONE code path renders three ways:
@@ -1123,8 +1190,11 @@ function _plain(h){
 var GraphHost={
   name:'graph', canUpload:false,
   hello:function(){ return Promise.resolve({who:ACCOUNT}); },
-  listBatches:function(){ return listBatches(); },
-  loadBatch:function(batch){ return loadLive(batch); },
+  /* ⭐ 2026-10-05: "All queues" heads the list for staff — but is never the DEFAULT (see _defaultBatch): it loads
+     every payload, which is slow, and the reviewer's batch is still the newest one. */
+  listBatches:function(){ return listBatches().then(function(rows){
+    return rows.length?[{batch:ALL_BATCHES, title:'All queues — search every product', mod:'', created:'', notDefault:true}].concat(rows):rows; }); },
+  loadBatch:function(batch){ return batch===ALL_BATCHES?loadAllLive():loadLive(batch); },
   saveDecision:function(batch, sku, patch){ return asVendorReadOnly()||saveDecision(batch, sku, patch); },
   /* ⭐ an answer row is keyed `ask:<key>` — exactly what saveAnswer sent before */
   saveAnswer:function(batch, key, body){ return asVendorReadOnly()||saveDecision(batch, 'ask:'+key, body); },
@@ -1745,7 +1815,20 @@ function chipMatch(i){
 }
 function setChip(c){ CHIP=(CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
 window.setChip=setChip; window.chipMatch=chipMatch;
-const visible=()=>P.map((p,i)=>i).filter(i=>(filter==='all'||P[i].src===filter)&&chipMatch(i));
+/* ⭐ 2026-10-05 (Jack): the queue search. Every word must match one of name / SKU / brand / UPC / batch (case-blind);
+   a number also matches a UPC without its leading zeros. ⛔ It only narrows the LIST — it never changes a product. */
+var QSEARCH='';
+function searchMatch(i){
+  var q=String(QSEARCH||'').trim().toLowerCase(); if(!q) return true;
+  var p=P[i]||{}, upc=String(p.upc||'');
+  var hay=[p.name,p.sku,p.brand,upc,upc.replace(/^0+/,''),p._batch,p._batch?batchLabel({batch:p._batch}):'']
+    .map(function(x){ return String(x||'').toLowerCase(); }).join(' \u0001 ');
+  return q.split(/\s+/).every(function(w){ return hay.indexOf(w.replace(/^0+(?=\d)/,''))>=0 || hay.indexOf(w)>=0; });
+}
+window.searchMatch=searchMatch;
+function setSearch(q){ QSEARCH=String(q||''); renderQueue(); }
+window.setSearch=setSearch;
+const visible=()=>P.map((p,i)=>i).filter(i=>(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i));
 const catOf=k=>CATS.find(c=>c[0]===k)||null;
 function targetMargin(p){
   /* precedence: an operator override → the PIPELINE's own target for this row
@@ -1917,7 +2000,7 @@ function renderQueue(){
       ${qthumbHtml(p,st[i])}
       <span><span class="qname">${esc(p.name)}${isVendorView()&&p.vendorNote?'<span class="vdot" title="A note from us" aria-label="has a note from us">●</span>':''}</span><span class="qmeta">
       <span class="src ${p.src}">${isVendorView()?(p.kind==='update'?(p.visible===false?'not offered':'on our stores'):'new'):(p.src==='newitem'?'new':p.src)}</span>${tick}<span class="dots">${dots}</span>
-      </span></span></button>`;}).join('')||'<div style="padding:16px" class="lbl">nothing in this filter</div>';
+      </span>${p._batch&&_batchFromUI()==='__all__'?`<span class="qbatch">${esc(batchLabel({batch:p._batch}).replace(/^Queue · /,''))}</span>`:''}</span></button>`;}).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):'nothing in this filter'}</div>`;
   $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
     /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
        not allow a native dialog, and a blocked confirm() returns false silently. */
@@ -3182,6 +3265,8 @@ function _unsaved(){
   if(editing!==null || pendingAutosave()) return true;
   try{ if(document.querySelectorAll('.cbox').length) return true; }catch(_){}
   try{ const a=document.activeElement, t=a&&String(a.tagName||'').toLowerCase();
+       /* ⭐ 2026-10-05: the queue search and the queue picker are not edits — a refresh must not wait on them */
+       if(a&&(a.id==='qSearch'||a.id==='batchSel')) {} else
        if(t==='input'||t==='textarea'||t==='select'||(a&&a.isContentEditable)) return true; }catch(_){}
   try{ const d=document.querySelector('#drawer'); if(d&&d.dataset&&d.dataset.open==='1') return true; }catch(_){}
   return false;
@@ -3898,11 +3983,11 @@ $('#btnClone').hidden=true;
    Defer made a product vanish from the app with no way back. It records
    `_undefer` (a timestamp) on the product's decision; the drain applies the
    LATER of a Defer and a bring-back, so neither can silently cancel the other. */
-window.undeferProduct=async function(sku){
+window.undeferProduct=async function(sku, ownBatch){
   if(HOST!==GraphHost){ toast('Bringing a product back is done by our team'); return {ok:false}; }
   if(!IS_BROWSER){ toast('Bringing a product back needs the live page'); return {ok:false}; }
   try{
-    var batch=_batchFromUI(), row=await _findRow(batch, sku), f=row.fields||{}, ed={};
+    var batch=ownBatch||_batchFromUI(), row=await _findRow(batch, sku), f=row.fields||{}, ed={};   /* ⭐ 2026-10-05: All queues */
     try{ ed=JSON.parse(f.edits_json||'{}')||{}; }catch(_){ ed={}; }
     ed._undefer=new Date().toISOString();
     /* ⛔ AUDIT FIX: drop the stored Defer itself — saves re-send stored flag
@@ -3922,12 +4007,12 @@ $('#btnDeferred').onclick=()=>openSheet(`<h2>Deferred from this batch</h2>
   returns it for review; nothing is published without an approval.</div>
   ${DEFERRED.map(d=>`<div class="rwitem"><b>${esc(d.name||d.sku)}</b> · <span class="mono">${esc(d.sku)}</span>
      <p>${esc(d.reason||'(no reason recorded)')}</p>
-     <button class="btn" data-undefer="${esc(d.sku)}">Bring back</button></div>`).join('')
+     <button class="btn" data-undefer="${esc(d.sku)}" data-undefer-batch="${esc(d._batch||'')}">Bring back</button></div>`).join('')
    ||'<div class="rwitem"><p>Nothing is deferred.</p></div>'}
   <button class="btn" onclick="closeSheet()">Close</button>`);
   /* ⭐ AUDIT FIX: no SKU inside an inline onclick string (quote-escaping). */
   document.querySelectorAll('[data-undefer]').forEach(function(b){
-    b.onclick=function(){ undeferProduct(b.getAttribute('data-undefer')); };});
+    b.onclick=function(){ undeferProduct(b.getAttribute('data-undefer'), b.getAttribute('data-undefer-batch')||''); };});
 $('#btnClone').onclick=()=>toast('Making a similar version from here is not built yet');
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
@@ -4035,7 +4120,7 @@ $('#btnDefer').onclick=async()=>{
   /* ⛔ 'deferred' is not a vendor `overall` — the button is hidden there, and this refuses too */
   if(isVendorView()){ toast('Deferring is done by our team'); return; }
   st[cur].approved=false;
-  var b=_batchFromUI();
+  var b=_itemBatch(cur);   /* ⭐ 2026-10-05: in All queues the selector is not this product's batch */
   if(IS_BROWSER){
     var r=await HOST.saveDecision(b,P[cur].sku,
       Object.assign(decisionPatch(cur),{overall:'deferred'})).catch(e=>({ok:false,reason:String(e)}));
@@ -4447,7 +4532,7 @@ async function refreshBatchList(manual){
   if(!fresh.length && !gone) return [];
   var keep=sel.value;
   sel.innerHTML=rows.map(function(r){ return '<option value="'+esc(r.batch)+'">'+esc(batchLabel(r))+'</option>'; }).join('');
-  sel.value=rows.some(function(r){ return r.batch===keep; })?keep:rows[0].batch;
+  sel.value=rows.some(function(r){ return r.batch===keep; })?keep:_defaultBatch(rows);
   var named=fresh.filter(function(r){ return r.batch!=='__all__'; });
   if(named.length) toast('New: '+named.map(batchLabel).join(', ')+' — pick it in the list above');
   return fresh;
@@ -4497,6 +4582,12 @@ function scheduleConfirmRefresh(){
 window.scheduleConfirmRefresh=scheduleConfirmRefresh;
 window.liveRefresh=liveRefresh; window._payloadSig=_payloadSig;
 if(document.querySelector('#btnRefresh')) $('#btnRefresh').onclick=function(){ liveRefresh(true); };
+if(document.querySelector('#qSearch')){
+  $('#qSearch').oninput=function(e){ setSearch(e.target.value); };
+  /* Enter opens the first match */
+  /* Enter opens the first match — by clicking its row, so the unsaved-edit guard is the row's own */
+  $('#qSearch').onkeydown=function(e){ if(e.key==='Enter'){ var r=document.querySelector('#queue .qrow'); if(r) r.click(); } };
+}
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();
@@ -4581,7 +4672,7 @@ async function bootLive(){
     var n=applyPayload(payload);
     loadUploadsSession();
     reconcileUploads();
-    if(tag) tag.textContent='Live · '+batch;
+    if(tag) tag.textContent='Live · '+(batch==='__all__'?'all queues':batch);
     _setWho(_whoHtml(), true);
     applyModeChrome();
     if(VIEW.mode==='vendor' && document.body && document.body.dataset) document.body.dataset.loaded='1';
@@ -4590,7 +4681,9 @@ async function bootLive(){
     startLiveRefresh();
     toast(n+' product'+(n===1?'':'s')+' loaded'
           +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':'')
-          +(NEEDS.length?' · ❓ '+NEEDS.length+' need your answer':''));
+          +(NEEDS.length?' · ❓ '+NEEDS.length+' need your answer':'')
+          /* ⛔ 2026-10-05: All queues names any batch it could not read — fewer products must never look complete */
+          +((payload._skipped||[]).length?' · ⚠ could not load: '+payload._skipped.join(', '):''));
   }catch(e){
     /* ⛔ SAY WHAT FAILED AND LEAVE THE FIXTURES UP. A silent fall-back to
        fixtures would be the worst outcome available: the page would look
