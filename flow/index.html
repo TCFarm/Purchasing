@@ -201,7 +201,7 @@
   <span class="slot"><b>Mon 23:00</b> sale locks</span>
   <span class="slot"><b>Thu 09:00</b> last order scored</span>
   <span class="slot"><b>daily 07:30</b> pull list</span>
-  <span class="slot"><b>daily 19:00</b> approvals become work</span>
+  <span class="slot"><b>on Submit</b> approvals become work (daily 19:00 backstop)</span>
   <span class="slot">listings prepared continuously (7 at a time, whenever there's work)</span>
   <span class="slot"><b>every 10 min, 7am–10pm</b> your comments actioned</span>
 </div>
@@ -303,16 +303,16 @@
   </div>
 
   <div class="step">
-    <div class="when">Daily<small>19:00</small></div>
+    <div class="when">On Submit<small>within a minute</small></div>
     <details class="sd">
-      <summary><span class="what">Your approvals become work <span class="tag t-live">running</span></span><span class="who">Automatic · nothing to press</span></summary>
+      <summary><span class="what">Your approvals become work <span class="tag t-live">running</span></span><span class="who">Automatic · pressing Submit is the only step</span></summary>
       <div class="sdbody">
-      <div class="desc">Each approval turns into two things: a <b>pre-order line</b> at your quantity, and a handoff to the listing pipeline carrying everything already known — pricing research, supplier data, product facts — so none of it is looked up twice.</div>
+      <div class="desc">Pressing <b>Submit decisions</b> sends every saved decision straight through &mdash; no second button. Each approval turns into two things: a <b>pre-order line</b> at your quantity, and a handoff to the listing pipeline carrying everything already known — pricing research, supplier data, product facts — so none of it is looked up twice.</div>
       <details>
         <summary>safe to run twice, and the one failure worth reading</summary>
         <ul>
-          <li>Runs every night whether or not anything was approved. A quiet night is a clean exit, not a problem.</li>
-          <li><b>You don't have to wait for it.</b> On the <b>Decided</b> tab, <b>Build the purchase orders</b> does the same work immediately for the week you're looking at — see the next step.</li>
+          <li><b>Submit does it immediately</b> &mdash; the listing pipeline picks the handoff up on its own and the item appears in the Listing Studio; a decline cancels any earlier line. The <b>Decided</b> tab shows when it is done.</li>
+          <li>A nightly 19:00 run is kept as a <b>backstop</b>, catching anything a failed or signed-out submit left behind. A quiet night is a clean exit, not a problem. If the Decided tab says a run failed, press the small <b>Re-run</b>.</li>
           <li>It can't double-queue: a drained decision is skipped for good, and the queue refuses a repeat of the same line.</li>
           <li><b>The one alarm that needs a person</b> is approvals stranded on an order week that has already been sent. Nothing automatic can place those — they have to be decided again for a later week. It emails rather than failing quietly.</li>
         </ul>
@@ -326,7 +326,7 @@
     <details class="sd">
       <summary><span class="what">You send a direct vendor their order <span class="tag t-you">you</span></span><span class="who"><a href="https://tcfarm.github.io/newitems/">tcfarm.github.io/newitems/</a> &rarr; <b>Decided</b></span></summary>
       <div class="sdbody">
-      <div class="desc">Anything from a vendor who isn't KeHE never reaches the Sunday KeHE order &mdash; it gets its own purchase order, one per supplier. Press <b>Build the purchase orders</b> on the week you just decided; a minute later there's a sheet to download and send, and a button to say you sent it.</div>
+      <div class="desc">Anything from a vendor who isn't KeHE never reaches the Sunday KeHE order &mdash; it gets its own purchase order, one per supplier. Submitting the week builds it automatically; a minute later the <b>Decided</b> tab has a sheet to download and send, and a button to say you sent it.</div>
       <details>
         <summary>what the sheet is, and the one irreversible button</summary>
         <ul>
