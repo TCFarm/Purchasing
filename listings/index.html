@@ -205,6 +205,8 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .hint{font-size:10.5px;color:var(--ink-3);margin-top:4px}
 .hint.bad{color:var(--stop)}
 .hint.okk{color:var(--ok)}
+.skurow{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.skurow .ctl{flex:1 1 220px;min-width:180px}
+.skubc{flex:0 0 auto;max-width:100%}.skubc-bar{display:flex;gap:6px;align-items:center;margin-top:4px;font-size:10.5px;color:var(--ink-3)}.skubc-bar .btn.sm{padding:2px 8px;font-size:11px}
 
 .gstrip{display:flex;gap:8px;flex-wrap:wrap}
 /* ⭐ 2026-09-12 (Jack: "if we can get the images to display on the preview,
@@ -1812,6 +1814,79 @@ function applyPayload(payload){
 const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const money=v=>'$'+Number(v||0).toFixed(2);
+
+/* ⭐ 2026-10-07 (operator: "a barcode scanner readable version of the SKU … with a button to download a small PNG/JPG").
+   CODE 128 (subset B) — the one symbology every handheld scanner reads out of the box AND that carries letters, digits and
+   hyphens (our SKUs are alphanumeric, so UPC/EAN/Code 39-digits-only are out). ⛔ Self-contained ON PURPOSE: the page may only
+   load scripts from approved hosts, and a barcode library that fails to load would silently show nothing.
+   `code128Modules(text)` is PURE (no DOM) so the suite can check it; the SVG preview and the canvas download both draw from it. */
+const C128=['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+function code128Modules(text){
+  const t=String(text==null?'':text);
+  if(!t.length) return null;
+  const codes=[104];                                   // Start B
+  for(let i=0;i<t.length;i++){
+    const c=t.charCodeAt(i);
+    if(c<32||c>126) return null;                       // subset B is printable ASCII only — refuse rather than draw a wrong code
+    codes.push(c-32);
+  }
+  let sum=104;
+  for(let i=1;i<codes.length;i++) sum+=codes[i]*i;
+  codes.push(sum%103);                                 // checksum
+  codes.push(106);                                     // Stop
+  const widths=[];
+  codes.forEach(function(k){ C128[k].split('').forEach(function(w){ widths.push(+w); }); });
+  return widths;                                       // alternating bar,space,bar… starting with a bar
+}
+const BC_QUIET=10;                                     // modules of white each side — scanners need ≥10
+function barcodeBars(text){
+  const w=code128Modules(text); if(!w) return null;
+  const bars=[]; let x=BC_QUIET;
+  w.forEach(function(n,i){ if(i%2===0) bars.push([x,n]); x+=n; });
+  return {bars:bars, width:x+BC_QUIET};
+}
+function barcodeSvg(text, h){
+  const b=barcodeBars(text); if(!b) return '';
+  h=h||44;
+  return '<svg class="bcsvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+b.width+' '+h+'" preserveAspectRatio="none" role="img" aria-label="Barcode for '+esc(text)+'" style="height:'+h+'px;width:'+Math.round(b.width*1.6)+'px;max-width:100%;background:#fff;display:block">'
+    +'<rect width="'+b.width+'" height="'+h+'" fill="#fff"/>'
+    +b.bars.map(function(r){ return '<rect x="'+r[0]+'" y="0" width="'+r[1]+'" height="'+h+'" fill="#000"/>'; }).join('')+'</svg>';
+}
+function barcodeCanvas(text){
+  const b=barcodeBars(text); if(!b) return null;
+  const M=3, BAR_H=90, LABEL_H=26;                    // 3 px per module
+  const cv=document.createElement('canvas');
+  cv.width=b.width*M; cv.height=BAR_H+LABEL_H;
+  const g=cv.getContext('2d');
+  g.fillStyle='#fff'; g.fillRect(0,0,cv.width,cv.height);   // opaque white — a transparent PNG reads as black-on-black in some viewers
+  g.fillStyle='#000';
+  b.bars.forEach(function(r){ g.fillRect(r[0]*M,0,r[1]*M,BAR_H); });
+  g.font='bold 16px monospace'; g.textAlign='center'; g.textBaseline='middle';
+  g.fillText(String(text),cv.width/2,BAR_H+LABEL_H/2+1);
+  return cv;
+}
+function downloadBarcode(text, fmt){
+  const jpg=(fmt==='jpg');
+  const cv=barcodeCanvas(text);
+  if(!cv){ try{ toast('That SKU cannot be drawn as a barcode.'); }catch(e){} return; }
+  cv.toBlob(function(blob){
+    if(!blob) return;
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=String(text).replace(/[^A-Za-z0-9._-]/g,'_')+'-barcode.'+(jpg?'jpg':'png');
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); },2000);
+  }, jpg?'image/jpeg':'image/png', 0.95);
+}
+function skuBarcodeHtml(sku){
+  const svg=barcodeSvg(sku,44); if(!svg) return '';
+  const q=String(sku).replace(/'/g,"\\'");
+  return '<div class="skubc" title="Code 128 — scans with any handheld scanner">'+svg
+    +'<div class="skubc-bar"><span class="mono">'+esc(sku)+'</span>'
+    +'<button type="button" class="btn sm" onclick="downloadBarcode(\''+esc(q)+'\',\'png\')">⬇ PNG</button>'
+    +'<button type="button" class="btn sm" onclick="downloadBarcode(\''+esc(q)+'\',\'jpg\')">⬇ JPG</button></div></div>';
+}
+
 function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),2400);}
 /* ⭐ 2026-10-01 (operator: "do these buttons even click or filter?" — they did not): the status chips FILTER the list */
 var CHIP=null;
@@ -2665,7 +2740,7 @@ function renderFields(){
       (function(){const q=nameProblems(p.name,p.brand);
         return q.length?q.map(x=>`<span class="bad">⛔ ${esc(x)}</span>`).join('<br>')
                        :'<span class="okk">✓ no brand, no case quantity, size suffix present</span>';})()))}
-    ${vrow('sku',null,frow('SKU',isVendorView()?'our item code':'derived',`<input class="ctl mono" value="${esc(p.sku)}" disabled>`
+    ${vrow('sku',null,frow('SKU',isVendorView()?'our item code':'derived',`<div class="skurow"><input class="ctl mono" value="${esc(p.sku)}" disabled>${skuBarcodeHtml(p.sku)}</div>`
       +((p.skuAfter&&p.skuAfter!==p.sku)?`<div class="hint">⏳ becomes <b class="mono">${esc(p.skuAfter)}</b> once your change is applied</div>`:''),
       isVendorView()?'<span class="derived">set by us from the storage area and the category</span>':`<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`))}
     ${isVendorView()?vrow('published',null,frow('On our stores',null,p.published
