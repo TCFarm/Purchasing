@@ -1000,7 +1000,7 @@ window.loadAllLive=loadAllLive;
    owner and supplier data before a vendor payload leaves it. The page is only
    required not to DEPEND on that — and a test proves it renders none of it. */
 var PORTAL_ORIGINS=['https://vendors.mnfood.club','https://main.do89570fqs33f.amplifyapp.com'];
-var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest'];
+var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest','clone'];
 var PORTAL_TIMEOUT_MS=30000;
 /* ⛔ An EMBEDDED COPY of config vendor_field_policy.json — used ONLY when the
    payload carries no `vendor_policy`. The harness compares it to the file, so
@@ -1011,20 +1011,20 @@ var VENDOR_POLICY_FALLBACK={
         'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder','visible'],
   live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible','images'],
   view:['sku','brand','published','taxAssessment','flags'],
-  hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred','btnClone',
+  hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred',
            'costRow','marginRow','finaleRows','ownerRow','supplierRow','itemTypeRow','freeFillRow','visibleRow',
            'variantsBlock','notesBlock','heldBanner','rail'],
   overall_allowed:['approved','pending','rework'],
   vendor_flag_types:['NO_CATEGORY_MATCH','CATEGORY_LOW_CONFIDENCE','SIZE_NEEDED','INGREDIENTS_UNVERIFIED',
                      'IMAGES_NEED_SOURCING','VENDOR_CHANGE_REQUEST','TAX_CLASS_UNVERIFIED','TAX_CLASS_DISAGREES',
-                     'PRICE_UNKNOWN','VENDOR_RIVIR_IDENTITY_CONFLICT']
+                     'PRICE_UNKNOWN','VENDOR_RIVIR_IDENTITY_CONFLICT','CLONE_COPIED']
 };
 var VPOLICY=null;          /* payload.vendor_policy, set by applyPayload */
 /* the static elements a hide_ui name refers to (render-template names are
    handled where they render, by vrow()/vh()) */
 var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:'#btnConsign',
   btnPortal:'#btnPortal',btnRw:'#btnRw',btnRunNow:'#btnRunNow',btnDeferred:'#btnDeferred',
-  btnClone:'#btnClone',rail:'#railKind'};
+  rail:'#railKind'};   /* ⭐ 2026-10-06: #btnClone is not policy-hidden any more — cloneAvailable() decides */
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
@@ -1177,7 +1177,8 @@ var VFLAG_LABEL={NO_CATEGORY_MATCH:'We could not place this in a category',
   VENDOR_CHANGE_REQUEST:'Your change request', TAX_CLASS_UNVERIFIED:'Please confirm whether it is taxable',
   TAX_CLASS_DISAGREES:'Please check whether it is taxable',
   PRICE_UNKNOWN:'Please set your price',
-  VENDOR_RIVIR_IDENTITY_CONFLICT:'Your file and the barcode disagree'};   /* ⭐ 2026-09-30 (Jack's portal test): the raw code showed to the vendor */
+  VENDOR_RIVIR_IDENTITY_CONFLICT:'Your file and the barcode disagree',
+  CLONE_COPIED:'Started as a copy — please check what was reused'};   /* ⭐ 2026-09-30 (Jack's portal test): the raw code showed to the vendor */
 /* a flag with no label reads as words, never as an internal CODE */
 function vFlagLabel(k){ return VFLAG_LABEL[k] || String(k||'').replace(/_/g,' ').toLowerCase().replace(/^./, function(c){ return c.toUpperCase(); }); }
 /* flag text is HTML from the pipeline; a vendor view shows it as plain text */
@@ -1381,11 +1382,19 @@ function makePortalHost(parentWin, parentOrigin, opts){
     sendMemo:function(batch, sku, id, blob, meta){
       meta=meta||{};
       return Promise.resolve(blob.arrayBuffer()).then(function(data){
+        /* ⭐ 2026-10-06: a clone's dictation names its UPLOAD (`intake_id`) and carries NO sku — a sku would make it a story for
+           that listing and feed its copy */
         return request('memo',{batch:batch, sku:sku, id:id, ext:meta.ext, mime:meta.mime,
-                               duration_s:meta.duration_s||0, data:data}, [data]);
+                               duration_s:meta.duration_s||0, data:data, intake_id:meta.intake_id||''}, [data]);
       });
     },
     listMemos:function(sku){ return request('memos',{sku:sku}).then(function(r){ return (r&&r.memos)||[]; }); },
+    /* ⭐ 2026-10-06 Make a similar version: files travel as transferable buffers, exactly like `upload` */
+    startClone:function(args, files){
+      files=files||[];
+      var xfer=files.map(function(f){ return f.data; });
+      return request('clone', Object.assign({}, args, {files:files}), xfer);
+    },
     /* the vendor's choice after recording: rewrite this description with the story once it is transcribed? */
     storyRequest:function(batch, sku, session, rewrite, parts){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true, parts:(parts|0)}); }
   };
@@ -3512,7 +3521,7 @@ function renderOps(){
     <span style="display:block;margin-top:5px">${esc(p.pm.why)}</span>
     <span style="display:block;margin-top:6px;color:var(--ink-3)">Cross-check only — never anchors our price.</span></div></section>`:''}
   <section><h3>Actions</h3>
-    <button class="tbtn" style="width:100%;margin-bottom:6px" onclick="cloneSheet()">Make a similar version</button>
+    ${cloneAvailable()?'<button class="tbtn" style="width:100%;margin-bottom:6px" onclick="cloneSheet()">Make a similar version</button>':''}
     <button class="tbtn" style="width:100%" onclick="selectTab('fields')">Edit all BC fields</button>
   </section>`;
 }
@@ -3966,19 +3975,7 @@ window.queueCostQuery=function(){
   if(IS_BROWSER) persist(cur,'Cost correction queued');
   else toast('Cost correction queued for tonight\'s run');
 };
-window.cloneSheet=function(){openSheet(`<h2>Make a similar version</h2>
-  <div class="sub">Seeds a new item from <b>${esc(P[cur].name)}</b> into tonight's queue. Nothing is created now.</div>
-  <label style="display:block;margin-bottom:10px"><span class="lbl">What is different?</span>
-    <input class="ctl" value="Smoked gouda instead of cheddar"></label>
-  <label style="display:block;margin-bottom:10px"><span class="lbl">Variant, or a separate product?</span>
-    <select class="ctl"><option>Separate product — different identity</option>
-    <option>Variant of the source — same page, new option</option>
-    <option>Let the run recommend, I'll decide tomorrow</option></select></label>
-  <button class="btn primary" onclick="closeSheet();toast('Queued as a clone — prepared tonight')">Add to tonight's queue</button>`);};
-/* ⛔ 2026-09-22 (plan B5): "Make a similar version" was a MOCK — its sheet toasted
-   "Queued as a clone" and queued nothing. Hidden until it is really built (new
-   flavours go through house_products.variantize today). */
-$('#btnClone').hidden=true;
+/* ⭐ 2026-10-06: "Make a similar version" is REAL now — see MAKE A SIMILAR VERSION below (it was a mock until today). */
 /* ⭐ 2026-09-22 (plan B5): "bring back" a deferred product. ⛔ Before this a
    Defer made a product vanish from the app with no way back. It records
    `_undefer` (a timestamp) on the product's decision; the drain applies the
@@ -4013,7 +4010,7 @@ $('#btnDeferred').onclick=()=>openSheet(`<h2>Deferred from this batch</h2>
   /* ⭐ AUDIT FIX: no SKU inside an inline onclick string (quote-escaping). */
   document.querySelectorAll('[data-undefer]').forEach(function(b){
     b.onclick=function(){ undeferProduct(b.getAttribute('data-undefer'), b.getAttribute('data-undefer-batch')||''); };});
-$('#btnClone').onclick=()=>toast('Making a similar version from here is not built yet');
+$('#btnClone').onclick=function(){ cloneSheet(); };
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
   openSheet(`<h2>Queued for the next run</h2><div class="sub">Each re-runs <b>only that section</b>
@@ -4647,6 +4644,7 @@ function applyModeChrome(){
     const el=document.querySelector(sel); if(el&&el.dataset) el.dataset.vhOn=V?'1':'0';
   });
   const up=document.querySelector('#btnUpload'); if(up) up.hidden=!(HOST&&HOST.canUpload);
+  const cb=document.querySelector('#btnClone'); if(cb) cb.hidden=!cloneAvailable();   /* ⭐ 2026-10-06 */
   const qt=document.querySelector('#qTitle'); if(qt) qt.textContent=V?'Your products':'Prepared overnight';
   const mt=document.querySelector('#modeTag');
   if(mt) mt.textContent=VIEW.mode==='vendor'?'Vendor view'
@@ -4792,6 +4790,7 @@ async function bootVendor(){
     VIEW.vendorRole=(hi.role==='admin'||hi.role==='user')?hi.role:'';
     VIEW.vendorOwner=String(hi.owner||'');
     VIEW.viewOnly=!!hi.view_only;
+    VIEW.features=Array.isArray(hi.features)?hi.features.map(String):[];   /* ⭐ 2026-10-06: an old portal sends none → no dead Make-a-similar-version button */
     try{ document.body.setAttribute('data-viewonly', VIEW.viewOnly?'1':''); }catch(_){}
     ACCOUNT=String(hi.who||hi.email||'');
     _setWho(_whoHtml(), true);
@@ -5506,6 +5505,326 @@ function cnRender(id, r, org, saved){
   }
 }
 window.cnOpen=cnOpen; window.cnNew=cnNew; window.cnDetail=cnDetail; window.cnRender=cnRender;
+
+/* ═══ MAKE A SIMILAR VERSION (2026-10-06) — plan docs/PLAN_SIMILAR_VERSION_2026-10-06.md ══════════════════════════
+   Start a NEW product from the one on screen: what is different goes in as TEXT, FILES and/or DICTATION, and "Process
+   now" sends it down the consignment intake lane (the SAME lane as the Consignment tab and the portal's Create new
+   products). ⭐ OPERATOR RULING: everything similar is COPIED from the source as a starting point; whatever the new
+   files state wins; the rest is reused; the UPC and SKU are never copied. ⛔ THE PAGE ONLY WRITES FILES, A STATE ROW AND
+   A JOB POINTER — the Mac mini re-derives the source (clone_template.py) from `(batch, sku)`; owner/supplier/price are
+   never decided here.
+   Staff → Graph (cnIds/cnUpload/cnPut/cnQueue, as the Consignment tab). Vendor → `HOST.startClone` (portal postMessage). */
+var CLN_LIMITS={files:50, fileBytes:25*1048576, totalBytes:200*1048576, text:50000, parts:12, partSec:300};
+var CLN_NOT_OWNERS=['TCFarm','MNFC','TCFeeds','STCroix'];
+var CLN_KINDS=[['flavour','A new flavour or recipe','e.g. salted caramel instead of chocolate'],
+               ['size','A new size or pack of the same thing','e.g. the 12 oz is now also a 16 oz'],
+               ['other','Something else','tell us in your own words']];
+var CLN=null;
+function cloneFresh(){ return {files:[], text:'', kind:'flavour', mode:'separate', count:'', busy:false, err:'', fileErr:'',
+  parts:[], phase:'idle', stream:null, mr:null, t0:0, timer:null, n:1, starting:false, recErr:'', sess:'',
+  sub:null, poll:null, iid:''}; }
+/* is the button OFFERED at all — staff on the live page, or a vendor whose portal says it can take it (hello.features) */
+function cloneAvailable(){
+  if(isVendorView()) return VIEW.mode==='vendor' && !VIEW.viewOnly && Array.isArray(VIEW.features) && VIEW.features.indexOf('clone')>=0;
+  return VIEW.mode==='staff' && HOST===GraphHost;
+}
+/* ⭐ may THIS product be the source? -> {ok, reason}. ⛔ The server decides again; this only says why not, up front. */
+function cloneEligible(p, batch){
+  if(!p || !p.sku) return {ok:false, reason:'Pick a product first.'};
+  if(!batch || batch==='__all__') return {ok:false, reason:'We could not tell which queue this product is in — reload the page and try again.'};
+  var o=String(p.owner||'');
+  if(!o) return {ok:false, reason:'This product has no owner recorded yet, so we cannot tell whose it is.'};
+  if(CLN_NOT_OWNERS.indexOf(o)>=0)
+    return {ok:false, reason:'This is one of TC Farm\'s own items. Similar versions of those are made with the house-product flow — ask the team. This tool is for vendor products.'};
+  return {ok:true, reason:''};
+}
+/* ⭐ a plain range, never a promise: reading 5–15, then 5–10 per product, a few minutes to be picked up, and the
+   recording is turned into text first (5–20). One product with a recording is realistically 20–60 minutes. */
+function cloneEstimate(o){
+  o=o||{}; var n=Math.max(1, Math.min(500, parseInt(o.count,10)||1)), audio=(+o.audioSec||0)>0;
+  var lo=5+(audio?5:0)+5*n+5, hi=15+(audio?20:0)+10*n+15;
+  var span=hi>=90 ? 'about '+Math.round(lo/60*2)/2+'–'+Math.round(hi/60*2)/2+' hours' : lo+'–'+hi+' minutes';
+  return {lo:lo, hi:hi, products:n, audio:audio,
+          text:'About '+span+' until '+(n===1?'it appears':'they appear')+' in your queue ready to review: we read what you gave us, '
+              +'then build '+(n===1?'the listing':'each listing')+' (roughly 5–10 minutes per product).'};
+}
+/* '' when OK, else the one thing to fix. `s` = {text, files, parts, phase, count, busy} */
+function cloneProblem(s){
+  s=s||{};
+  if(s.phase==='recording'||s.phase==='starting') return 'You are still recording — press “I\'m done” (or Pause), then Process now.';
+  if(s.sending) return 'A recording is still being prepared — wait a moment.';
+  if(!String(s.text||'').trim() && !(s.files||[]).length && !(s.parts||[]).length)
+    return 'Say what is different — type it, add a file, or record it.';
+  if(String(s.text||'').length>CLN_LIMITS.text) return 'The text is too long ('+CLN_LIMITS.text+' characters at most) — put the rest in a file.';
+  var c=String(s.count||'').trim();
+  if(c && (!/^\d{1,3}$/.test(c) || +c<1 || +c>500)) return '“How many new products” should be a number from 1 to 500 — or leave it empty.';
+  return '';
+}
+/* choosing files ADDS; each is checked against the limits by NAME (the same limits as the portal's upload) */
+function cloneFilesCheck(existing, picked){
+  var next=(existing||[]).slice(), refused=[], total=next.reduce(function(n,f){return n+(f.size||0);},0), keyOf=function(f){return f.name+'\u0000'+f.size+'\u0000'+(f.lastModified||0);};
+  var mb=function(b){return b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB';};
+  Array.prototype.forEach.call(picked||[], function(f){
+    if(next.some(function(x){return keyOf(x)===keyOf(f);})) return;
+    if(f.size>CLN_LIMITS.fileBytes){ refused.push('“'+f.name+'” is '+mb(f.size)+' — one file can be up to 25 MB.'); return; }
+    if(next.length>=CLN_LIMITS.files){ refused.push('“'+f.name+'” was not added — up to '+CLN_LIMITS.files+' files at once.'); return; }
+    if(total+f.size>CLN_LIMITS.totalBytes){ refused.push('“'+f.name+'” was not added — the files can add up to 200 MB.'); return; }
+    total+=f.size; next.push(f);
+  });
+  return {files:next, refused:refused};
+}
+function cloneStem(dateIso, owner, stamp){
+  return String(dateIso).slice(0,10)+'_'+cnSlug(owner)+'_similar_'+String(stamp||'').replace(/[^0-9]/g,'').slice(0,6)+'_consignment';
+}
+function cloneAudioExt(type){ return String(type||'').indexOf('audio/mp4')===0?'m4a':'webm'; }
+/* the exact ConsignmentIntake row a staff clone writes — pure, so a test can check every field */
+function cloneRowFields(p, batch, s, o){
+  o=o||{}; var def=cnVendorDefaults(p.owner), iid=o.iid, now=o.now;
+  return {Title:iid, intake_id:iid, owner_key:p.owner, vendor_name:def.display_name, batch_stem:o.stem, state:'uploaded',
+    folder:p.owner+'/'+iid, requested_by:o.who||'', requested_utc:now, updated_utc:now,
+    vendor_json:JSON.stringify({owner_key:p.owner, display_name:def.display_name, finale_supplier:def.finale_supplier||def.display_name,
+      clone:{batch:batch, sku:p.sku, mode:s.mode==='decide'?'decide':'separate', kind:s.kind}}),
+    expected_count:String(s.count||'').trim(), notes:'Made by staff with "Make a similar version".'};
+}
+/* what a vendor's request carries — nothing but the source's name, their words, files, recordings */
+function cloneVendorArgs(p, batch, s, iid, memoIds){
+  return {batch:batch, sku:p.sku, intake_id:iid, name:'Similar to '+String(p.name||p.sku).slice(0,50),
+          text:String(s.text||''), count:String(s.count||'').trim(), kind:s.kind, mode:s.mode==='decide'?'decide':'separate',
+          memos:memoIds||[]};
+}
+function cloneAudioSeconds(s){ return (s.parts||[]).reduce(function(n,x){return n+(x.seconds||0);},0); }
+
+/* ── dictation: 5-minute parts, kept in memory until Process now ── (local whisper on our machine — never a cloud service) */
+function cloneCanRecord(){ return typeof MediaRecorder!=='undefined' && typeof navigator!=='undefined' && !!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia); }
+function _clnStopMic(){ if(CLN&&CLN.timer){ clearInterval(CLN.timer); CLN.timer=null; } if(CLN&&CLN.stream){ CLN.stream.getTracks().forEach(function(t){t.stop();}); CLN.stream=null; } }
+function _clnPart(){
+  var c=CLN; if(!c||!c.stream) return;
+  var mime=_storyMime(), r;
+  try{ r=mime?new MediaRecorder(c.stream,{mimeType:mime}):new MediaRecorder(c.stream); }
+  catch(e){ c.recErr='This browser cannot record audio.'; _clnStopMic(); c.phase='idle'; cloneRender(); return; }
+  var chunks=[], started=Date.now(), n=c.n++;
+  r.ondataavailable=function(e){ if(e.data&&e.data.size) chunks.push(e.data); };
+  r.onstop=function(){
+    var type=((r.mimeType||mime||'audio/webm').split(';')[0]), blob=new Blob(chunks,{type:type});
+    if(blob.size){ c.parts.push({n:n, blob:blob, type:type, seconds:Math.min(CLN_LIMITS.partSec,(Date.now()-started)/1000)}); cloneRender(); }
+  };
+  c.mr=r; c.t0=started; r.start(1000); c.phase='recording';
+  if(c.timer) clearInterval(c.timer);
+  c.timer=setInterval(function(){
+    var el=(Date.now()-c.t0)/1000, t=document.querySelector('#clnTime'); if(t) t.textContent=_storyMmss(el);
+    if(el>=CLN_LIMITS.partSec && c.mr===r && r.state==='recording'){ r.stop(); if(c.parts.length+1<CLN_LIMITS.parts) _clnPart(); else window.cloneRecPause(); }
+  },250);
+  cloneRender();
+}
+window.cloneRecStart=function(){
+  var c=CLN; if(!c||c.starting||c.phase==='recording') return;
+  c.recErr='';
+  if(!cloneCanRecord()){ c.recErr='This browser cannot record audio here. Record on your phone and add the file instead.'; cloneRender(); return; }
+  if(c.parts.length>=CLN_LIMITS.parts){ c.recErr='That is the most we can take in one go ('+CLN_LIMITS.parts+' parts).'; cloneRender(); return; }
+  c.starting=true; cloneRender();
+  navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){ c.starting=false; c.stream=stream; _clnPart(); })
+    .catch(function(){ c.starting=false; c.recErr='We could not use your microphone. Allow microphone access for this page and try again — or type it / add a file.'; cloneRender(); });
+};
+window.cloneRecPause=function(){
+  var c=CLN; if(!c) return;
+  if(c.timer){ clearInterval(c.timer); c.timer=null; }
+  if(c.mr && c.mr.state!=='inactive') c.mr.stop();
+  c.mr=null; _clnStopMic(); c.phase=c.parts.length||true?'paused':'idle'; cloneRender();
+};
+window.cloneRecDone=function(){ window.cloneRecPause(); if(CLN) CLN.phase='idle'; cloneRender(); };
+window.cloneRecDrop=function(n){ if(!CLN) return; CLN.parts=CLN.parts.filter(function(x){return x.n!==n;}); cloneRender(); };
+
+/* ── the dialog ── */
+function cloneSheet(){
+  var p=P[cur], batch=_itemBatch(cur), el=cloneEligible(p, batch);
+  if(!el.ok){
+    openSheet('<h2>Make a similar version</h2><div class="sub">'+esc(el.reason)+'</div><button class="btn" onclick="closeSheet()">Close</button>');
+    $('#sheet').classList.remove('wide'); return;
+  }
+  if(!CLN || CLN.sku!==p.sku){ if(CLN&&CLN.timer) _clnStopMic(); CLN=cloneFresh(); CLN.sku=p.sku; CLN.batch=batch; }
+  CLN.iid=CLN.iid||cnIntakeId();
+  cloneRender();
+}
+function cloneRender(){
+  var c=CLN; if(!c||!P[cur]) return;
+  var p=P[cur], V=isVendorView(), us=V?'we':'our team';
+  if(c.sub){ return cloneProgress(); }
+  var probl=cloneProblem({text:c.text, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':(c.starting?'starting':''), count:c.count}),
+      est=cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)});
+  var rec=c.phase==='recording'
+      ? '<span class="vs-rec" aria-hidden="true"></span><b>Recording · <span id="clnTime">0:00</span></b> <button class="btn" onclick="cloneRecPause()">Pause</button> <button class="btn primary" onclick="cloneRecDone()">I\'m done</button>'
+      : (c.phase==='paused' ? '<b>Paused</b> <button class="btn" onclick="cloneRecStart()">Continue recording</button> <button class="btn primary" onclick="cloneRecDone()">I\'m done</button>'
+        : (c.starting?'<button class="btn" disabled>Starting the microphone…</button>':'<button class="btn" onclick="cloneRecStart()">🎙 Start dictating</button>'));
+  var sizeNote=c.kind==='size'?'Say the new size, and its price if it is different. ':'';
+  openSheet(`<h2>Make a similar version of ${esc(p.name)}</h2>
+    <div class="sub">Starts from <b>${esc(p.name)}</b> <span class="mono">${esc(p.sku)}</span> and <b>copies what is similar</b> —
+      category, storage, tax, size, price, ingredients, dimensions, volume and the other settings. ${V?'Tell us':'Tell it'} only what is
+      <b>different</b>; everything you do not mention is reused. The new product gets its own barcode and SKU, and you can fix anything
+      that is wrong in the listing afterwards. Nothing is published without an approval.</div>
+    <fieldset style="border:0;padding:0;margin:0 0 10px"><legend class="lbl">What kind of change?</legend>
+      ${CLN_KINDS.map(function(k){ return `<label style="display:block;font-size:13px;margin:2px 0"><input type="radio" name="clnKind" value="${k[0]}" ${c.kind===k[0]?'checked':''}> <b>${esc(k[1])}</b> <span class="note">— ${esc(k[2])}</span></label>`; }).join('')}
+    </fieldset>
+    <label style="display:block;margin-bottom:10px"><span class="lbl">What is different?</span>
+      <textarea id="clnText" class="ctl" rows="7" maxlength="${CLN_LIMITS.text}" style="width:100%;font:inherit"
+        placeholder="${c.kind==='size'?'The 16 oz version of the same thing. Price $24, UPC 0…':'Salted caramel ice cream with a ribbon of caramel. Ingredients: cream, milk, sugar, … Contains: milk. UPC …'}">${esc(c.text)}</textarea>
+      <span class="note">${sizeNote}Name it, give its UPC if you have it, its ingredients and anything else new. You can also add files or dictate below.
+        <span id="clnCount">${c.text.length.toLocaleString()} of ${CLN_LIMITS.text.toLocaleString()} characters</span></span></label>
+    <div class="cn-drop" id="clnDrop"><b>Drag files here</b> (price lists, spec sheets, label photos, ingredient PDFs…) or
+      <input type="file" id="clnFile" multiple ${c.busy?'disabled':''}></div>
+    ${c.fileErr?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.fileErr)}</div>`:''}
+    <div class="cn-files">${c.files.map(function(f,i){ return `<div><span>${esc(f.name)} · ${(f.size/1048576).toFixed(1)} MB</span>
+      <button class="tbtn" data-clnrm="${i}" ${c.busy?'disabled':''}>Remove</button></div>`; }).join('')}</div>
+    <div style="margin:8px 0"><b>Or say it out loud</b> <span class="note">— we turn the recording into text on our own computer, in parts of up to 5 minutes.</span>
+      <div class="vs-row" style="margin:6px 0">${rec}</div>
+      ${c.parts.map(function(x){ return `<div class="note">Recording part ${x.n} · ${_storyMmss(x.seconds)} · saved on this page
+        <button class="tbtn" data-clndrop="${x.n}" ${c.busy?'disabled':''}>Remove</button></div>`; }).join('')}
+      ${c.recErr?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.recErr)}</div>`:''}</div>
+    <div class="cn-grid">
+      <label>How many new products? <span class="note">(optional — we double-check we found them all)</span>
+        <input id="clnCnt" type="text" inputmode="numeric" maxlength="3" value="${esc(c.count)}" placeholder="1"></label>
+      ${V?'':`<label>A variant of the source, or a separate product?
+        <select id="clnMode"><option value="separate" ${c.mode==='separate'?'selected':''}>Separate product</option>
+        <option value="decide" ${c.mode==='decide'?'selected':''}>Our team decides if it should be a variant</option></select></label>`}
+    </div>
+    <div class="hint" id="clnEst" role="status">⏱ ${esc(est.text)}</div>
+    ${c.err?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.err)}</div>`:''}
+    <div style="margin-top:10px"><button class="btn primary" id="clnGo" ${probl||c.busy?'disabled':''} title="${esc(probl)}">${c.busy?'Sending…':'Process now'}</button>
+      <button class="btn" onclick="cloneClose()">Cancel</button>
+      ${probl&&!c.busy?`<span class="note" id="clnWhy"> ${esc(probl)}</span>`:''}</div>`);
+  $('#sheet').classList.remove('wide');
+  cloneWire();
+}
+/* wiring is separate from the template so typing never rebuilds (and loses focus in) the textarea */
+function cloneWire(){
+  var c=CLN; if(!c) return;
+  var qa=function(s){ return document.querySelectorAll(s)||[]; };
+  Array.prototype.forEach.call(qa('input[name="clnKind"]'), function(r){ r.onchange=function(){ c.kind=r.value; cloneRender(); }; });
+  var t=document.querySelector('#clnText'); if(t) t.oninput=function(){ c.text=t.value; var n=document.querySelector('#clnCount'); if(n) n.textContent=t.value.length.toLocaleString()+' of '+CLN_LIMITS.text.toLocaleString()+' characters'; cloneRefresh(); };
+  var cn=document.querySelector('#clnCnt'); if(cn) cn.oninput=function(){ c.count=cn.value; cloneRefresh(); };
+  var md=document.querySelector('#clnMode'); if(md) md.onchange=function(){ c.mode=md.value; };
+  var ff=document.querySelector('#clnFile'); if(ff) ff.onchange=function(e){ cloneAdd(e.target.files); try{ e.target.value=''; }catch(_){} };
+  var dz=document.querySelector('#clnDrop');
+  if(dz&&dz.addEventListener){
+    dz.addEventListener('dragover',function(e){ e.preventDefault(); dz.dataset.over='1'; });
+    dz.addEventListener('dragleave',function(){ dz.dataset.over='0'; });
+    dz.addEventListener('drop',function(e){ e.preventDefault(); dz.dataset.over='0'; cloneAdd(e.dataTransfer&&e.dataTransfer.files); });
+  }
+  Array.prototype.forEach.call(qa('[data-clnrm]'), function(b){ b.onclick=function(){ c.files.splice(+b.getAttribute('data-clnrm'),1); c.fileErr=''; cloneRender(); }; });
+  Array.prototype.forEach.call(qa('[data-clndrop]'), function(b){ b.onclick=function(){ window.cloneRecDrop(+b.getAttribute('data-clndrop')); }; });
+  var go=document.querySelector('#clnGo'); if(go) go.onclick=function(){ cloneSubmit(); };
+}
+/* update just the estimate + button + reason as the user types */
+function cloneRefresh(){
+  var c=CLN; if(!c) return;
+  var probl=cloneProblem({text:c.text, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
+  var go=document.querySelector('#clnGo'); if(go){ go.disabled=!!probl||c.busy; go.title=probl; }
+  var est=document.querySelector('#clnEst'); if(est) est.textContent='⏱ '+cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)}).text;
+  var why=document.querySelector('#clnWhy'); if(why) why.textContent=' '+probl;
+}
+function cloneAdd(list){
+  var c=CLN; if(!c||c.busy) return;
+  var r=cloneFilesCheck(c.files, list); c.files=r.files;
+  c.fileErr=r.refused.length?r.refused.join(' ')+' Split it up, or paste a link to it in the text.':'';
+  cloneRender();
+}
+function cloneClose(){
+  /* a typed draft is kept for this product while the page stays open; a running microphone is always released */
+  if(CLN && CLN.phase==='recording') window.cloneRecPause();
+  _clnStopMic(); if(CLN&&CLN.poll){ clearTimeout(CLN.poll); CLN.poll=null; }
+  closeSheet();
+}
+window.cloneSheet=cloneSheet; window.cloneClose=cloneClose;
+
+/* ── Process now ── */
+async function cloneSubmit(){
+  var c=CLN, p=P[cur]; if(!c||!p||c.busy) return;
+  var probl=cloneProblem({text:c.text, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
+  if(probl){ c.err=probl; cloneRender(); return; }
+  if(!cloneAvailable()){ c.err='This is not available here right now.'; cloneRender(); return; }
+  c.busy=true; c.err=''; cloneRender();
+  try{
+    var res = isVendorView() ? await cloneSubmitVendor(c, p) : await cloneSubmitStaff(c, p);
+    c.sub=res; c.busy=false;
+    /* the next one starts clean; this one is now on the server */
+    cloneProgress();
+  }catch(e){
+    c.busy=false; c.err='NOT SENT — '+(e&&e.message?e.message:e)+'. What you typed is kept; press Process now to try again.';
+    cloneRender();
+  }
+}
+async function cloneSubmitStaff(c, p){
+  if(!IS_BROWSER) throw new Error('this needs the live page (sign in)');
+  await cnIds();
+  var iid=c.iid, owner=p.owner, folder=owner+'/'+iid, now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  var stem=cloneStem(now, owner, now.slice(11,19));
+  for(var i=0;i<c.files.length;i++) await cnUpload(folder+'/files/'+c.files[i].name, c.files[i]);
+  await cnPut(folder+'/paste.txt', 'What is different:\n'+c.text, 'text/plain');
+  for(var k=0;k<c.parts.length;k++){
+    var x=c.parts[k]; await cnPut(folder+'/audio/dictation-'+String(x.n).padStart(2,'0')+'.'+cloneAudioExt(x.type), x.blob, x.type);
+  }
+  var made=await graph(`/sites/${CFG.siteId}/lists/${CN.list}/items`,{method:'POST',body:JSON.stringify({fields:
+    cloneRowFields(p, c.batch, c, {iid:iid, now:now, stem:stem, who:ACCOUNT||''})})});
+  await cnQueue('productpipeline.consignment_organize', made.id);
+  return {kind:'staff', id:made.id, iid:iid, at:Date.now()};
+}
+async function cloneSubmitVendor(c, p){
+  if(!HOST || typeof HOST.startClone!=='function') throw new Error('this portal cannot take it yet');
+  var iid=c.iid, ids=[];
+  for(var k=0;k<c.parts.length;k++){
+    var x=c.parts[k], id='c'+iid.replace(/[^A-Za-z0-9]/g,'').slice(-12)+'-'+String(x.n).padStart(2,'0');
+    await HOST.sendMemo(c.batch, '', id, x.blob, {ext:cloneAudioExt(x.type), mime:x.type, duration_s:Math.round(x.seconds), intake_id:iid});
+    ids.push(id);
+  }
+  var files=[];
+  for(var i=0;i<c.files.length;i++){ var f=c.files[i]; files.push({name:f.name, type:f.type||'application/octet-stream', data:await f.arrayBuffer()}); }
+  var args=cloneVendorArgs(p, c.batch, c, iid, ids);
+  var r=await HOST.startClone(args, files);
+  if(r && r.ok===false) throw new Error(r.message||r.reason||'the portal refused it');
+  return {kind:'vendor', id:iid, iid:iid, at:Date.now()};
+}
+
+/* ── after Process now: where it is, and when to expect it ── */
+function cloneStageText(state){
+  var n=1;
+  if(state==='uploaded'||state==='organizing'||state==='waiting_transcripts') return 'Reading what you gave us… usually 5–15 minutes (a recording is turned into text first).';
+  if(state==='needs_answers') return 'We need a few answers before we can build it.';
+  if(state==='organized'||state==='preparing') return 'Setting it up…';
+  if(state==='prepared') return 'Building the listing — about 5–10 minutes per product.';
+  if(state==='in_review'||state==='done') return 'Ready — it is in your queue to review.';
+  if(state==='failed') return 'Something went wrong.';
+  return 'Received.';
+}
+function cloneProgress(){
+  var c=CLN; if(!c||!c.sub) return;
+  var s=c.sub, p=P[cur]||{name:''};
+  var est=cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)});
+  var stage=s.state?cloneStageText(s.state):'Received — we have started on it.';
+  var body='<h2>On its way</h2><div class="sub">A similar version of <b>'+esc(p.name)+'</b> is being made.</div>'
+    +(s.kind==='staff'&&s.state?cnTimeline(s.state):'')
+    +'<div class="rwitem" role="status"><b>'+esc(stage)+'</b>'+(s.note?'<div class="note">'+esc(s.note)+'</div>':'')
+    +'<div class="note">⏱ '+esc(est.text)+'</div></div>'
+    +(s.state==='needs_answers'&&s.kind==='staff'?'<button class="btn primary" onclick="cnDetail(\''+esc(s.id)+'\')">Answer the questions</button> ':'')
+    +(isVendorView()?'<div class="note">You can close this: follow it on the portal\'s <b>Status</b> page. It appears in your queue by itself when it is built.</div>'
+                    :'<div class="note">You can close this — it keeps going without you. When it is built it appears in the batch list.</div>')
+    +'<div style="margin-top:10px">'
+    +((s.state==='in_review'||s.state==='prepared')&&!isVendorView()&&typeof liveRefresh==='function'?'<button class="btn" onclick="liveRefresh(true)">Refresh the list</button> ':'')
+    +'<button class="btn primary" onclick="cloneDone()">Close</button></div>';
+  openSheet(body); $('#sheet').classList.remove('wide');
+  if(s.kind==='staff' && !c.poll && ['in_review','done','failed','needs_answers'].indexOf(s.state||'')<0){
+    c.poll=setTimeout(function(){ c.poll=null; cloneFollow(); }, Date.now()-s.at<90000?5000:15000);
+  }
+}
+async function cloneFollow(){
+  var c=CLN; if(!c||!c.sub||c.sub.kind!=='staff') return;
+  if(!$('#drawer')||$('#drawer').dataset.open!=='1') return;
+  try{
+    var r=await cnRow(c.sub.id);
+    c.sub.state=r.state||''; c.sub.note=r.state_note||'';
+    cloneProgress();
+  }catch(_){ if(c.sub) c.poll=setTimeout(function(){ c.poll=null; cloneFollow(); }, 20000); }
+}
+function cloneDone(){ if(CLN&&CLN.poll){ clearTimeout(CLN.poll); } CLN=null; closeSheet(); }
+window.cloneDone=cloneDone;
 /* ⛔ GATED until the Mac mini runs the two consignment job kinds (install_supervisor.sh
    there). Before that, "Upload & organize" would upload files and queue a job nothing
    can claim. `?consign=1` shows it for checking; remove the gate once the mini is live. */
