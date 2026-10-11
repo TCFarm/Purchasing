@@ -69,9 +69,11 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .tbtn.danger:hover{border-color:var(--stop);color:var(--stop)}
 
 .filters{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:7px 18px;background:var(--ground);border-bottom:1px solid var(--line)}
-.chip-f{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:3px 11px;font-size:11.5px;font-weight:600;color:var(--ink-3)}
-.chip-f[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--ground)}
-.chip-f .n{font-family:var(--f-mono);font-size:10.5px;opacity:.75;margin-left:5px}
+.chip-f,.chip-o{border:1px solid var(--line);background:var(--panel);border-radius:99px;padding:3px 11px;font-size:11.5px;font-weight:600;color:var(--ink-3)}
+.chip-f[aria-pressed="true"],.chip-o[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--ground)}
+.chip-f .n,.chip-o .n{font-family:var(--f-mono);font-size:10.5px;opacity:.75;margin-left:5px}
+.opick{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--line)}
+.opick .n{margin-left:auto;font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
 
 .shell{display:grid;grid-template-columns:250px minmax(0,1fr) 320px;min-height:calc(100vh - 96px)}
 @media (max-width:1240px){.shell{grid-template-columns:220px minmax(0,1fr)}.ops{display:none}}
@@ -416,6 +418,14 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
   <button class="chip-f" id="btnDeferred" data-vhide="btnDeferred" hidden title="Products deferred from this batch — bring one back">Deferred<span class="n" id="fDef"></span></button>
   <button class="chip-f" data-f="enhance" aria-pressed="false">Enhance<span class="n" id="fEnh"></span></button>
   <button class="chip-f" data-f="clone" aria-pressed="false">Clone<span class="n" id="fCln"></span></button>
+  <!-- ⭐ 2026-10-11 (Jack): filter by OWNER. Staff open on All queues + Action needed + TC Farm, so our own tasks are not
+       buried under dozens of vendors' queues; "All vendors" shows every vendor's items at once. Staff only (vendor views
+       hide this whole bar and are already one owner). -->
+  <span class="lbl" style="margin:0 4px 0 14px">Owner</span>
+  <button class="chip-o" data-o="tcf" aria-pressed="false" title="Products TC Farm owns (and any with no owner set yet)">TC Farm<span class="n" id="oTcf"></span></button>
+  <button class="chip-o" data-o="vendors" aria-pressed="false" title="Every vendor's products — everything not owned by TC Farm">All vendors<span class="n" id="oVen"></span></button>
+  <button class="chip-o" data-o="all" aria-pressed="false" title="Every product, whoever owns it">Everyone<span class="n" id="oAll"></span></button>
+  <button class="chip-o" data-o="pick" aria-pressed="false" id="btnOwnerPick" title="Search for and choose one or more owners">Choose…</button>
   <span class="spacer"></span>
   <button class="tbtn" id="btnClone" data-vhide="btnClone">+ Make a similar version</button>
 </div>
@@ -1193,10 +1203,12 @@ function _plain(h){
 var GraphHost={
   name:'graph', canUpload:false,
   hello:function(){ return Promise.resolve({who:ACCOUNT}); },
-  /* ⭐ 2026-10-05: "All queues" heads the list for staff — but is never the DEFAULT (see _defaultBatch): it loads
-     every payload, which is slow, and the reviewer's batch is still the newest one. */
+  /* ⭐ 2026-10-05: "All queues" heads the list for staff.
+     ⭐⭐ 2026-10-11 (Jack): it is now the DEFAULT too — staff open on All queues + Action needed + TC Farm (staffDefaults),
+     so the day's own tasks are in one place however many vendor queues exist. It loads every payload, so the first load
+     is slower; `?batch=` still opens one batch directly. (Supersedes the 2026-10-05 "never the default".) */
   listBatches:function(){ return listBatches().then(function(rows){
-    return rows.length?[{batch:ALL_BATCHES, title:'All queues — search every product', mod:'', created:'', notDefault:true}].concat(rows):rows; }); },
+    return rows.length?[{batch:ALL_BATCHES, title:'All queues — search every product', mod:'', created:''}].concat(rows):rows; }); },
   loadBatch:function(batch){ return batch===ALL_BATCHES?loadAllLive():loadLive(batch); },
   saveDecision:function(batch, sku, patch){ return asVendorReadOnly()||saveDecision(batch, sku, patch); },
   /* ⭐ an answer row is keyed `ask:<key>` — exactly what saveAnswer sent before */
@@ -1894,8 +1906,13 @@ function chipMatch(i){
   if(!CHIP) return true;
   var ps=pubState(i), g=productBlocked(i);
   return CHIP==='pub'?ps==='published':CHIP==='wait'?ps==='waiting':CHIP==='park'?(ps==='parked'||ps==='held')
-    :CHIP==='act'?(ps!=='published'&&!st[i].approved&&(g.blk>0||(!isVendorView()&&g.act>0))):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
+    :CHIP==='act'?_needsAction(i):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
     :CHIP==='review'?ps==='review':true;
+}
+/* "Action needed" for one product — the ONE definition the chip, its count and the owner roster all use */
+function _needsAction(i){
+  var ps=pubState(i), g=productBlocked(i);
+  return ps!=='published'&&!st[i].approved&&(g.blk>0||(!isVendorView()&&g.act>0));
 }
 function setChip(c){ CHIP=(CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
 window.setChip=setChip; window.chipMatch=chipMatch;
@@ -1905,14 +1922,91 @@ var QSEARCH='';
 function searchMatch(i){
   var q=String(QSEARCH||'').trim().toLowerCase(); if(!q) return true;
   var p=P[i]||{}, upc=String(p.upc||'');
-  var hay=[p.name,p.sku,p.brand,upc,upc.replace(/^0+/,''),p._batch,p._batch?batchLabel({batch:p._batch}):'']
+  var hay=[p.name,p.sku,p.brand,p.owner,upc,upc.replace(/^0+/,''),p._batch,p._batch?batchLabel({batch:p._batch}):'']
     .map(function(x){ return String(x||'').toLowerCase(); }).join(' \u0001 ');
   return q.split(/\s+/).every(function(w){ return hay.indexOf(w.replace(/^0+(?=\d)/,''))>=0 || hay.indexOf(w)>=0; });
 }
 window.searchMatch=searchMatch;
 function setSearch(q){ QSEARCH=String(q||''); renderQueue(); }
 window.setSearch=setSearch;
-const visible=()=>P.map((p,i)=>i).filter(i=>(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i));
+/* ⭐⭐ 2026-10-11 (Jack: "default to TCFarm as the owner, but a way to search/select one or more vendors … when our staff
+   login, they see the actual tasks they need to do all in one place … if we have dozens of vendors adding queues, we
+   never will see the tasks due for us"). The OWNER filter.
+     tcf      — TC Farm's own products, PLUS any with no owner set (an unowned product is ours to sort out, so it must
+                never fall out of every view)
+     vendors  — everything that is not TC Farm's
+     all      — every product
+     pick     — exactly the owners in OWNERF.set (chosen in the "Choose…" sheet)
+   ⛔ Staff only: a vendor view is already one owner and this bar is hidden there, so ownerMatch is always true for it.
+   ⭐ It starts as 'all' so the fixtures and the harness are unchanged; staffDefaults() switches a real sign-in to
+   All queues + Action needed + TC Farm. ⛔ It only narrows the LIST — it never changes a product. */
+var OWNERF={mode:'all', set:[]};
+/* ⛔ the ONE vendor-view branch for the owner filter (VIEW_PARITY: hidden plumbing — the owner is a field vendors never
+   see, and a vendor's data is already one owner) */
+function _ownerUI(){ return !isVendorView(); }
+function ownerOf(p){ return String((p&&p.owner)||'').trim(); }
+function ownerModeMatch(o, mode, set){
+  return mode==='tcf'?(o==='TCFarm'||o===''):mode==='vendors'?(o!=='TCFarm'&&o!==''):mode==='pick'?(set||[]).indexOf(o)>=0:true;
+}
+function ownerMatch(i){ return !_ownerUI() || ownerModeMatch(ownerOf(P[i]), OWNERF.mode, OWNERF.set); }
+function setOwnerFilter(mode, set){
+  OWNERF={mode:(['tcf','vendors','all','pick'].indexOf(mode)>=0?mode:'all'), set:(set||[]).map(String)};
+  if(OWNERF.mode==='pick'&&!OWNERF.set.length) OWNERF.mode='all';
+  var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0];
+  renderAll(); if(typeof renderPubBar==='function') renderPubBar();
+}
+/* every owner in the loaded products, TC Farm first, with how many products and how many need action */
+function ownerRoster(){
+  var m={};
+  P.forEach(function(p,i){ var o=ownerOf(p), r=m[o]||(m[o]={owner:o, n:0, act:0}); r.n++; if(_needsAction(i)) r.act++; });
+  return Object.keys(m).map(function(k){ return m[k]; })
+    .sort(function(a,b){ return (b.owner==='TCFarm')-(a.owner==='TCFarm') || a.owner.toLowerCase().localeCompare(b.owner.toLowerCase()); });
+}
+function ownerLabel(o){ return o==='TCFarm'?'TC Farm':(o||'(no owner set)'); }
+function showOwnerPick(){
+  var rs=ownerRoster(), sel=OWNERF.mode==='pick'?OWNERF.set:[];
+  openSheet(`<h2>Choose owners</h2><div class="sub">Show only these owners' products. Tick one or more.</div>
+    <input type="search" class="ctl w-lg" id="opSearch" placeholder="Search owners…" autocomplete="off" spellcheck="false"
+      oninput="ownerPickFilter(this.value)" style="margin:6px 0 8px">
+    <div id="opList">${rs.map(function(r){ return `<label class="opick" data-on="${esc(r.owner.toLowerCase()+' '+ownerLabel(r.owner).toLowerCase())}">
+      <input type="checkbox" value="${esc(r.owner)}"${sel.indexOf(r.owner)>=0?' checked':''}> ${esc(ownerLabel(r.owner))}
+      <span class="n">${r.act?r.act+' need action · ':''}${r.n} product${r.n===1?'':'s'}</span></label>`; }).join('')
+      ||'<div class="lbl">No products loaded</div>'}</div>
+    <div style="margin-top:12px"><button class="btn primary" onclick="ownerPickApply()">Show these</button>
+    <button class="btn" onclick="ownerPickAll(true)">Tick all</button> <button class="btn" onclick="ownerPickAll(false)">Clear</button>
+    <button class="btn" onclick="closeSheet()">Cancel</button></div>`);
+  var s=document.querySelector('#opSearch'); if(s&&s.focus) try{ s.focus(); }catch(_){}
+}
+function ownerPickFilter(q){
+  q=String(q||'').trim().toLowerCase();
+  document.querySelectorAll('#opList .opick').forEach(function(l){ l.hidden=!!q && String(l.dataset.on||'').indexOf(q)<0; });
+}
+function ownerPickAll(on){ document.querySelectorAll('#opList .opick').forEach(function(l){ if(l.hidden) return; var c=l.querySelector('input'); if(c) c.checked=!!on; }); }
+function ownerPickApply(){
+  var picked=[]; document.querySelectorAll('#opList input[type=checkbox]').forEach(function(c){ if(c.checked) picked.push(c.value); });
+  closeSheet();
+  if(!picked.length){ toast('No owner ticked — showing everyone'); setOwnerFilter('all'); return; }
+  setOwnerFilter('pick', picked);
+}
+/* the owner chips: which is pressed, and how many products each choice would show under the OTHER filters */
+function renderOwnerChips(){
+  var base=P.map(function(p,i){ return i; }).filter(function(i){ return (filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i); });
+  var cnt=function(mode){ return base.filter(function(i){ return ownerModeMatch(ownerOf(P[i]), mode, OWNERF.set); }).length; };
+  var put=function(id,v){ var el=document.querySelector(id); if(el) el.textContent=v; };
+  put('#oTcf', cnt('tcf')); put('#oVen', cnt('vendors')); put('#oAll', base.length);
+  document.querySelectorAll('.chip-o').forEach(function(c){ c.setAttribute('aria-pressed', String(c.dataset.o===OWNERF.mode)); });
+  var pk=document.querySelector('#btnOwnerPick');
+  if(pk) pk.innerHTML=OWNERF.mode!=='pick'?'Choose…'
+    :esc(OWNERF.set.length===1?ownerLabel(OWNERF.set[0]):OWNERF.set.length+' owners')+'<span class="n">'+cnt('pick')+'</span> ▾';
+}
+document.querySelectorAll('.chip-o').forEach(function(c){ c.onclick=function(){
+  if(c.dataset.o==='pick'){ showOwnerPick(); return; }
+  setOwnerFilter(c.dataset.o);
+}; });
+window.ownerMatch=ownerMatch; window.ownerModeMatch=ownerModeMatch; window.setOwnerFilter=setOwnerFilter;
+window.ownerRoster=ownerRoster; window.showOwnerPick=showOwnerPick; window.ownerPickFilter=ownerPickFilter;
+window.ownerPickAll=ownerPickAll; window.ownerPickApply=ownerPickApply;
+const visible=()=>P.map((p,i)=>i).filter(i=>(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i)&&ownerMatch(i));
 const catOf=k=>CATS.find(c=>c[0]===k)||null;
 function targetMargin(p){
   /* precedence: an operator override → the PIPELINE's own target for this row
@@ -2084,7 +2178,10 @@ function renderQueue(){
       ${qthumbHtml(p,st[i])}
       <span><span class="qname">${esc(p.name)}${isVendorView()&&p.vendorNote?'<span class="vdot" title="A note from us" aria-label="has a note from us">●</span>':''}</span><span class="qmeta">
       <span class="src ${p.src}">${isVendorView()?(p.kind==='update'?(p.visible===false?'not offered':'on our stores'):'new'):(p.src==='newitem'?'new':p.src)}</span>${tick}<span class="dots">${dots}</span>
-      </span>${p._batch&&_batchFromUI()==='__all__'?`<span class="qbatch">${esc(batchLabel({batch:p._batch}).replace(/^Queue · /,''))}</span>`:''}</span></button>`;}).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):'nothing in this filter'}</div>`;
+      </span>${(function(){ var bits=[];
+        if(_ownerUI()&&OWNERF.mode!=='tcf') bits.push(esc(ownerLabel(ownerOf(p))));
+        if(p._batch&&_batchFromUI()==='__all__') bits.push(esc(batchLabel({batch:p._batch}).replace(/^Queue · /,'')));
+        return bits.length?`<span class="qbatch">${bits.join(' · ')}</span>`:''; })()}</span></button>`;}).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):_emptyNote()}</div>`;
   $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
     /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
        not allow a native dialog, and a blocked confirm() returns false silently. */
@@ -2104,6 +2201,15 @@ function renderQueue(){
   const c=k=>P.filter(p=>p.src===k).length;
   $('#fAll').textContent=P.length;$('#fNew').textContent=c('newitem');
   $('#fEnh').textContent=c('enhance');$('#fCln').textContent=c('clone');
+  renderOwnerChips();
+}
+/* ⭐ 2026-10-11: an empty list says WHY, and how to widen it */
+function _emptyNote(){
+  if(!_ownerUI()) return 'nothing in this filter';
+  if(OWNERF.mode==='tcf'&&CHIP==='act')
+    return '✓ Nothing needs action for TC Farm right now. Press <b>All vendors</b> to see vendors\' products, or <b>✕ Show all</b> above for every status.';
+  if(OWNERF.mode!=='all') return 'nothing in this filter for '+esc(OWNERF.mode==='tcf'?'TC Farm':OWNERF.mode==='vendors'?'vendors':OWNERF.set.map(ownerLabel).join(', '))+' — press <b>Everyone</b> to widen it';
+  return 'nothing in this filter';
 }
 
 /* ⭐ fix 5: ONE wording for a vendor's approval (sheet + toast) and for a queued save. */
@@ -3661,7 +3767,7 @@ function pubState(i){
 window.pubState=pubState;
 function pubCounts(){
   const c={published:0,waiting:0,parked:0,held:0,review:0};
-  P.forEach((p,i)=>{c[pubState(i)]++;});
+  P.forEach((p,i)=>{ if(ownerMatch(i)) c[pubState(i)]++; });   /* ⭐ 2026-10-11: counts follow the Owner filter */
   c.needs=(typeof NEEDS!=='undefined'&&NEEDS)?NEEDS.length:0;
   return c;
 }
@@ -3672,7 +3778,7 @@ function renderPubBar(){
   const chip=(cls,icon,n,label,extra,key)=>`<span class="ps ${cls}${n?'':' zero'}${key&&CHIP===key?' on':''}"${
       extra||(key?` role="button" tabindex="0" onclick="setChip('${key}')" title="${CHIP===key?'Show everything':'Show only these'}"`:'')}>${icon} ${label} <b>${n}</b></span>`;
   var act=0, us=0;
-  P.forEach(function(p,i){ var ps=pubState(i), g=productBlocked(i);
+  P.forEach(function(p,i){ if(!ownerMatch(i)) return; var ps=pubState(i), g=productBlocked(i);
     /* ⭐ 2026-10-01 (operator: "if there are actions required on staff side, we should do that flagging too"): for
        staff, "Action needed" = a blocking flag OR a missing field — anything a person on our side must do */
     if(ps!=='published'&&!st[i].approved){ if(g.blk>0||(!isVendorView()&&g.act>0)) act++; else if(g.wait>0) us++; } });
@@ -4727,8 +4833,26 @@ function applyModeChrome(){
   const tf=document.querySelector('#tabFields'); if(tf) tf.textContent=V?'All details':'All BC fields';
   const sr=document.querySelector('#btnSendRw'); if(sr) sr.textContent=V?'Send rewrite requests':'Send rework';
 }
+/* ⭐⭐ 2026-10-11 (Jack): what a staff member sees on opening the page — their own to-do list:
+   All queues (the selector's default) + ❗ Action needed + Owner TC Farm. A link that names a batch (`?batch=`) opens
+   that batch whole: every owner, every status. Links can also say `?owner=tcf|vendors|all|<Owner>,<Owner>` and
+   `?status=act|review|wait|park|pub|all`. ⛔ A vendor view is untouched (one owner, its own defaults). */
+function staffDefaults(search){
+  if(!_ownerUI()) return;
+  var named=!!_qp(search,'batch'), o=_qp(search,'owner'), c=_qp(search,'status');
+  if(o){
+    var ol=String(o).toLowerCase();
+    OWNERF=ol==='all'||ol==='everyone'?{mode:'all',set:[]}:ol==='vendors'?{mode:'vendors',set:[]}
+      :ol==='tcf'||ol==='tcfarm'?{mode:'tcf',set:[]}
+      :{mode:'pick', set:String(o).split(',').map(function(x){ return x.trim(); }).filter(Boolean)};
+  } else OWNERF={mode:named?'all':'tcf', set:[]};
+  if(c!=null) CHIP=['act','review','wait','park','pub','us'].indexOf(String(c))>=0?String(c):null;
+  else CHIP=named?null:'act';
+}
+window.staffDefaults=staffDefaults;
 async function _afterSignIn(){
   _setWho('signed in <b>'+(ACCOUNT||'?')+'</b>', true);
+  try{ staffDefaults(location.search); }catch(_){}
   await populateBatchSel();
   await bootLive();
 }
@@ -4743,6 +4867,7 @@ async function bootLive(){
     /* ⭐ as-vendor: only that owner's products, then the SAME vendor view */
     if(VIEW.mode==='as-vendor') payload=_asVendorFilter(payload, VIEW.asOwner);
     var n=applyPayload(payload);
+    { var _v=visible(); if(_v.length&&_v.indexOf(cur)<0) cur=_v[0]; }   /* ⭐ 2026-10-11: open on the first product the filters show */
     loadUploadsSession();
     reconcileUploads();
     if(tag) tag.textContent='Live · '+(batch==='__all__'?'all queues':batch);
