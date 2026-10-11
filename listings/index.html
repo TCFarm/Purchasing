@@ -330,6 +330,17 @@ body[data-ops-hidden="1"] .shell{grid-template-columns:250px minmax(0,1fr)}
 .modetag{display:none;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--edit);background:var(--edit-soft);padding:2px 7px;border-radius:99px}
 body[data-mode="vendor"] .modetag,body[data-mode="as-vendor"] .modetag{display:inline-block}
 fieldset.vro{border:0;padding:0;margin:0;min-width:0}
+/* ⭐ 2026-10-11 (Jack: "it is 'loading' for a long time and displays old data — gray out the background and give a loading
+   status bar"). The veil covers the sample products until the real data is on screen. */
+.veil{position:fixed;inset:0;background:rgba(22,33,29,.45);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:95;display:none;align-items:center;justify-content:center;padding:16px}
+.veil[data-on="1"]{display:flex}
+.veil .vcard{background:var(--panel);color:var(--ink);border-radius:14px;padding:22px 26px;width:min(420px,100%);box-shadow:var(--shadow)}
+.veil .vtitle{font-weight:700;font-size:15px}
+.veil .vbar{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin:14px 0 8px}
+.veil .vbar i{display:block;height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .35s}
+.veil .vbar[data-ind="1"] i{width:35%;animation:vslide 1.2s ease-in-out infinite}
+@keyframes vslide{0%{transform:translateX(-100%)}100%{transform:translateX(300%)}}
+.veil .vtext{font-size:12.5px;color:var(--ink-3)}
 .vwait{display:none;padding:40px 22px;font-size:14px;color:var(--ink-2)}
 body[data-mode="vendor"]:not([data-loaded="1"]) .vwait{display:block}
 body[data-mode="vendor"]:not([data-loaded="1"]) .shell,body[data-mode="vendor"]:not([data-loaded="1"]) .filters,
@@ -509,6 +520,9 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
 <div class="drawer" id="drawer"><div class="sheet" id="sheet"></div></div>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
   aria-label="Full-size image"><div class="frame"><div class="big" id="lbBig"><span></span></div></div><div class="meta" id="lbMeta"></div><div class="bar2"><button class="btn" onclick="lbStep(-1)">← Previous</button><button class="btn" onclick="lbStep(1)">Next →</button><button class="btn" onclick="lbClose()">Close</button><button class="btn primary" id="lbPick"></button></div></div>
+<div class="veil" id="loadVeil" role="status" aria-live="polite"><div class="vcard">
+  <div class="vtitle" id="lvTitle">Loading…</div><div class="vbar" id="lvBarWrap" data-ind="1"><i id="lvBar"></i></div>
+  <div class="vtext" id="lvText"></div></div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -971,6 +985,7 @@ window.mergeAll=mergeAll;
 async function loadAllLive(){
   var batches=(await listBatches()).map(function(r){ return r.batch; })
     .filter(function(b){ return b!==ALL_BATCHES && !(/(^|_)test$/i.test(b)||/_test_/i.test(b)); });
+  showLoading('Loading all queues…', 0, batches.length+1, 'Reading saved decisions…');
   var lists=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
   var l=(lists.value||[]).find(function(x){ return x.displayName===CFG.listName; });
   if(!l) throw new Error(`the ${CFG.listName} list is missing — decisions cannot be saved`);
@@ -987,7 +1002,8 @@ async function loadAllLive(){
     try{ var path=encodeURIComponent(`/${CFG.payloadDir}/payload_${bt}.json`).replace(/%2F/g,'/');
          var pl=await graph(`/sites/${CFG.siteId}/drive/root:${path}:/content`);
          parts.push({batch:bt, payload:mergeState(pl, byBatch[bt]||[])}); }
-    catch(e){ parts.push({batch:bt, error:String((e&&e.message)||e)}); } } }
+    catch(e){ parts.push({batch:bt, error:String((e&&e.message)||e)}); }
+    showLoading('Loading all queues…', parts.length+1, batches.length+1, parts.length+' of '+batches.length+' queues loaded'); } }
   await Promise.all([worker(),worker(),worker(),worker()]);
   /* newest queue first, the order the selector shows */
   parts.sort(function(a,b){ return batches.indexOf(a.batch)-batches.indexOf(b.batch); });
@@ -4850,18 +4866,37 @@ function staffDefaults(search){
   else CHIP=named?null:'act';
 }
 window.staffDefaults=staffDefaults;
+/* ⭐ 2026-10-11: the loading veil. `done`/`total` give a real bar; without them it slides (we do not know how long yet).
+   ⛔ A vendor view keeps its own "Loading your products…" screen — the veil is for staff and as-vendor. Never throws. */
+function showLoading(title, done, total, text){
+  try{
+    if(VIEW.mode==='vendor') return;
+    var v=document.querySelector('#loadVeil'); if(!v) return;
+    v.dataset.on='1';
+    var t=document.querySelector('#lvTitle'); if(t) t.textContent=title||'Loading…';
+    var w=document.querySelector('#lvBarWrap'), b=document.querySelector('#lvBar');
+    var known=(typeof total==='number' && total>0);
+    if(w&&w.dataset) w.dataset.ind=known?'0':'1';
+    if(b&&b.style) b.style.width=known?Math.max(4,Math.round(100*Math.min(done||0,total)/total))+'%':'';
+    var x=document.querySelector('#lvText'); if(x) x.textContent=text||'';
+  }catch(_){}
+}
+function hideLoading(){ try{ var v=document.querySelector('#loadVeil'); if(v&&v.dataset) v.dataset.on='0'; }catch(_){} }
+window.showLoading=showLoading; window.hideLoading=hideLoading;
 async function _afterSignIn(){
   _setWho('signed in <b>'+(ACCOUNT||'?')+'</b>', true);
   try{ staffDefaults(location.search); }catch(_){}
+  showLoading('Finding your queues…');
   await populateBatchSel();
   await bootLive();
 }
 
 async function bootLive(){
   var batch=_batchFromUI();
-  if(!batch){ toast('No batch selected'); return; }
+  if(!batch){ hideLoading(); toast('No batch selected'); return; }
   var tag=document.querySelector('#mockTag');
   if(tag) tag.textContent='Loading '+batch+'…';
+  showLoading(batch===ALL_BATCHES?'Loading all queues…':'Loading '+batchLabel({batch:batch}).replace(/^Queue · /,'')+'…');
   try{
     var payload=await HOST.loadBatch(batch);
     /* ⭐ as-vendor: only that owner's products, then the SAME vendor view */
@@ -4875,6 +4910,7 @@ async function bootLive(){
     applyModeChrome();
     if(VIEW.mode==='vendor' && document.body && document.body.dataset) document.body.dataset.loaded='1';
     renderAll();
+    hideLoading();
     ensureUploadPoll();
     startLiveRefresh();
     toast(n+' product'+(n===1?'':'s')+' loaded'
@@ -4888,6 +4924,7 @@ async function bootLive(){
        fine and show made-up products. The tag says Wireframe precisely so
        nobody mistakes one for the other. */
     if(tag) tag.textContent='Wireframe (live load failed)';
+    hideLoading();
     /* ⛔ a vendor never sees the wireframe fixtures — say what failed instead */
     if(VIEW.mode==='vendor') _vendorWait('Your products could not be loaded — '+(e&&e.message?e.message:e));
     toast('Live load failed — '+(e&&e.message?e.message:e));
@@ -4912,6 +4949,7 @@ async function bootLive(){
 async function bootPage(){
   if(VIEW.mode==='vendor') return bootVendor();
   if(VIEW.error){
+    hideLoading();
     _setWho('not signed in', false);
     var _te=document.querySelector('#mockTag'); if(_te) _te.textContent='Not loaded';
     openSheet(`<h2>This page cannot open here</h2><div class="sub">${esc(VIEW.error)}</div>
@@ -4950,18 +4988,21 @@ async function bootPage(){
     try{ skip=new URLSearchParams(location.search).get('wireframe')==='1'; }
     catch(_){}
     if(skip){
+      hideLoading();
       _setWho('wireframe mode — not signed in, showing fixtures', false);
       var _t=document.querySelector('#mockTag');
       if(_t) _t.textContent='Wireframe (?wireframe=1)';
       return;
     }
     _setWho('redirecting to sign in…', true);
+    showLoading('Opening Microsoft sign-in…');
     await beginLogin();
   }catch(e){
     /* ⛔ Show it, do not retry. `AADSTS50011` here means the redirect URI is
        not registered for THIS path, and the page is the only place that
        will ever say so. */
     _setWho('sign-in failed', false);
+    hideLoading();
     var _t2=document.querySelector('#mockTag');
     if(_t2) _t2.textContent='Sign-in failed';
     openSheet(`<h2>Sign-in failed</h2>
@@ -5031,6 +5072,8 @@ if(IS_BROWSER){
       if(pendingAutosave()){ e.preventDefault(); e.returnValue=''; return ''; }
     });
   }
+  /* ⭐ 2026-10-11: veil up BEFORE the sign-in, so the sample products are never read as real data while it loads */
+  try{ if(!/(^|[?&])wireframe=1(&|$)/.test(location.search||'')) showLoading('Signing in…'); }catch(_){}
   bootPage();
 }
 
