@@ -982,19 +982,32 @@ function mergeAll(parts){
   return out;
 }
 window.mergeAll=mergeAll;
-async function loadAllLive(){
+/* ⭐ 2026-10-11 (Jack: vendor live batches "Load them after"): `opts.only` = 'ours' (every queue EXCEPT the rolling
+   vendor live batches `live_*`) | 'live' (only those) | unset (all). `opts.veil` shows the loading bar — ONLY for a load
+   the person is waiting on. ⛔ The 2-minute background refresh also comes through here and must NEVER raise the veil:
+   nothing would take it down (that shipped in 6defd0a for a few minutes and is fixed here). `opts.byBatch` reuses the
+   decision rows an earlier phase already read. The result carries `_parts` + `_byBatch` so two phases merge. */
+function isLiveBatch(b){ return /^live_/i.test(String(b||'')); }
+async function loadAllLive(opts){
+  opts=opts||{};
+  var veil=function(){ if(opts.veil) showLoading.apply(null, arguments); };
   var batches=(await listBatches()).map(function(r){ return r.batch; })
-    .filter(function(b){ return b!==ALL_BATCHES && !(/(^|_)test$/i.test(b)||/_test_/i.test(b)); });
-  showLoading('Loading all queues…', 0, batches.length+1, 'Reading saved decisions…');
+    .filter(function(b){ return b!==ALL_BATCHES && !(/(^|_)test$/i.test(b)||/_test_/i.test(b)); })
+    .filter(function(b){ return opts.only==='ours'?!isLiveBatch(b):opts.only==='live'?isLiveBatch(b):true; });
+  veil('Loading all queues…', 0, batches.length+1, 'Reading saved decisions…');
+  var byBatch=opts.byBatch||null;
+  if(!byBatch){
+  byBatch={};
   var lists=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
   var l=(lists.value||[]).find(function(x){ return x.displayName===CFG.listName; });
   if(!l) throw new Error(`the ${CFG.listName} list is missing — decisions cannot be saved`);
-  var byBatch={}, url=`/sites/${CFG.siteId}/lists/${l.id}/items?expand=fields&$top=500`;
+  var url=`/sites/${CFG.siteId}/lists/${l.id}/items?expand=fields&$top=500`;
   while(url){
     var b=await graph(url);
     (b.value||[]).forEach(function(it){ var f=it.fields||{}; f._sp_id=it.id; f._drained=isDrainedRow(f);
       var k=String(f.batch||''); (byBatch[k]=byBatch[k]||[]).push(f); });
     url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
+  }
   }
   /* ⭐ four payloads at a time — some are several MB, and the page is only usable once all have arrived */
   var parts=[], q=batches.slice();
@@ -1003,13 +1016,14 @@ async function loadAllLive(){
          var pl=await graph(`/sites/${CFG.siteId}/drive/root:${path}:/content`);
          parts.push({batch:bt, payload:mergeState(pl, byBatch[bt]||[])}); }
     catch(e){ parts.push({batch:bt, error:String((e&&e.message)||e)}); }
-    showLoading('Loading all queues…', parts.length+1, batches.length+1, parts.length+' of '+batches.length+' queues loaded'); } }
+    veil('Loading all queues…', parts.length+1, batches.length+1, parts.length+' of '+batches.length+' queues loaded'); } }
   await Promise.all([worker(),worker(),worker(),worker()]);
   /* newest queue first, the order the selector shows */
   parts.sort(function(a,b){ return batches.indexOf(a.batch)-batches.indexOf(b.batch); });
-  return mergeAll(parts);
+  var out=mergeAll(parts); out._parts=parts; out._byBatch=byBatch;
+  return out;
 }
-window.loadAllLive=loadAllLive;
+window.loadAllLive=loadAllLive; window.isLiveBatch=isLiveBatch;
 
 /* ═══ MODES AND HOSTS (vendor mode, plan §1/§2/§7, 2026-09-28) ══════════════
    ONE code path renders three ways:
@@ -2009,7 +2023,8 @@ function renderOwnerChips(){
   var base=P.map(function(p,i){ return i; }).filter(function(i){ return (filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i); });
   var cnt=function(mode){ return base.filter(function(i){ return ownerModeMatch(ownerOf(P[i]), mode, OWNERF.set); }).length; };
   var put=function(id,v){ var el=document.querySelector(id); if(el) el.textContent=v; };
-  put('#oTcf', cnt('tcf')); put('#oVen', cnt('vendors')); put('#oAll', base.length);
+  var more=(typeof VENDOR_PENDING!=='undefined'&&VENDOR_PENDING)?'…':'';   /* ⭐ vendor live batches still loading */
+  put('#oTcf', cnt('tcf')); put('#oVen', cnt('vendors')+more); put('#oAll', base.length+more);
   document.querySelectorAll('.chip-o').forEach(function(c){ c.setAttribute('aria-pressed', String(c.dataset.o===OWNERF.mode)); });
   var pk=document.querySelector('#btnOwnerPick');
   if(pk) pk.innerHTML=OWNERF.mode!=='pick'?'Choose…'
@@ -4891,14 +4906,44 @@ async function _afterSignIn(){
   await bootLive();
 }
 
+/* ⭐ 2026-10-11: phase two of All queues — the vendor live batches, loaded AFTER the page is usable. Merged in only when
+   nobody is mid-edit (an applyPayload would discard the edit box), and only if All queues is still the queue on screen. */
+var VENDOR_PENDING=false;
+async function _loadVendorLiveLater(first){
+  VENDOR_PENDING=true; try{ renderOwnerChips(); }catch(_){}
+  var n=document.querySelector('#refreshNote'); if(n) n.textContent='Loading vendor products in the background…';
+  try{
+    var second=await loadAllLive({only:'live', byBatch:(first&&first._byBatch)||null});
+    var merged=mergeAll(((first&&first._parts)||[]).concat(second._parts||[]));
+    for(var w=0; w<200 && _unsaved(); w++) await new Promise(function(r){ setTimeout(r, 3000); });
+    if(_batchFromUI()!==ALL_BATCHES) return 'moved on';
+    if(_unsaved()) return 'still editing';
+    var sku=P[cur]&&P[cur].sku, f=filter, c=CHIP;
+    applyPayload(merged); LIVE.sig=_payloadSig(merged);
+    var j=P.findIndex(function(p){ return p.sku===sku; }); cur=j>=0?j:0; filter=f; CHIP=c;
+    if(!visible().includes(cur)){ var v=visible(); if(v.length) cur=v[0]; }
+    VENDOR_PENDING=false;
+    renderAll(); renderPubBar();
+    if(n) n.textContent='Vendor products loaded';
+    if((second._skipped||[]).length) toast('⚠ could not load: '+second._skipped.join(', '));
+    return 'merged';
+  }catch(e){
+    if(n) n.textContent='Vendor products could not load — press Refresh';
+    return 'failed';
+  }finally{ VENDOR_PENDING=false; try{ renderOwnerChips(); }catch(_){} }
+}
+window._loadVendorLiveLater=_loadVendorLiveLater;
 async function bootLive(){
   var batch=_batchFromUI();
   if(!batch){ hideLoading(); toast('No batch selected'); return; }
   var tag=document.querySelector('#mockTag');
   if(tag) tag.textContent='Loading '+batch+'…';
   showLoading(batch===ALL_BATCHES?'Loading all queues…':'Loading '+batchLabel({batch:batch}).replace(/^Queue · /,'')+'…');
+  /* ⭐ 2026-10-11: staff "All queues" loads in two phases — our queues first (the to-do view needs nothing else), then
+     the rolling vendor live batches in the background (_loadVendorLiveLater). as-vendor / vendor load everything. */
+  var twoPhase=(batch===ALL_BATCHES && HOST===GraphHost && VIEW.mode==='staff');
   try{
-    var payload=await HOST.loadBatch(batch);
+    var payload=twoPhase?await loadAllLive({only:'ours', veil:true}):await HOST.loadBatch(batch);
     /* ⭐ as-vendor: only that owner's products, then the SAME vendor view */
     if(VIEW.mode==='as-vendor') payload=_asVendorFilter(payload, VIEW.asOwner);
     var n=applyPayload(payload);
@@ -4913,6 +4958,7 @@ async function bootLive(){
     hideLoading();
     ensureUploadPoll();
     startLiveRefresh();
+    if(twoPhase) _loadVendorLiveLater(payload);
     toast(n+' product'+(n===1?'':'s')+' loaded'
           +(payload._decisions_found?' · '+payload._decisions_found+' saved decision(s) merged':'')
           +(NEEDS.length?' · ❓ '+NEEDS.length+' need your answer':'')
