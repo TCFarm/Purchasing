@@ -1049,7 +1049,7 @@ var PORTAL_TIMEOUT_MS=30000;
    editing one without the other fails the suite. A key in no list is HIDDEN. */
 var VENDOR_POLICY_FALLBACK={
   version:1,
-  edit:['name','badge','prose','warranty','cq','kws','upc','storage','cat','cat2','taxOverride',
+  edit:['name','badge','prose','warranty','cq','kws','upc','vendorCode','storage','cat','cat2','taxOverride',
         'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder','visible'],
   live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible','images'],
   view:['sku','brand','published','taxAssessment','flags'],
@@ -1594,6 +1594,7 @@ function fromPayload(it){
     sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create', liveEdit:!!it.live_edit, liveVariants:!!it.live_variants,
     liveGalleryPending:!!it.live_gallery_pending,
     upc:it.upc||'', brand:it.brand||'',
+    direct:!!it.direct_vendor, vendorCode:it.vendor_code||'',
     name:it.name||'', badge:it.badge||'', badgeAlts:it.badge_alts||[],
     kehe:it.kehe_line||'',
     cat:it.cat||'', cat2:it.cat2||'', catConf:+(it.cat_conf||0),
@@ -2667,7 +2668,7 @@ function wireSec(el){
    table does not know gets NO badge rather than a guessed one. */
 var WIRING=WIRING||{};
 var WIRE_OF_ID={edName:'name',fName:'name',edBadge:'badge',fBadge:'badge',edBrand:'brand',fBrand:'brand',
-  fUpc:'upc',edPrice:'price',fPrice:'price',edSale:'salePrice',fSale:'salePrice',fSaleEnds:'saleEnds',
+  fUpc:'upc',fVC:'vendorCode',edPrice:'price',fPrice:'price',edSale:'salePrice',fSale:'salePrice',fSaleEnds:'saleEnds',
   edTgt:'marginOverride',fTgt:'marginOverride',fW:'weightG',fD0:'dims',fCP:'casepack',fRO:'reorder',
   fCat:'cat',fCat2:'cat2',fIT:'itemType',fOwner:'owner',fStorage:'storage',fVis:'visible',
   fTax:'taxOverride',fSup:'supplier',fFF:'requestFreeFill',fPT:'pageTitle',fMD:'metaDesc',
@@ -2885,6 +2886,8 @@ function renderFields(){
         :(p.kind==='update'?'<div class="hint okk" style="margin-top:6px">✓ On our stores now — approving updates the live listing.</div>'
           :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>'))):''}
     ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.'))}
+    ${p.direct?vrow('vendorCode',null,frow('Vendor code','the code printed on the label',`<input class="ctl mono w-md" id="fVC" value="${esc(p.vendorCode)}" placeholder="${p.vendorCode?'':'not known yet'}">`,
+      p.upc?'Scans at receiving alongside the UPC.':'With no UPC this is what the warehouse scans — it is added to Finale and the item code (SKU) takes its digits.')):''}
     ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
     ${vrow('badge',null,frow('Badge',isVendorView()?'up to 24 characters':'__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.'))}
     ${vrow('storage',null,frow('Storage',isVendorView()?'how it is kept':'__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
@@ -3158,6 +3161,12 @@ function renderFields(){
     if(v.length===11)v='0'+v;
     if(v.length!==12){toast(`⛔ A UPC is 12 digits — that is ${v.length}`);$('#fUpc').value=p.upc;return;}
     p.upc=v;markEdited('identity','UPC saved as 12 digits, leading zeros preserved');};
+  /* ⭐ P-2634 (2026-10-13): a direct vendor's own label code. Letters, digits, dashes. */
+  if($('#fVC'))$('#fVC').onchange=()=>{
+    let v=String($('#fVC').value||'').trim().toUpperCase();
+    if(v===''){$('#fVC').value=p.vendorCode;return;}
+    if(!/^[A-Z0-9][A-Z0-9-]{1,31}$/.test(v)){toast('⛔ A vendor code is letters, digits and dashes');$('#fVC').value=p.vendorCode;return;}
+    p.vendorCode=v;$('#fVC').value=v;markEdited('identity','Vendor code saved — it is added to Finale and the item code wherever it is needed');};
   [['fPrice','price'],['fSale','salePrice'],['fW','weightG'],['fCP','casepack'],['fRO','reorder']]
     .forEach(([id,key])=>{const e=$('#'+id);if(!e)return;
       e.onchange=()=>{
@@ -5274,7 +5283,7 @@ async function saveDecision(batch, sku, patch){
    diff only walks THIS array, so none of the three was ever in `edits` and
    all three saved as if nothing had changed. Exactly the bug this comment
    already warns about, just three fields it had not caught up to yet. */
-var EDITABLE_FIELDS=['name','badge','brand','upc','price','salePrice','saleEnds','weightG',
+var EDITABLE_FIELDS=['name','badge','brand','upc','vendorCode','price','salePrice','saleEnds','weightG',
   'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
   'optionName','marginOverride','taxOverride','dims','variants','prose',
   'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier','requestFreeFill'];
