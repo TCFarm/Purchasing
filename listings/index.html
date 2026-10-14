@@ -1313,6 +1313,21 @@ function makePortalHost(parentWin, parentOrigin, opts){
   var ms=opts.timeoutMs||PORTAL_TIMEOUT_MS, seq=0, waiting={}, imgs={};
   /* ⭐ fix 11: a signed image URL expires after an hour — keep one ≤ 50 min. */
   var _now=opts.now||function(){ return Date.now(); };
+  /* ⭐ 2026-10-14: everything posted to the portal is made gate-safe FIRST. The portal's gate (studioProtocol.parseInbound)
+     accepts only null / booleans / FINITE numbers / strings / arrays / plain objects / ArrayBuffer — one `undefined` or
+     NaN anywhere and the message is dropped with no reply (a silent 30 s "did not answer" + rollback). So: undefined
+     object members are omitted, undefined array items and non-finite numbers become null, ArrayBuffers pass untouched. */
+  function _wireSafe(v){
+    if(v===undefined) return undefined;
+    if(v===null || typeof v==='string' || typeof v==='boolean') return v;
+    if(typeof v==='number') return isFinite(v)?v:null;
+    if(typeof ArrayBuffer!=='undefined' && v instanceof ArrayBuffer) return v;
+    if(Array.isArray(v)) return v.map(function(x){ var y=_wireSafe(x); return y===undefined?null:y; });
+    if(typeof v==='object'){
+      var o={}; Object.keys(v).forEach(function(k){ var y=_wireSafe(v[k]); if(y!==undefined) o[k]=y; }); return o;
+    }
+    return undefined;              /* functions, symbols, bigints: never sent */
+  }
   function request(type, args, transfer){
     return new Promise(function(resolve, reject){
       var id='tcfs-'+(++seq)+'-'+Date.now().toString(36);
@@ -1325,7 +1340,7 @@ function makePortalHost(parentWin, parentOrigin, opts){
       }, ms);
       waiting[id]={type:type, resolve:resolve, reject:reject, t:t};
       try{
-        var msg={channel:'tcf-studio', id:id, type:type, args:args||{}};
+        var msg={channel:'tcf-studio', id:id, type:type, args:_wireSafe(args||{})};
         if(transfer&&transfer.length) parentWin.postMessage(msg, parentOrigin, transfer);
         else parentWin.postMessage(msg, parentOrigin);
       }catch(e){
@@ -5302,7 +5317,11 @@ function decisionPatch(i){
   var edits={};
   /* ⭐ Anything already stored as YOUR edit stays an edit. */
   Object.keys(p._origin||{}).forEach(function(f){
-    if(p._origin[f]==='you') edits[f]=p[f];
+    /* ⛔⛔ 2026-10-14 (Hatch / Eli's "Approve keeps asking again"): `_origin` can mark a key the item does not carry —
+       a saved image order sets `_origin.preread='you'` while the gallery lives in `pre` — so `p.preread` is UNDEFINED.
+       postMessage keeps undefined, and the vendor portal's message gate rejects the WHOLE save without replying: the
+       page waited 30 s and rolled the approval back. Staff mode never saw it (JSON drops undefined). Skip it here. */
+    if(p._origin[f]==='you' && p[f]!==undefined) edits[f]=p[f];
   });
   /* ⭐⭐ …AND anything that differs from what the payload loaded. ⛔ This is
      the half that was missing: it does not depend on a handler remembering to
