@@ -235,7 +235,8 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .grid-h h2{margin:0 0 3px;font-size:15px}
 .grid-h .sub{font-size:12px;color:var(--ink-3);max-width:62ch}
 .gactions{display:flex;gap:7px;margin-left:auto;flex-wrap:wrap}
-.imgurl{display:flex;gap:7px;margin:0 0 10px;flex-wrap:wrap}.imgurl[hidden]{display:none}.imgurl input{flex:1 1 280px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}
+.imgurl{display:flex;gap:7px;margin:0 0 10px;flex-wrap:wrap}.imgurl[hidden]{display:none}
+.le-row{border-top:1px solid var(--line,#ddd);padding:8px 0}.le-was{white-space:pre-wrap;font-size:13px;padding:6px 0;color:var(--ink-2,#555)}.le-h{margin:12px 0 4px;font-size:15px}#liveEnhPanel{margin:0 0 12px}.imgurl input{flex:1 1 280px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:11px}
 .cand{position:relative;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--panel);padding:0;text-align:left}
 .cand:hover{border-color:var(--accent)}
@@ -440,6 +441,8 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
   <button class="chip-o" data-o="pick" aria-pressed="false" id="btnOwnerPick" title="Search for and choose one or more owners">Choose…</button>
   <span class="spacer"></span>
   <button class="tbtn" id="btnClone" data-vhide="btnClone">+ Make a similar version</button>
+  <!-- ⭐ P-1483 (2026-10-15): staff only — find a product already on our stores and enhance it or edit it here -->
+  <button class="tbtn" id="btnLiveEnh" title="Find a product that is already on our stores and enhance it (new copy and photos) or edit it here">Edit or enhance a live product</button>
 </div>
 
 <div class="vwait" id="vendorWait" role="status">Loading your products…</div>
@@ -471,6 +474,7 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
     </div>
 
     <div class="pane" id="pane-listing" role="tabpanel">
+      <div id="liveEnhPanel" hidden></div>
       <div class="note"><b>The storefront preview is the shopper's view, and it is editable in place.</b>
         Hover a section: <b>Edit</b> opens the right control for that field — a rich-text editor for
         prose, number inputs with live margin for price, a picker for category. <b>Comment</b> queues
@@ -1078,7 +1082,7 @@ var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
-var VENDOR_ALWAYS_HIDE=['#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
+var VENDOR_ALWAYS_HIDE=['#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
 
 function _qp(search, name){
   var s=String(search||'').replace(/^\?/,''); if(!s) return null;
@@ -1637,6 +1641,9 @@ function fromPayload(it){
   var riv=it.rivir||{};
   return {
     sku:it.sku||'', src:it.source||'newitem', kind:it.kind||'create', liveEdit:!!it.live_edit, liveVariants:!!it.live_variants,
+    /* ⭐ P-1483: a LIVE product being enhanced — what is on the store now, the suggestions, and what was accepted */
+    liveEnhance:!!it.live_enhance, liveBefore:it.live_before||null, liveEnhMode:it.live_enhance_mode||'',
+    liveSuggestions:it.live_suggestions||[], liveAccepted:it.live_accepted||[],
     liveGalleryPending:!!it.live_gallery_pending,
     upc:it.upc||'', brand:it.brand||'',
     direct:!!it.direct_vendor, vendorCode:it.vendor_code||'',
@@ -1889,6 +1896,8 @@ function applyPayload(payload){
                 hidden and a refresh throws that away. `_flagActions` lives
                 inside `edits_json` (see `decisionPatch`), not a new column. */
              flagAct:(p._edits&&p._edits._flagActions)||{},
+             /* ⭐ P-1483: "keep what's on the store" per section + suggestion answers — restored like flagAct */
+             keepCur:((p._edits&&p._edits._keepCurrent)||[]).slice(), sugg:Object.assign({},(p._edits&&p._edits._suggest)||{}),
              cm:p._comments||{},
              cmAt:(function(){var a=(p._edits&&p._edits._commentsAt)||{},o={};
                Object.keys(p._comments||{}).forEach(function(k){if(a[k])o[k]=a[k];});return o;})(),
@@ -4344,6 +4353,7 @@ $('#btnSeq').onclick=()=>{const s=$('#seqstrip');s.hidden=!s.hidden;
   $('#btnSeq').textContent=s.hidden?'Show sequence':'Hide sequence';renderSeq();};
 $('#btnBulk').onclick=()=>openBulk();
 $('#btnUpload').onclick=()=>addUpload();
+$('#btnLiveEnh').onclick=()=>liveEnhOpen();
 $('#btnImgUrl').onclick=()=>{ const r=$('#imgUrlRow'); r.hidden=!r.hidden; if(!r.hidden){ const i=$('#imgUrlIn'); if(i&&i.focus) i.focus(); } };
 $('#imgUrlX').onclick=()=>{ $('#imgUrlRow').hidden=true; $('#imgUrlIn').value=''; };
 $('#imgUrlRow').onsubmit=e=>{ if(e&&e.preventDefault) e.preventDefault();
@@ -4888,9 +4898,172 @@ if(document.querySelector('#qSearch')){
   /* Enter opens the first match — by clicking its row, so the unsaved-edit guard is the row's own */
   $('#qSearch').onkeydown=function(e){ if(e.key==='Enter'){ var r=document.querySelector('#queue .qrow'); if(r) r.click(); } };
 }
+/* ═══ P-1483 + P-1142 (2026-10-15): EDIT OR ENHANCE A LIVE PRODUCT ═════════════════════════════════════════════════
+   Jack: "go into an existing product and click to enhance it — e.g. Lovebird has new images and a new description".
+   Plan: docs/PLAN_LIVE_PRODUCT_ENHANCE_2026-10-15.md. Decisions: approving publishes the new copy; price / category /
+   badge only as ACCEPTED suggestions; staff only.
+   ⭐ Request: a ListingReview row `enh:<SKU>:<id>` (batch __requests__) + an AgentJobs row whose Subject is that row's
+     id (the job is a POINTER). The mini builds a one-product batch; the prep worker prepares it; it then appears here.
+   ⭐ Review: the panel shows what is on the store now per section; unticking "Use the new version" keeps the store's
+     text (`edits._keepCurrent`); suggestions are answered with Accept / Reject (`edits._suggest`). */
+var LIVE_ENH_SECTIONS=[['identity','Name'],['description','Description'],['questions','Common questions'],
+  ['warranty','Highlights (warranty)'],['keywords','Search keywords']];
+function _liveBeforeText(p, sec){
+  var b=p.liveBefore||{};
+  if(sec==='identity') return b.name||'';
+  if(sec==='description'||sec==='questions') return _plain(b.prose_html||'').slice(0,1200);
+  if(sec==='warranty') return _plain(b.warranty||'');
+  if(sec==='keywords') return b.keywords||'';
+  return '';
+}
+function renderLiveEnh(){
+  var box=document.querySelector('#liveEnhPanel'); if(!box) return;
+  var p=P[cur], s=st[cur]||{};
+  if(!p||!p.liveEnhance||isVendorView()){ box.hidden=true; box.innerHTML=''; return; }
+  var keep=s.keepCur||[], sugg=s.sugg||{};
+  var rows=LIVE_ENH_SECTIONS.map(function(x){
+    var on=keep.indexOf(x[0])<0, was=_liveBeforeText(p,x[0]);
+    return `<div class="le-row"><label><input type="checkbox" data-le="${x[0]}" ${on?'checked':''}> <b>${esc(x[1])}</b> — use the new version</label>
+      <details><summary>On the store now</summary><div class="le-was">${was?esc(was):'<i>(empty on the store)</i>'}</div></details></div>`;}).join('');
+  var sg=(p.liveSuggestions||[]).map(function(g){
+    var a=sugg[g.field]||'', lab=g.field==='price'?'Price':g.field==='categories'?'Category':g.field==='custom_field:__badge'?'Badge':g.field;
+    return `<div class="le-row"><b>${esc(lab)}:</b> ${esc(JSON.stringify(g.current))} → <b>${esc(JSON.stringify(g.proposed))}</b>
+      <div class="sub">${esc(g.why||'')}</div>
+      <button class="tbtn${a==='accept'?' go':''}" data-sg="${esc(g.field)}" data-a="accept">${a==='accept'?'✓ Accepted':'Accept'}</button>
+      <button class="tbtn${a==='reject'?' go':''}" data-sg="${esc(g.field)}" data-a="reject">${a==='reject'?'✓ Rejected':'Reject'}</button></div>`;}).join('');
+  var acc=(p.liveAccepted||[]).length?`<div class="sub">Already accepted: ${esc(p.liveAccepted.join(', '))}</div>`:'';
+  box.hidden=false;
+  box.innerHTML=`<div class="note le-banner"><b>${p.liveEnhMode==='edit'?'Editing a product that is already on our stores.':'Enhancing a product that is already on our stores.'}</b>
+    Approving publishes to all three stores. ${p.liveEnhMode==='edit'?'This started from the copy on the store — only what you change is new.'
+    :'Each part below can keep what is on the store instead of the new version.'} Price, category and badge only change if you accept a suggestion.
+    Photos: pick them on the Images tab — the store's current photos are there too.</div>
+    ${p.liveEnhMode==='edit'?'':rows}${sg?'<h3 class="le-h">Suggestions</h3>'+sg:''}${acc}`;
+  [].slice.call(box.querySelectorAll('input[data-le]')||[]).forEach(function(c){ c.onchange=function(){ setKeepCurrent(c.getAttribute('data-le'), !c.checked); }; });
+  [].slice.call(box.querySelectorAll('button[data-sg]')||[]).forEach(function(b){ b.onclick=function(){ answerSuggestion(b.getAttribute('data-sg'), b.getAttribute('data-a')); }; });
+}
+function setKeepCurrent(sec, keep){
+  var s=st[cur]; s.keepCur=s.keepCur||[];
+  var i=s.keepCur.indexOf(sec);
+  if(keep && i<0) s.keepCur.push(sec);
+  if(!keep && i>=0) s.keepCur.splice(i,1);
+  renderLiveEnh(); scheduleAutosave(cur, keep?'Keeping what is on the store':'Using the new version');
+}
+function answerSuggestion(field, ans){
+  if(ans!=='accept'&&ans!=='reject') return;
+  var s=st[cur]; s.sugg=s.sugg||{}; s.sugg[field]=ans;
+  renderLiveEnh(); scheduleAutosave(cur, ans==='accept'?'Suggestion accepted':'Suggestion rejected');
+}
+window.setKeepCurrent=setKeepCurrent; window.answerSuggestion=answerSuggestion; window.renderLiveEnh=renderLiveEnh;
+
+/* ── the request sheet ── */
+var LIVE_CAT={items:null, err:'', loading:false};
+var LIVE_ENH_LIMIT_MS=10*60*1000;
+function liveCatSearch(q){
+  q=String(q||'').trim().toLowerCase(); if(q.length<2||!LIVE_CAT.items) return [];
+  var out=[];
+  for(var i=0;i<LIVE_CAT.items.length && out.length<25;i++){
+    var it=LIVE_CAT.items[i];
+    if((it.sku+' '+it.name+' '+it.br+' '+it.upc).toLowerCase().indexOf(q)>=0) out.push(it);
+  }
+  return out;
+}
+function liveCatLoad(rows){
+  /* receiving catalog: {upc: {sku, name, br, vis, ...}} */
+  var out=[]; Object.keys(rows||{}).forEach(function(u){ var r=rows[u]||{}; if(r.sku) out.push({upc:u, sku:String(r.sku), name:String(r.name||''), br:String(r.br||''), vis:r.vis!==false}); });
+  LIVE_CAT.items=out; return out.length;
+}
+window.liveCatSearch=liveCatSearch; window.liveCatLoad=liveCatLoad;
+function liveEnhOpen(){
+  if(isVendorView()) return;
+  openSheet(`<h2>Edit or enhance a live product</h2>
+    <div class="sub">Find a product that is already on our stores. <b>Enhance it</b> re-reads the maker's page and writes new copy and
+    photo choices for you to review; <b>Edit it here</b> starts from what is on the store now. Nothing changes on the stores until you approve.</div>
+    <input class="ctl" id="leQ" placeholder="Search by name, brand, SKU or UPC — or type an exact SKU" autocomplete="off" style="width:100%">
+    <div id="leRes" class="sub">${LIVE_CAT.items?'':'Loading the product list…'}</div>
+    <div id="lePick" class="sub"></div>
+    <label><input type="radio" name="leMode" value="enhance" checked> Enhance it (new copy + photos)</label><br>
+    <label><input type="radio" name="leMode" value="edit"> Edit it here (start from what is on the store)</label>
+    <div class="sub" style="margin-top:8px">New page link(s) from the maker (optional, up to 3 — e.g. their updated product page):</div>
+    <textarea class="ctl" id="leUrls" rows="2" style="width:100%" placeholder="https://…"></textarea>
+    <div id="leStatus" class="sub"></div>
+    <button class="btn primary" id="leGo">Start</button> <button class="btn" onclick="closeSheet()">Close</button>`);
+  var q=$('#leQ'), res=$('#leRes'), pick=$('#lePick'), chosen={sku:''};
+  function draw(){
+    var v=q.value||'', hits=liveCatSearch(v);
+    var exact=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v.trim());
+    res.innerHTML=hits.map(function(h){ return `<div><label><input type="radio" name="leSku" value="${esc(h.sku)}"> <b>${esc(h.name)}</b> · ${esc(h.br)} · <span class="mono">${esc(h.sku)}</span>${h.vis?'':' · hidden'}</label></div>`; }).join('')
+      +(exact&&!hits.some(function(h){return h.sku===v.trim();})?`<div><label><input type="radio" name="leSku" value="${esc(v.trim())}"> Use the exact SKU <span class="mono">${esc(v.trim())}</span> (not in the list — checked on the store)</label></div>`:'')
+      +(v.trim().length>=2&&!hits.length&&!exact?'No match — try fewer words, or the SKU.':'');
+    [].slice.call(res.querySelectorAll('input[name=leSku]')||[]).forEach(function(r){ r.onchange=function(){ chosen.sku=r.value; pick.textContent='Chosen: '+r.value; }; });
+  }
+  q.oninput=draw;
+  if(!LIVE_CAT.items && !LIVE_CAT.loading && typeof fetch==='function'){
+    LIVE_CAT.loading=true;
+    fetch('/receiving/catalog.json',{cache:'no-cache'}).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){ LIVE_CAT.loading=false; liveCatLoad(d); res.textContent=''; draw(); })
+      .catch(function(e){ LIVE_CAT.loading=false; LIVE_CAT.err=String(e&&e.message||e);
+        res.textContent='The product list did not load ('+LIVE_CAT.err+') — type the exact SKU instead.'; });
+  }
+  $('#leGo').onclick=function(){
+    var mode=(document.querySelector('input[name=leMode]:checked')||{}).value||'enhance';
+    var urls=String(($('#leUrls')||{}).value||'').split(/\s+/).filter(Boolean);
+    liveEnhSubmit(chosen.sku, mode, urls);
+  };
+}
+async function _agentJobsListId(){
+  var ls=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
+  var hit=(ls.value||[]).find(function(l){return l.displayName==='AgentJobs';});
+  if(!hit) throw new Error('the job queue (AgentJobs) is not on this site');
+  return hit.id;
+}
+function liveEnhProblems(sku, mode, urls){
+  var bad=[];
+  if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(String(sku||''))) bad.push('choose a product first');
+  if(mode!=='enhance'&&mode!=='edit') bad.push('choose Enhance or Edit');
+  if((urls||[]).length>3) bad.push('at most 3 links');
+  (urls||[]).forEach(function(u){ if(!/^https?:\/\/[^\s]+$/i.test(u)) bad.push('"'+u.slice(0,40)+'" is not a web link'); });
+  return bad;
+}
+window.liveEnhProblems=liveEnhProblems;
+async function liveEnhSubmit(sku, mode, urls){
+  var stEl=$('#leStatus'), bad=liveEnhProblems(sku, mode, urls);
+  if(bad.length){ stEl.textContent='⛔ '+bad.join('; '); return; }
+  if(asVendorReadOnly()){ stEl.textContent='⛔ '+AS_VENDOR_RO_MSG; return; }
+  if(!IS_BROWSER){ stEl.textContent='This needs the live page (sign in).'; return; }
+  var t0=Date.now(), go=$('#leGo'); if(go) go.disabled=true;
+  function show(step){ stEl.innerHTML=`<b>${esc(step)}</b> · ${Math.round((Date.now()-t0)/1000)}s`; }
+  try{
+    show('1 of 3 · Saving your request');
+    var id=_photoId();
+    var res=await saveDecision('__requests__', 'enh:'+sku+':'+id, {overall:'enhance_request', edits:{mode:mode, urls:urls}});
+    if(!res||!res.ok||!res.sp_id) throw new Error((res&&res.message)||'the request could not be saved');
+    show('2 of 3 · Sending it to the Mac mini');
+    var jobs=await _agentJobsListId(), now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+    await graph(`/sites/${CFG.siteId}/lists/${jobs}/items`,{method:'POST',body:JSON.stringify({fields:{
+      Title:'productpipeline.live_enhance_request:'+res.sp_id, Kind:'productpipeline.live_enhance_request',
+      Subject:String(res.sp_id), Params:'{}', State:'queued', Attempts:0, RequestedUtc:now, RequestedBy:ACCOUNT||'listing-studio'}})});
+    /* ⭐ APP-PROGRESS-STATUS: a named step, a live clock, and a time limit that ends in plain words + Try again */
+    var lid=(await _findRow('__requests__','enh:'+sku+':'+id)).listId;
+    while(true){
+      if(Date.now()-t0>LIVE_ENH_LIMIT_MS){
+        stEl.innerHTML='⛔ The Mac mini has not picked this up in 10 minutes. Your request is saved — it will still run when the mini catches up. <button class="btn" onclick="liveEnhOpen()">Try again</button>';
+        break;
+      }
+      show('3 of 3 · Waiting for the Mac mini to start it');
+      await new Promise(function(r){ setTimeout(r, 5000); });
+      var f=((await graph(`/sites/${CFG.siteId}/lists/${lid}/items/${res.sp_id}?$expand=fields`))||{}).fields||{};
+      var ds=String(f.drain_state||'');
+      if(ds.indexOf('applied@')===0){ stEl.innerHTML='✅ '+esc(f.drain_note||'Started.'); break; }
+      if(ds.indexOf('refused@')===0){ stEl.innerHTML=esc(f.drain_note||'⛔ Not started.')+' <button class="btn" onclick="liveEnhOpen()">Try again</button>'; break; }
+    }
+  }catch(e){ stEl.innerHTML='⛔ Not sent — '+esc(e&&e.message||e)+' <button class="btn" onclick="liveEnhOpen()">Try again</button>'; }
+  if(go) go.disabled=false;
+}
+window.liveEnhOpen=liveEnhOpen; window.liveEnhSubmit=liveEnhSubmit;
+
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
-  renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();
+  renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();renderLiveEnh();
   renderVendorExtras(); renderStory(); markNeedFix();
 }
 applyModeChrome();
@@ -5409,6 +5582,9 @@ function decisionPatch(i){
      included when non-empty so a product with no flag actions writes exactly
      what it always did. */
   if(s.flagAct && Object.keys(s.flagAct).length) edits._flagActions=s.flagAct;
+  /* ⭐ P-1483: reserved keys like _flagActions — listing_drain pops them; listing_publish reads _keepCurrent */
+  if(s.keepCur && s.keepCur.length) edits._keepCurrent=s.keepCur.slice();
+  if(s.sugg && Object.keys(s.sugg).length) edits._suggest=Object.assign({},s.sugg);
   /* ⭐ VERIFY F9 (2026-09-23): WHEN each queued comment was typed. The server tells
      a comment this page is merely re-sending (same stamp) from the same words typed
      again after a rework (new stamp) — without it, one of the two had to be wrong. */
