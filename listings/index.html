@@ -474,7 +474,7 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
       <div class="note"><b>The storefront preview is the shopper's view, and it is editable in place.</b>
         Hover a section: <b>Edit</b> opens the right control for that field — a rich-text editor for
         prose, number inputs with live margin for price, a picker for category. <b>Comment</b> queues
-        a rewrite for tonight instead.</div>
+        a rewrite instead — it is picked up within about a minute.</div>
       <!-- ⭐ Jack 2026-09-29: "Enhance this description — tell us its story" (vendor view only, collapsible) -->
       <div id="vStory"></div>
       <!-- ⭐ 2026-10-01 (operator, with a screenshot): the "on our stores" switch sits ABOVE the preview, not at the bottom -->
@@ -2169,7 +2169,7 @@ function markEdited(k,what){
   renderAll();
   toast(hadJob
     ? (isVendorView()?'⚠ Saved — but you also asked us to rewrite '+LBL[k]+', and that rewrite will replace this edit.'
-      :'⚠ Saved — but a rewrite is still queued on '+LBL[k]+'. Tonight it will overwrite this. Cancel it in the rework tray.')
+      :'⚠ Saved — but a rewrite is still queued on '+LBL[k]+'. When it runs (usually within minutes) it will overwrite this. Cancel it in the rework tray.')
     : (isVendorView()?'Saved':(what||'Saved through the applier · normalizer re-run')));
   /* ⭐ P-1120: actually write it. `scheduleAutosave` debounces + chains per
      product, and its own `persist()` call fires a SECOND toast a moment
@@ -2296,6 +2296,11 @@ var VENDOR_APPROVED_MSG='Approved — it will be published to our stores within 
 var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores as soon as our system picks it up (within a few minutes). There is no further review.';
 function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; if(IS_TEST) return 'Approved — it will be published to the TEST store within a few minutes (a test batch never reaches our real stores)'; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
 var SAVED_QUEUED_MSG='Saved — we\'ll apply it within about 2 minutes';
+/* ⭐⭐ 2026-10-15 (P-1566/P-1144): THE ONE PLACE the drain/publish cadence is described. Since 2026-09-18 both the drain
+   (listing-rework-poller) and the publish step (listing-publish-approved) are supervisor triggers checked about every
+   60 s, day and night — not "tonight", not "07:00–21:00 every 2 hours". ⛔ Never hardcode a time elsewhere; say this. */
+var CADENCE_REWORK='Rework queued — picked up within about a minute; the rewritten section appears here as soon as it is done';
+var CADENCE_PUBLISH='Approved — it publishes to our stores automatically, usually within a few minutes';
 /* ⭐ fix 3: an in-page confirmation (the sheet), used in a vendor view instead of confirm(). */
 function askConfirm(o){
   openSheet(`<h2>${esc(o.title||'Are you sure?')}</h2>
@@ -2586,7 +2591,7 @@ function wireEditors(){
     if(cw) cw.onclick=()=>openSheet(`<h2>Cost looks wrong</h2>
       <div class="sub">Cost is not editable here — it comes from the KeHE line or Finale, and it is
       what every price, floor and margin on this panel is derived from. Say what you believe it is
-      and tonight's run re-prices from the corrected figure.</div>
+      and the next drain (within about a minute) re-prices from the corrected figure.</div>
       <div class="rwitem"><b>On the record now</b><p>${esc(P[cur].sku)} · stated cost
       <b>${money(P[cur].cost)}</b> · supplier ${esc(P[cur].supplier||'—')}</p></div>
       <label style="display:block;margin-bottom:10px"><span class="lbl">What should it be?</span>
@@ -2699,8 +2704,9 @@ function wireSec(el){
            (nothing runs 21:00-07:00) and underspecifies (it may be the very
            next hour, or up to 2h away, or until 07:00 if queued after 21:00).
            ⛔ Never hardcode a time here again — say the RULE, not a promise. */
-        toast(isVendorView()?'Sent — we rewrite this section, usually within a few hours (07:00–21:00)'
-          :'Rework queued — the poller runs 07:00–21:00, every 2 hours (not overnight)');
+        /* ⭐ 2026-10-15: the cadence is now every ~60 s (CADENCE_REWORK) — the 07:00–21:00 schedule above is history. */
+        toast(isVendorView()?'Sent — we start rewriting this section within about a minute; it appears here as soon as it is done'
+          :CADENCE_REWORK);
         scheduleAutosave(cur,'Rework request saved');};
     }
   });
@@ -2942,7 +2948,7 @@ function renderFields(){
       p.owner==='TCFarm'?'TCFarm → departmental income account.':'⛔ Non-TCFarm vendor → income routes to the consignment clearing account.'))}
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Storage &amp; category':'Classification — ⚠ this cascades'}</h3><div class="body">
-    ${vrow('cat',null,frow('Primary category',isVendorView()?'where shoppers find it':'45 of 156 leaves in this wireframe',catSelect,isVendorView()?'':`confidence ${p.catConf} — ${esc(p.catWhy)}`))}
+    ${vrow('cat',null,frow('Primary category',isVendorView()?'where shoppers find it':(CATS.length+' categories'),catSelect,isVendorView()?'':`confidence ${p.catConf} — ${esc(p.catWhy)}`))}
     ${vrow('cat2',null,frow('Secondary category','optional',`<select class="ctl w-lg" id="fCat2"><option value="">— none —</option>${CATS.map(x=>`<option ${x[0]===p.cat2?'selected':''}>${esc(x[0])}</option>`).join('')}</select>`))}
     <div id="cascade"></div>
     ${isVendorView()
@@ -4020,7 +4026,12 @@ function productBlocked(i){
 /* ⭐ Phase C: on a LIVE listing the photo controls do nothing (the live gallery is changed by our team) — hide them */
 function applyLiveImageChrome(){
   var L=vpLive();
-  ['#btnNone','#btnClear'].forEach(function(sel){ var e=document.querySelector(sel); if(e) e.hidden=L; });
+  /* ⭐ 2026-10-15: with NO candidates, sequence / clear picks do nothing — hide them, leaving Upload / Add image link /
+     None of these (Jack's screenshot: a product with 0 candidates showed controls that could not work). */
+  var none=!((P[cur]&&P[cur].imgs)||[]).length;
+  ['#btnNone','#btnClear'].forEach(function(sel){ var e=document.querySelector(sel); if(e) e.hidden=L||(none&&sel==='#btnClear'); });
+  var sq=document.querySelector('#btnSeq'); if(sq) sq.hidden=none;
+  if(none){ var ss=document.querySelector('#seqstrip'); if(ss) ss.hidden=true; }
   /* ⭐ P-1931: Upload comes back on a live product once "Edit photos" is pressed */
   var up=document.querySelector('#btnUpload'); if(up) up.hidden=(L&&!liveImgEditing())||!(HOST&&HOST.canUpload);
   var ul=document.querySelector('#btnImgUrl'); if(ul) ul.hidden=(L&&!liveImgEditing())||!(HOST&&HOST.canAddImageUrl);
@@ -4106,7 +4117,7 @@ window.approveProduct=async function(){
     return;
   }
   _myApprSet(P[i].sku, res&&res.revision);
-  toast(isVendorView()?vendorApprovedMsg(i):'Approved — enters tonight\'s publish queue');
+  toast(isVendorView()?vendorApprovedMsg(i):CADENCE_PUBLISH);
 };
 
 
@@ -4208,8 +4219,8 @@ window.openBulk=function(){
     return;
   }
   openSheet(`<h2>Approve ${yes.length} product${yes.length>1?'s':''}</h2>
-    <div class="sub">Approving is the publish consent. Tonight's run will create or update
-    exactly these, on all three stores, and nothing else.</div>
+    <div class="sub">Approving is the publish consent. The publish step (it checks about every minute) will create
+    or update exactly these, on all three stores, and nothing else — usually within a few minutes.</div>
     ${yes.map(i=>`<div class="rwitem"><b>${esc(P[i].name)}</b>
       <p class="mono" style="font-size:11.5px">${esc(P[i].sku)} · ${esc(P[i].kind)} ·
       ${money(P[i].price)}${P[i].kind==='create'?' · needs the two Finale CSVs imported by hand afterwards':''}</p></div>`).join('')}
@@ -4261,7 +4272,7 @@ window.queueCostQuery=function(){
   markEdited('price','Cost correction queued');
   closeSheet(); renderAll();
   if(IS_BROWSER) persist(cur,'Cost correction queued');
-  else toast('Cost correction queued for tonight\'s run');
+  else toast('Cost correction queued — the next drain (within about a minute) re-prices it');
 };
 /* ⭐ 2026-10-06: "Make a similar version" is REAL now — see MAKE A SIMILAR VERSION below (it was a mock until today). */
 /* ⭐ 2026-09-22 (plan B5): "bring back" a deferred product. ⛔ Before this a
@@ -4322,7 +4333,7 @@ $('#btnRunNow').onclick=async()=>{
      genuinely stuck row and this button's own promise was part of why it
      looked broken rather than merely due. */
   toast(pending
-    ? 'Queued — the poller runs 07:00–21:00, every 2 hours (not overnight).'
+    ? CADENCE_REWORK+'.'
     : 'Nothing to rework on this product — comment on a section first.');
 };
 $('#btnNotes').onclick=()=>{const on=document.body.dataset.notes==='1';
