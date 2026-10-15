@@ -235,6 +235,7 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .grid-h h2{margin:0 0 3px;font-size:15px}
 .grid-h .sub{font-size:12px;color:var(--ink-3);max-width:62ch}
 .gactions{display:flex;gap:7px;margin-left:auto;flex-wrap:wrap}
+.imgurl{display:flex;gap:7px;margin:0 0 10px;flex-wrap:wrap}.imgurl input{flex:1 1 280px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:11px}
 .cand{position:relative;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--panel);padding:0;text-align:left}
 .cand:hover{border-color:var(--accent)}
@@ -503,10 +504,17 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
           <button class="tbtn" id="btnNone">None of these — needs new images</button>
           <!-- ⭐ 2026-09-28 (vendor mode §3): shown only when the HOST can store an upload (the vendor portal today). -->
           <button class="tbtn go" id="btnUpload" hidden>Upload photo</button>
+          <!-- ⭐ 2026-10-14: staff can also paste a link to a picture (the mini fetches and checks it, exactly like an upload). -->
+          <button class="tbtn go" id="btnImgUrl" hidden>Add image link</button>
           <input type="file" id="upFile" multiple hidden accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
         </div>
       </div>
       <div class="seqstrip" id="seqstrip" hidden></div>
+      <form class="imgurl" id="imgUrlRow" hidden onsubmit="return false">
+        <input type="url" id="imgUrlIn" placeholder="Paste a link to the picture (https://…)" autocomplete="off" aria-label="Image link">
+        <button type="submit" class="tbtn go" id="imgUrlGo">Add</button>
+        <button type="button" class="tbtn" id="imgUrlX">Cancel</button>
+      </form>
       <div class="grid" id="grid"></div>
     </div>
 
@@ -1231,7 +1239,7 @@ function _plain(h){
 
 /* ── GraphHost: today's code, reached by name ─────────────────────────────── */
 var GraphHost={
-  name:'graph', canUpload:false,
+  name:'graph', canUpload:true, canAddImageUrl:true,
   hello:function(){ return Promise.resolve({who:ACCOUNT}); },
   /* ⭐ 2026-10-05: "All queues" heads the list for staff.
      ⭐⭐ 2026-10-11 (Jack): it is now the DEFAULT too — staff open on All queues + Action needed + TC Farm (staffDefaults),
@@ -1248,10 +1256,32 @@ var GraphHost={
       return Promise.reject(new Error('this photo opens only in the vendor portal'));
     return spSrc(ref);
   },
-  /* ⛔ staff upload is phase 2 — say so, never pretend */
-  uploadImage:function(){ return Promise.resolve({ok:false, reason:'not_available',
-    message:'Uploading your own image is not available yet'}); }
+  /* ⭐⭐ 2026-10-14 (operator: staff must be able to do every aspect): a REAL staff upload. The file is stored in the
+     ListingReview library, then a row `img:<sku>:<id>` tells the drain to make it a candidate (listing_photos.py →
+     vendor_photos.add_uploaded_image: the same validation as a vendor's photo). It appears in the picker within a drain tick.
+     ⛔ Never "ok" before BOTH the file and the row are saved. */
+  uploadImage:function(batch, sku, file){ return asVendorReadOnly()||uploadStaffImage(batch, sku, file); },
+  addImageUrl:function(batch, sku, url){ return asVendorReadOnly()||addStaffImageUrl(batch, sku, url); }
 };
+function _photoId(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function _safeName(n){ return String(n||'photo').replace(/[^A-Za-z0-9._-]+/g,'_').slice(-80)||'photo'; }
+async function uploadStaffImage(batch, sku, file){
+  var id=_photoId(), rel='ListingReview/uploads/'+batch+'/'+sku+'/'+id+'_'+_safeName(file.name);
+  var path=encodeURIComponent('/'+rel).replace(/%2F/g,'/'), t=await _getTok(), mime=uploadMime(file)||'application/octet-stream';
+  var url=`${GRAPH}/sites/${CFG.siteId}/drive/root:${path}:/content`;
+  var r=await fetch(url,{method:'PUT', headers:{Authorization:'Bearer '+t,'Content-Type':mime}, body:file});
+  if(!r.ok){
+    var j=null; try{ j=await r.json(); }catch(_){}
+    throw new Error((j&&j.error&&j.error.message)||('the upload failed ('+r.status+')'));
+  }
+  return saveDecision(batch, 'img:'+sku+':'+id, {overall:'photo', edits:{_photo:{sp:rel, name:String(file.name||'')}}})
+    .then(function(res){ return (res&&res.ok)?{ok:true}:{ok:false, message:(res&&res.message)||'the photo was stored but could not be queued'}; });
+}
+async function addStaffImageUrl(batch, sku, url){
+  var id=_photoId();
+  return saveDecision(batch, 'img:'+sku+':'+id, {overall:'photo', edits:{_photoUrl:String(url)}})
+    .then(function(res){ return (res&&res.ok)?{ok:true}:{ok:false, message:(res&&res.message)||'the link could not be queued'}; });
+}
 
 /* ── PortalHost: postMessage to the vendor portal that frames this page ──────
    Request  (page → parent): {channel:'tcf-studio', id, type, args}
@@ -3383,8 +3413,8 @@ window.togglePick=togglePick;
    The vendor portal (PortalHost) stores the file and adds it to the product's
    candidates on its next update — so every file sent shows a placeholder tile
    ("Uploading — appears in a few minutes") until then, never a silent gap.
-   ⛔ Staff (GraphHost) upload is phase 2: there it is still "not available yet",
-   and the Upload button is not shown at all — no control that cannot work. */
+   ⭐ 2026-10-14: staff (GraphHost) upload is real now — file to SharePoint + an `img:` row the drain applies
+   (listing_photos.py). In the read-only ?as= preview the host refuses, and says so. */
 const UPLOAD_MAX=15*1024*1024;
 /* ⛔ fix 12: NO HEIC — the portal refuses it, and an iPhone converts to JPG when HEIC is not offered. */
 const UPLOAD_TYPES=['image/jpeg','image/png','image/webp'];
@@ -3428,6 +3458,27 @@ function addUpload(files){
   return true;
 }
 window.addUpload=addUpload;
+/* ⭐ 2026-10-14: "Add image link" — staff paste a picture's address; the mini fetches it and runs the SAME checks as an
+   upload (a real image, ≤ 15 MB, ≥ 500 px), so a page that blocks downloads comes back as a note on the product. */
+function addImageUrl(url){
+  url=String(url||'').trim();
+  if(!HOST||!HOST.addImageUrl){ toast('Adding an image link is not available in this view'); return false; }
+  if(!/^https?:\/\/[^\s]+$/i.test(url)){ toast('⛔ That is not a web link — it must start with http:// or https://'); return false; }
+  const i=cur, sku=P[i].sku, batch=_itemBatch(i);
+  const list=UPLOADS[sku]=UPLOADS[sku]||[];
+  const u={name:url.replace(/^https?:\/\//i,'').slice(0,60), state:'uploading', note:'', at:_nowFn(), base:vendorUploadCount(P[i])};
+  list.push(u);
+  const redraw=()=>{ saveUploadsSession(); if(P[cur]&&P[cur].sku===sku) renderGrid(); };
+  Promise.resolve().then(()=>HOST.addImageUrl(batch, sku, url)).then(res=>{
+    if(res&&res.ok!==false){ u.state='pending'; _poll.tries=0; ensureUploadPoll(); }
+    else { u.state='failed'; u.note=(res&&(res.message||res.reason))||'refused'; toast('⛔ The link was not added — '+u.note); }
+    redraw();
+  },e=>{ u.state='failed'; u.note=String(e&&e.message?e.message:e); toast('⛔ The link was not added — '+u.note); redraw(); });
+  saveUploadsSession(); renderGrid();
+  toast('Link sent — the picture appears here in a few minutes');
+  return true;
+}
+window.addImageUrl=addImageUrl;
 /* the placeholder tiles for this product's uploads */
 function uploadTiles(sku){
   return (UPLOADS[sku]||[]).map((u,k)=>`<div class="cand up" data-up="${k}" role="status">
@@ -3972,6 +4023,7 @@ function applyLiveImageChrome(){
   ['#btnNone','#btnClear'].forEach(function(sel){ var e=document.querySelector(sel); if(e) e.hidden=L; });
   /* ⭐ P-1931: Upload comes back on a live product once "Edit photos" is pressed */
   var up=document.querySelector('#btnUpload'); if(up) up.hidden=(L&&!liveImgEditing())||!(HOST&&HOST.canUpload);
+  var ul=document.querySelector('#btnImgUrl'); if(ul) ul.hidden=(L&&!liveImgEditing())||!(HOST&&HOST.canAddImageUrl);
 }
 function renderDecide(){
   applyLiveImageChrome();
@@ -4281,6 +4333,10 @@ $('#btnSeq').onclick=()=>{const s=$('#seqstrip');s.hidden=!s.hidden;
   $('#btnSeq').textContent=s.hidden?'Show sequence':'Hide sequence';renderSeq();};
 $('#btnBulk').onclick=()=>openBulk();
 $('#btnUpload').onclick=()=>addUpload();
+$('#btnImgUrl').onclick=()=>{ const r=$('#imgUrlRow'); r.hidden=!r.hidden; if(!r.hidden){ const i=$('#imgUrlIn'); if(i&&i.focus) i.focus(); } };
+$('#imgUrlX').onclick=()=>{ $('#imgUrlRow').hidden=true; $('#imgUrlIn').value=''; };
+$('#imgUrlRow').onsubmit=e=>{ if(e&&e.preventDefault) e.preventDefault();
+  if(addImageUrl($('#imgUrlIn').value)){ $('#imgUrlIn').value=''; $('#imgUrlRow').hidden=true; } return false; };
 $('#upFile').onchange=e=>{ const t=e&&e.target; addUpload(Array.from((t&&t.files)||[])); if(t) t.value=''; };
 $('#btnClear').onclick=()=>{
   /* ⛔ P-851 (2026-09-10): this wiped an ordered gallery with no confirm and
@@ -4880,6 +4936,7 @@ function applyModeChrome(){
     const el=document.querySelector(sel); if(el&&el.dataset) el.dataset.vhOn=V?'1':'0';
   });
   const up=document.querySelector('#btnUpload'); if(up) up.hidden=!(HOST&&HOST.canUpload);
+  const ul=document.querySelector('#btnImgUrl'); if(ul) ul.hidden=!(HOST&&HOST.canAddImageUrl);
   const cb=document.querySelector('#btnClone'); if(cb) cb.hidden=!cloneAvailable();   /* ⭐ 2026-10-06 */
   const qt=document.querySelector('#qTitle'); if(qt) qt.textContent=V?'Your products':'Prepared overnight';
   const mt=document.querySelector('#modeTag');
