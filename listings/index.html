@@ -5339,6 +5339,8 @@ async function bootVendor(){
     _setWho('connecting…', true);
     var hi=(await HOST.hello())||{};
     VIEW.vendorName=String(hi.vendor_name||hi.display_name||'');
+    /* ⭐ 2026-10-16 (Jack: "it is their product"): the header names the VENDOR in vendor mode, never "TC Farm" */
+    try{ var _bs=document.querySelector('.brand span'); if(_bs&&VIEW.vendorName) _bs.textContent=VIEW.vendorName; }catch(_){}
     VIEW.vendorRole=(hi.role==='admin'||hi.role==='user')?hi.role:'';
     VIEW.vendorOwner=String(hi.owner||'');
     VIEW.viewOnly=!!hi.view_only;
