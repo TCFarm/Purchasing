@@ -5039,7 +5039,7 @@ async function liveEnhSubmit(sku, mode, urls){
     if(!res||!res.ok||!res.sp_id) throw new Error((res&&res.message)||'the request could not be saved');
     show('2 of 3 · Sending it to the Mac mini');
     var jobs=await _agentJobsListId(), now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
-    await graph(`/sites/${CFG.siteId}/lists/${jobs}/items`,{method:'POST',body:JSON.stringify({fields:{
+    var jobRow=await graph(`/sites/${CFG.siteId}/lists/${jobs}/items`,{method:'POST',body:JSON.stringify({fields:{
       Title:'productpipeline.live_enhance_request:'+res.sp_id, Kind:'productpipeline.live_enhance_request',
       Subject:String(res.sp_id), Params:'{}', State:'queued', Attempts:0, RequestedUtc:now, RequestedBy:ACCOUNT||'listing-studio'}})});
     /* ⭐ APP-PROGRESS-STATUS: a named step, a live clock, and a time limit that ends in plain words + Try again */
@@ -5055,6 +5055,18 @@ async function liveEnhSubmit(sku, mode, urls){
       var ds=String(f.drain_state||'');
       if(ds.indexOf('applied@')===0){ stEl.innerHTML='✅ '+esc(f.drain_note||'Started.'); break; }
       if(ds.indexOf('refused@')===0){ stEl.innerHTML=esc(f.drain_note||'⛔ Not started.')+' <button class="btn" onclick="liveEnhOpen()">Try again</button>'; break; }
+      /* ⛔ The mini can refuse the JOB itself (e.g. "unknown kind … not in the allowlist" — 2026-10-18, the kind's
+         install had been rolled back) and then never touches the request row. Watch the job row too, or a refusal
+         reads as "not picked up" for 10 minutes and its reason is never shown. */
+      if(jobRow&&jobRow.id){
+        var jf=((await graph(`/sites/${CFG.siteId}/lists/${jobs}/items/${jobRow.id}?$expand=fields`))||{}).fields||{};
+        var js=String(jf.State||'');
+        if(js==='refused'||js==='needs_human'||js==='failed'){
+          stEl.innerHTML='⛔ The Mac mini could not start this ('+esc(js.replace('_',' '))+'): '+esc(String(jf.Message||'no reason given').slice(0,300))
+            +'. Please tell Jack — this is a setup problem on the mini, not your request. <button class="btn" onclick="liveEnhOpen()">Try again</button>';
+          break;
+        }
+      }
     }
   }catch(e){ stEl.innerHTML='⛔ Not sent — '+esc(e&&e.message||e)+' <button class="btn" onclick="liveEnhOpen()">Try again</button>'; }
   if(go) go.disabled=false;
