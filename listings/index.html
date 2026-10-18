@@ -3876,7 +3876,9 @@ function pubState(i){
   /* ⭐ 2026-10-01 (operator: "the live products show up as 'to review' but they are not"): a product that is already ON
      OUR STORES and that nobody has changed is live, not "to review". Only a saved-but-unapproved change makes it review;
      the daily live refresh's own revision row (system:live-refresh) is not a change. */
-  if(p.kind==='update' && !(st[i]&&st[i].approved) && !d.parked && !d.held){
+  /* ⛔ 2026-10-18: an ENHANCE row (p.liveEnhance) is also kind 'update', but it carries NEW copy waiting for a person —
+     it is "to review" until approved, never "published" because nobody has touched it yet. */
+  if(p.kind==='update' && !p.liveEnhance && !(st[i]&&st[i].approved) && !d.parked && !d.held){
     var _ed=p._edits&&Object.keys(p._edits).length, _sys=String(d.decided_by||'').indexOf('system:')===0;
     if(!rev || _sys || !_ed) return 'published';
   }
