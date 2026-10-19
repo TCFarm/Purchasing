@@ -202,6 +202,7 @@
   <span class="slot"><b>Thu 09:00</b> last order scored</span>
   <span class="slot"><b>daily 07:30</b> pull list</span>
   <span class="slot"><b>KeHE truck day 07:00</b> early-pull list</span>
+  <span class="slot"><b>Wednesday</b> restock from backstock (in the pull list + Dates &amp; pulls → Restock)</span>
   <span class="slot mine"><b>KeHE truck day 09:00</b> you pull those items off the delivery</span>
   <span class="slot"><b>on Submit</b> approvals become work (daily 19:00 backstop)</span>
   <span class="slot">listings prepared continuously (7 at a time, whenever there's work)</span>
@@ -624,6 +625,16 @@
           <li>There's also an <b>audit mode</b> for stock already on the floor. It's kept separate from receiving on purpose: the day someone walked the cooler isn't the day the item arrived.</li>
         </ul>
       </details>
+      <details>
+        <summary>new: put it away in the same scan (practice for now)</summary>
+        <ul>
+          <li>The plan from the October receiving meeting: <b>one scanning flow</b>. After the date and count, scan the <b>shelf tag</b> where you put the case, and that receives it on the purchase order &mdash; no second pass in the Finale app.</li>
+          <li><b>For now it's practice.</b> The default is still <b>Best-by only</b>, exactly as before, and the Finale app is still how you receive. Turn on <b>Practice: also scan the shelf tag</b> to try it; it suggests where each case should go (where it lived before, what's on the shelf, and older dates in backstock).</li>
+          <li><b>Two ways to work:</b> <b>Put away here</b> (you're at the shelf: scan case, date, shelf tag) or <b>Sort first</b> (at the pallet it tells you which cart; later at the shelf you scan the items, then the tag).</li>
+          <li>Outer case labels that carry the date now read it more often &mdash; it's worth trying the outside of the case again. A date read from a case label shows filled in; press Enter to confirm it.</li>
+          <li>When you type how many are in a case, it's remembered for next time.</li>
+        </ul>
+      </details>
       </div>
     </details>
   </div>
@@ -642,6 +653,7 @@
           <li><b>"not enough arriving"</b> means even the whole delivery won't cover that day's orders: pull all of it and tell whoever packs.</li>
           <li>Nothing needed? The list says so, and the step is ✓ already.</li>
           <li>No list by 09:00 means the KeHE file wasn't uploaded, or something failed; the system has already emailed about it, and it retries every hour.</li>
+          <li><b>Was the list enough?</b> At the bottom of the KeHE pull tab, press <b>Enough</b> or <b>Short</b> (and say what was missing). If it's enough, the manual list can stop.</li>
         </ul>
       </details>
       </div>
