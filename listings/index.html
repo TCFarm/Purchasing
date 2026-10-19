@@ -3067,7 +3067,10 @@ function renderFields(){
     ${isVendorView()?vrow('reorder',null,frow('Reorder quantity','What is the least amount we can reorder from you at once?',`<input class="ctl w-sm mono" id="fRO" type="number" min="1" value="${p.reorder||''}" placeholder="e.g. 6">`,
       'Your order minimum, in single units (not cases). We always order in multiples of it. Often it is one case — but if you sell by the each, it may be 1.'))
       :vrow(null,'finaleRows',frow('Std reorder qty','Finale',`<input class="ctl w-sm mono" id="fRO" type="number" value="${p.reorder}">`))}
-    ${vrow(null,'supplierRow',frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" value="${esc(p.supplier)}">`,
+    ${vrow(null,'supplierRow',frow('Supplier 1',null,`<input class="ctl w-md" id="fSup" list="supFinaleList" value="${esc(p.supplier)}"
+        oninput="var e=document.getElementById('fSupNote'); if(e) e.textContent=supNote(this.value, ${p.kind==='update'?'true':'false'});">
+      <datalist id="supFinaleList">${(VDIR.finale_suppliers||[]).map(function(n){return `<option value="${esc(n)}">`;}).join('')}</datalist>
+      <div class="sub" id="fSupNote">${esc(supNote(p.supplier, p.kind==='update'))}</div>`,
       p.supplier==='KEHE'?'A KeHE row must leave Supplier Name blank on the input CSV — that is the whole signal.':''))}
     ${p.sourcingType==='kehe_distributor'?vrow(null,'freeFillRow',frow('KeHE free fill','on by default',
       `<select class="ctl w-md" id="fFF">
@@ -5772,6 +5775,15 @@ function cnFinaleNote(name){
   return hit?'✓ an existing Finale supplier':'⚠ not an existing Finale supplier — check the spelling, or it is new';
 }
 window.cnFinaleNote=cnFinaleNote;
+/* ⭐ 2026-10-18 (P-2841): a LIVE product's supplier change now reaches Finale, and Finale needs a REAL supplier party —
+   the writer refuses to guess one. So the box offers Finale's own supplier list and says, before saving, when a name
+   is not one of them. Blank (no list loaded) says nothing rather than a false warning. */
+function supNote(name, live){
+  if(!(VDIR.finale_suppliers||[]).length || !String(name||'').trim()) return '';
+  var n=cnFinaleNote(name);
+  return (n.indexOf('⚠')===0 && live)?'⚠ not an existing Finale supplier — on a live product this change will be refused until it exists in Finale':n;
+}
+window.supNote=supNote;
 function cnVendorOwners(){ return OWNERS.filter(function(o){return CN_NOT_VENDORS.indexOf(o)<0;}); }
 window.cnVendorOwners=cnVendorOwners;
 /* ⛔ A new owner key: safe characters (it becomes a folder), and NOT an existing key in
