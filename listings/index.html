@@ -4928,8 +4928,12 @@ function renderLiveEnh(){
     return `<div class="le-row"><label><input type="checkbox" data-le="${x[0]}" ${on?'checked':''}> <b>${esc(x[1])}</b> — use the new version</label>
       <details><summary>On the store now</summary><div class="le-was">${was?esc(was):'<i>(empty on the store)</i>'}</div></details></div>`;}).join('');
   var sg=(p.liveSuggestions||[]).map(function(g){
-    var a=sugg[g.field]||'', lab=g.field==='price'?'Price':g.field==='categories'?'Category':g.field==='custom_field:__badge'?'Badge':g.field;
-    return `<div class="le-row"><b>${esc(lab)}:</b> ${esc(JSON.stringify(g.current))} → <b>${esc(JSON.stringify(g.proposed))}</b>
+    var a=sugg[g.field]||'', lab=g.field==='price'?'Price':g.field==='categories'?'Category':g.field==='custom_field:__badge'?'Badge':g.field==='dims'?'Package size (from RIVIR)':g.field;
+    /* ⭐ 2026-10-18: a measurements suggestion reads as L×W×H cm (volume), never raw JSON */
+    var _dv=function(d){ if(!d||typeof d!=='object') return JSON.stringify(d); var n=function(x){return (x===null||x===undefined||x==='')?'?':x;};
+      return n(d.length_cm)+'×'+n(d.width_cm)+'×'+n(d.height_cm)+' cm ('+n(d.volume_cm3)+' cm³)'; };
+    var _cv=g.field==='dims'?_dv(g.current):JSON.stringify(g.current), _pv=g.field==='dims'?_dv(g.proposed):JSON.stringify(g.proposed);
+    return `<div class="le-row"><b>${esc(lab)}:</b> ${esc(_cv)} → <b>${esc(_pv)}</b>
       <div class="sub">${esc(g.why||'')}</div>
       <button class="tbtn${a==='accept'?' go':''}" data-sg="${esc(g.field)}" data-a="accept">${a==='accept'?'✓ Accepted':'Accept'}</button>
       <button class="tbtn${a==='reject'?' go':''}" data-sg="${esc(g.field)}" data-a="reject">${a==='reject'?'✓ Rejected':'Reject'}</button></div>`;}).join('');
@@ -4937,7 +4941,7 @@ function renderLiveEnh(){
   box.hidden=false;
   box.innerHTML=`<div class="note le-banner"><b>${p.liveEnhMode==='edit'?'Editing a product that is already on our stores.':'Enhancing a product that is already on our stores.'}</b>
     Approving publishes to all three stores. ${p.liveEnhMode==='edit'?'This started from the copy on the store — only what you change is new.'
-    :'Each part below can keep what is on the store instead of the new version.'} Price, category and badge only change if you accept a suggestion.
+    :'Each part below can keep what is on the store instead of the new version.'} Price, category, badge and package size only change if you accept a suggestion.
     Photos: pick them on the Images tab — the store's current photos are there too.</div>
     ${p.liveEnhMode==='edit'?'':rows}${sg?'<h3 class="le-h">Suggestions</h3>'+sg:''}${acc}`;
   [].slice.call(box.querySelectorAll('input[data-le]')||[]).forEach(function(c){ c.onchange=function(){ setKeepCurrent(c.getAttribute('data-le'), !c.checked); }; });
