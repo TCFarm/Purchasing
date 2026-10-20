@@ -1999,7 +1999,7 @@ function _needsAction(i){
   var ps=pubState(i), g=productBlocked(i);
   return ps!=='published'&&!st[i].approved&&(g.blk>0||(!isVendorView()&&g.act>0));
 }
-function setChip(c){ CHIP=(CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
+function setChip(c){ CHIP=(c==null||CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
 window.setChip=setChip; window.chipMatch=chipMatch;
 /* ⭐ 2026-10-05 (Jack): the queue search. Every word must match one of name / SKU / brand / UPC / batch (case-blind);
    a number also matches a UPC without its leading zeros. ⛔ It only narrows the LIST — it never changes a product. */
@@ -2294,6 +2294,8 @@ function _emptyNote(){
   if(!_ownerUI()) return 'nothing in this filter';
   if(OWNERF.mode==='tcf'&&CHIP==='act')
     return '✓ Nothing needs action for TC Farm right now. Press <b>All vendors</b> to see vendors\' products, or <b>✕ Show all</b> above for every status.';
+  if(OWNERF.mode==='tcf'&&CHIP==='review')
+    return '✓ Nothing waiting for review for TC Farm right now. Press <b>All vendors</b> to see vendors\' products, or <b>✕ Show all</b> above for every status.';
   if(OWNERF.mode!=='all') return 'nothing in this filter for '+esc(OWNERF.mode==='tcf'?'TC Farm':OWNERF.mode==='vendors'?'vendors':OWNERF.set.map(ownerLabel).join(', '))+' — press <b>Everyone</b> to widen it';
   return 'nothing in this filter';
 }
@@ -3908,14 +3910,18 @@ function renderPubBar(){
     /* ⭐ 2026-10-01 (operator: "if there are actions required on staff side, we should do that flagging too"): for
        staff, "Action needed" = a blocking flag OR a missing field — anything a person on our side must do */
     if(ps!=='published'&&!st[i].approved){ if(g.blk>0||(!isVendorView()&&g.act>0)) act++; else if(g.wait>0) us++; } });
-  el.innerHTML=chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published','', 'pub')
-    +chip('wait','⏳',c.waiting,'Publishing','', 'wait')
-    +chip('park','⛔',c.parked+c.held,'Parked','', 'park')
+  /* ⭐ 2026-10-20 (Jack: "to review is actually on the very left, the first thing, so is basically the next action for
+     people"): left → right is the order of WORK — To review, Action needed, Parked, Needs your answer, Publishing,
+     Published — and Show all is always there (lit when nothing is filtered), so no product is ever hidden behind a
+     filter nobody can see. */
+  el.innerHTML=chip('','✎',c.review,'To review','', 'review')
     +(isVendorView()?chip('park','❗',act,'Action needed','', 'act')+chip('wait','🕓',us,'Waiting on us','', 'us')
                     :chip('park','❗',act,'Action needed','', 'act'))
+    +chip('park','⛔',c.parked+c.held,'Parked','', 'park')
     +chip('ask','❓',c.needs,'Needs your answer',c.needs?' onclick="showNeeds()" title="Products that could not be identified or categorised — answer to restart them"':'')
-    +chip('','✎',c.review,'To review','', 'review')
-    +(CHIP?' <span class="ps" role="button" tabindex="0" onclick="setChip(null)">✕ Show all</span>':'');
+    +chip('wait','⏳',c.waiting,'Publishing','', 'wait')
+    +chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published','', 'pub')
+    +` <span class="ps${CHIP?'':' on'}" role="button" tabindex="0" onclick="setChip(null)" title="Every status — no filter">${CHIP?'✕ ':''}Show all <b>${c.published+c.waiting+c.parked+c.held+c.review}</b></span>`;
 }
 window.renderPubBar=renderPubBar;
 
@@ -5152,7 +5158,7 @@ function applyModeChrome(){
   const sr=document.querySelector('#btnSendRw'); if(sr) sr.textContent=V?'Send rewrite requests':'Send rework';
 }
 /* ⭐⭐ 2026-10-11 (Jack): what a staff member sees on opening the page — their own to-do list:
-   All queues (the selector's default) + ❗ Action needed + Owner TC Farm. A link that names a batch (`?batch=`) opens
+   All queues (the selector's default) + ✎ To review + Owner TC Farm (2026-10-20; was ❗ Action needed). A link that names a batch (`?batch=`) opens
    that batch whole: every owner, every status. Links can also say `?owner=tcf|vendors|all|<Owner>,<Owner>` and
    `?status=act|review|wait|park|pub|all`. ⛔ A vendor view is untouched (one owner, its own defaults). */
 function staffDefaults(search){
@@ -5165,7 +5171,7 @@ function staffDefaults(search){
       :{mode:'pick', set:String(o).split(',').map(function(x){ return x.trim(); }).filter(Boolean)};
   } else OWNERF={mode:named?'all':'tcf', set:[]};
   if(c!=null) CHIP=['act','review','wait','park','pub','us'].indexOf(String(c))>=0?String(c):null;
-  else CHIP=named?null:'act';
+  else CHIP=named?null:'review';    /* ⭐ 2026-10-20 (Jack): open on the next action — To review (was ❗ Action needed) */
 }
 window.staffDefaults=staffDefaults;
 /* ⭐ 2026-10-11: the loading veil. `done`/`total` give a real bar; without them it slides (we do not know how long yet).
