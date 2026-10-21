@@ -466,6 +466,10 @@ select.batch{max-width:100%;min-width:0}
   <span class="mocktag" id="mockTag">Wireframe</span>
   <span class="modetag" id="modeTag"></span>
   <button class="tbtn" id="btnRefresh" title="Load the latest changes (never throws away what you are editing)">↻ Refresh</button>
+  <!-- ⭐ 2026-10-21 (Jack: "this is not there on my screen"): moved OUT of #srcFilters — that bar is hidden in the
+       vendor view (VENDOR_ALWAYS_HIDE), which hid this button with it, so vendors had no way to reach the feature.
+       It now sits beside Refresh in both views; cloneAvailable() still decides whether it shows. -->
+  <button class="tbtn" id="btnClone" data-vhide="btnClone" hidden>+ Make a similar version</button>
   <span id="refreshNote" class="note" style="font-size:12px"></span>
   <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
@@ -503,7 +507,6 @@ select.batch{max-width:100%;min-width:0}
   <button class="chip-o" data-o="all" aria-pressed="false" title="Every product, whoever owns it">Everyone<span class="n" id="oAll"></span></button>
   <button class="chip-o" data-o="pick" aria-pressed="false" id="btnOwnerPick" title="Search for and choose one or more owners">Choose…</button>
   <span class="spacer"></span>
-  <button class="tbtn" id="btnClone" data-vhide="btnClone">+ Make a similar version</button>
   <!-- ⭐ P-1483 (2026-10-15): staff only — find a product already on our stores and enhance it or edit it here -->
   <button class="tbtn" id="btnLiveEnh" title="Find a product that is already on our stores and enhance it (new copy and photos) or edit it here">Edit or enhance a live product</button>
 </div>
