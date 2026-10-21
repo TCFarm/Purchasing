@@ -1171,7 +1171,7 @@ var VENDOR_POLICY_FALLBACK={
   /* ⭐ 2026-10-21 (audit D5, Phase 1): the payload keys the BRIDGE keeps of an item (vendor_policy.payload_item_keys,
      shipped as vendor_policy.item_keys) and the sub-keys an object-valued one is reduced to (item_shapes) — so staff
      "View as vendor" applies the vendor's real filter (_vendorFilterItem). The suite compares both to the file. */
-  item_keys:['action_needed','badge','badge_alts','brand','casepack','cat','cat2','clone_of','cq','dims','dims_meta',
+  item_keys:['action_needed','badge','badge_alts','brand','casepack','cat','cat2','clone_copied','clone_custom_fields','clone_of','cq','dims','dims_meta',
              'direct_vendor','flags','images','keywords','kind','live_before','live_edit','live_enhance','live_enhance_mode',
              'live_gallery_pending','live_suggestions','live_variants','meta_desc','name','owner','page_title','preread',
              'preread_note','price','prose','published','reorder','sale_ends','sale_price','sku','source','storage','tax',
@@ -1318,10 +1318,77 @@ function vh(name, html){
    control inside it); edit → exactly as staff sees it. ⛔ Fail closed: a row
    with no key is hidden in a vendor view. */
 /* ⭐ 2026-10-21 (Jack, A to Z "Choc & Awe - Pint"): WHERE a measurement comes from, in words both views read. */
-function volSrcWords(src){
+function volSrcWords(src, p, key){
+  /* ⭐ 2026-10-21: a "similar version" names its source — "copied from <SKU> — check it" — until the value is changed */
+  if(src==='template' && p) return cloneWords(p, key||'volume');
   return ({live_store:'from our stores', rivir_declared:'from the maker', operator:'you entered', operator_dims:'you entered',
            template:'copied from the product it was made from', estimate:'estimated — please check the size'})[src]
          || 'estimated — please check the size';
+}
+/* ═══ "Make a similar version": what came across from the source (2026-10-21, Jack) ═══
+   payload clone_copied {field:{from_sku, value, still_copied}} (clone_template.copied_state). While a copied value is
+   still the one copied, the field says "copied from <SKU> — check it"; once the person changes it, "you entered".
+   ⛔ Both views (the vendor portal frames this page) — the words are the same for staff and vendors. */
+var CLONE_COPY_KEYS={weightG:['weight_grams','weight_g'], dims:['dims'], volume:['volume_cm3','volume'], badge:['badge'],
+  storage:['storage','storage_location'], cat:['cat','category','category_key'], cat2:['cat2'],
+  casepack:['case_pack','casepack'], reorder:['reorder','std_reorder_qty']};
+function cloneSourceSku(p){ return String((p&&p.cloneOf)||'').split(' · ')[0].trim(); }
+function cloneCopy(p, key){
+  var cc=(p&&p.cloneCopied)||{}, names=CLONE_COPY_KEYS[key]||[key];
+  for(var i=0;i<names.length;i++){ var c=cc[names[i]]; if(c && typeof c==='object' && !Array.isArray(c)) return c; }
+  return null;
+}
+function _cloneNorm(v){
+  if(Array.isArray(v)) return v.map(function(x){ return +x||0; }).join('|');
+  if(v===null || v===undefined || v==='') return '';
+  if(typeof v==='number' || (/^\s*-?\d+(\.\d+)?\s*$/.test(String(v)))) return String(+v);
+  return String(v).trim();
+}
+/* has the person changed this field since the page loaded it? */
+function _cloneChanged(p, key){
+  var b=p&&p._base; if(!b || !(key in b)) return false;
+  return _cloneNorm(p[key])!==_cloneNorm(b[key]);
+}
+/* is the value on screen still the one copied from the source? */
+function cloneStill(p, key){
+  var c=cloneCopy(p, key);
+  if(!c || c.still_copied===false || _cloneChanged(p, key)) return false;
+  if(('value' in c) && c.value!==null && c.value!==undefined) return _cloneNorm(p[key])===_cloneNorm(c.value);
+  return true;
+}
+function cloneWords(p, key){
+  var c=cloneCopy(p, key), sku=String((c&&c.from_sku)||cloneSourceSku(p)||'');
+  var copied='copied from '+(sku||'the product it was made from')+' — check it';
+  if(c) return cloneStill(p, key)?copied:'you entered';
+  return _cloneChanged(p, key)?'you entered':copied;   /* a 'template' basis with no clone_copied entry */
+}
+/* the hint under a field row: '' when nothing was copied into it */
+function cloneNote(p, key){
+  if(!cloneCopy(p, key)) return '';
+  var still=cloneStill(p, key);
+  return '<span class="derived'+(still?' clonenote':'')+'" data-clonenote="'+esc(key)+'">'+esc(cloneWords(p, key))+'</span>';
+}
+function _cfPlain(k){ return String(k||'').replace(/^__/, '').replace(/_/g, ' ').trim(); }
+/* All details › "Copied from <SKU>": the source's custom fields this product carries (both views, a vendor in plain
+   words) and — STAFF ONLY — the ones deliberately not copied, with the reason. */
+function cloneFieldsGroup(p){
+  var V=isVendorView(), cf=(p&&p.cloneCustomFields)||{}, sk=V?{}:((p&&p.cloneSkippedCustomFields)||{});
+  var ks=Object.keys(cf).sort(), ss=Object.keys(sk).sort();
+  if(!ks.length && !ss.length) return '';
+  var sku=cloneSourceSku(p)||(function(){ var a=Object.keys((p&&p.cloneCopied)||{}); return a.length?String(p.cloneCopied[a[0]].from_sku||''):''; })();
+  var rows=ks.map(function(k){
+    return frow(V?esc(_cfPlain(k)):'<span class="mono">'+esc(k)+'</span>', null,
+      '<span class="mono" data-clonecf="'+esc(k)+'">'+esc(String(cf[k]))+'</span>');
+  }).join('');
+  var skip=ss.length?frow('Not copied','staff only',
+      '<ul class="hint" id="cloneSkipped" style="margin:0;padding-left:18px">'+ss.map(function(k){
+        return '<li><span class="mono">'+esc(k)+'</span> — '+esc(String(sk[k]))+'</li>'; }).join('')+'</ul>'):'';
+  return '\n  <div class="fgroup" id="cloneCopiedGroup"><h3>Copied from '+esc(sku||'the product it was made from')+'</h3><div class="body">'
+    +'<div class="hint" style="margin-bottom:6px">'+(ks.length
+       ?(V?'These details came across from the product this one was made from — check they are right for this product, and tell us in a comment if one is not.'
+          :'Custom fields copied from the source — check they hold for this product.')
+       :'No custom fields were copied.')+'</div>'
+    +rows+skip+'</div></div>';
 }
 /* has the reviewer TYPED a volume on this product (a saved one, or one changed since load)? */
 function volTyped(p){
@@ -1337,8 +1404,8 @@ function volView(p, dims){
   if(volTyped(p)) return {value:+p.volume, words:'you entered'};
   var dimsChanged=!!(dims || (b && JSON.stringify(b)!==JSON.stringify(p.dims)));
   if(dimsChanged && prod>0) return {value:prod, words:'L × W × H — you entered'};
-  if(+p.volume>0) return {value:+p.volume, words:volSrcWords(p.volumeBasis||(p.dimsMeta&&p.dimsMeta.source))};
-  if(prod>0) return {value:prod, words:'L × W × H — '+volSrcWords(p.dimsMeta&&p.dimsMeta.source)};
+  if(+p.volume>0) return {value:+p.volume, words:volSrcWords(p.volumeBasis||(p.dimsMeta&&p.dimsMeta.source), p, 'volume')};
+  if(prod>0) return {value:prod, words:'L × W × H — '+volSrcWords(p.dimsMeta&&p.dimsMeta.source, p, 'dims')};
   return {value:0, words:'not known yet — enter it if you know it'};
 }
 function vrow(key, ui, html){
@@ -1950,6 +2017,11 @@ function fromPayload(it){
     wasBadge:it.was_badge||'', wasCat:it.was_cat||'',
     wasPrice:it.was_price==null?null:+it.was_price,
     cloneOf:it.clone_of||'', optionName:it.option_name||'',
+    /* ⭐ 2026-10-21 (Jack): a "similar version" says what it copied from its source — {field:{from_sku,value,still_copied}} —
+       and which custom fields came across (both views) / were deliberately NOT copied (staff only; the bridge drops it) */
+    cloneCopied:(it.clone_copied&&typeof it.clone_copied==='object')?it.clone_copied:{},
+    cloneCustomFields:(it.clone_custom_fields&&typeof it.clone_custom_fields==='object')?it.clone_custom_fields:{},
+    cloneSkippedCustomFields:(it.clone_skipped_custom_fields&&typeof it.clone_skipped_custom_fields==='object')?it.clone_skipped_custom_fields:{},
     variants:it.variants||[],
     _origin:it._origin||{}, _comments:it._comments||{}, _edits:it._edits||{},
     /* ⛔⛔ SNAPSHOT OF THE VALUES AS LOADED (2026-09-11). `decisionPatch` used
@@ -3367,15 +3439,15 @@ function renderFields(){
     ${p.direct?vrow('vendorCode',null,frow('Vendor code','the code printed on the label',`<input class="ctl mono w-md" id="fVC" value="${esc(p.vendorCode)}" placeholder="${p.vendorCode?'':'not known yet'}">`,
       p.upc?'Scans at receiving alongside the UPC.':'With no UPC this is what the warehouse scans — it is added to Finale and the item code (SKU) takes its digits.')):''}
     ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
-    ${vrow('badge',null,frow('Badge',isVendorView()?'up to 24 characters':'__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,'Marketing hook on the storefront card. No ®™©.'))}
+    ${vrow('badge',null,frow('Badge',isVendorView()?'up to 24 characters':'__badge · ≤24 chars',`<input class="ctl w-lg" id="fBadge" maxlength="24" value="${esc(p.badge)}">`,(cloneNote(p,'badge')?cloneNote(p,'badge')+'<br>':'')+'Marketing hook on the storefront card. No ®™©.'))}
     ${vrow('storage',null,frow('Storage',isVendorView()?'how it is kept':'__Storage_Location',`<select class="ctl w-md" id="fStorage">${selOpts(STORAGES,p.storage)}</select>`,
-      isVendorView()?'Changing this also changes the item code (SKU).'
-      :'⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.'))}
+      (isVendorView()?'Changing this also changes the item code (SKU).'
+      :'⛔ Changing this changes the SKU letter too — the two must agree or the receiving scanner mis-files it.')+(cloneNote(p,'storage')?'<br>'+cloneNote(p,'storage'):'')))}
     ${vrow(null,'ownerRow',frow('Owner','__Owner',`<select class="ctl w-md" id="fOwner">${selOpts(OWNERS,p.owner)}</select>`,
       p.owner==='TCFarm'?'TCFarm → departmental income account.':'⛔ Non-TCFarm vendor → income routes to the consignment clearing account.'))}
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Storage &amp; category':'Classification — ⚠ this cascades'}</h3><div class="body">
-    ${vrow('cat',null,frow('Primary category',isVendorView()?'where shoppers find it':(CATS.length+' categories'),catSelect,isVendorView()?'':`confidence ${p.catConf} — ${esc(p.catWhy)}`))}
+    ${vrow('cat',null,frow('Primary category',isVendorView()?'where shoppers find it':(CATS.length+' categories'),catSelect,[isVendorView()?'':`confidence ${p.catConf} — ${esc(p.catWhy)}`,cloneNote(p,'cat')].filter(Boolean).join('<br>')))}
     ${vrow('cat2',null,frow('Secondary category','optional',`<select class="ctl w-lg" id="fCat2"><option value="">— none —</option>${CATS.map(x=>`<option ${x[0]===p.cat2?'selected':''}>${esc(x[0])}</option>`).join('')}</select>`))}
     <div id="cascade"></div>
     ${isVendorView()
@@ -3460,12 +3532,12 @@ function renderFields(){
       'Edit these on the Listing tab, where the guide rules are shown.'))}
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Physical &amp; shipping</h3><div class="body">
-    ${vrow('weightG',null,frow('Weight','grams',`<input class="ctl w-sm mono" id="fW" type="number" value="${p.weightG}">`))}
+    ${vrow('weightG',null,frow('Weight','grams',`<input class="ctl w-sm mono" id="fW" type="number" value="${p.weightG}">`,cloneNote(p,'weightG')))}
     ${vrow('dims',null,frow('Dimensions','L × W × H cm',`<div class="inline">
       <input class="ctl w-sm mono" id="fD0" type="number" value="${p.dims[0]}" aria-label="length (cm)" title="length">
       <input class="ctl w-sm mono" id="fD1" type="number" value="${p.dims[1]}" aria-label="width (cm)" title="width">
       <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}" aria-label="height (cm)" title="height"></div>`,
-      (p.dimsMeta&&p.dimsMeta.source)?'<span class="derived">'+esc(volSrcWords(p.dimsMeta.source))+'</span>':''))}
+      (p.dimsMeta&&p.dimsMeta.source)?'<span class="derived" data-clonenote="dims">'+esc(volSrcWords(p.dimsMeta.source, p, 'dims'))+'</span>':cloneNote(p,'dims')))}
     ${(function(){ var vv=volView(p), V=isVendorView();
       /* ⭐ 2026-10-21 (Jack: "if they want to edit that or adjust it, we need them to be able to"): the volume is its own
          editable answer (edit key `volume`, whole cm³) in BOTH views; until one is typed, a dimension change shows
@@ -3477,9 +3549,9 @@ function renderFields(){
         `<input class="ctl w-sm mono" id="fV" type="number" min="0" step="1" value="${vv.value||''}"${known?'':' disabled'}>`,
         '<span class="derived" id="fVsrc">'+esc(vv.words)+'</span>'
         +(V?'':' · drives van load planning')));})()}
-  </div></div>`)+vgrp(`
+  </div></div>`)+cloneFieldsGroup(p)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Ordering':'Ordering &amp; Finale'}</h3><div class="body">
-    ${vrow('casepack',null,frow('Case pack',isVendorView()?'how many units come in one case you ship us':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" min="1" step="1" value="${+p.casepack>0?p.casepack:''}" placeholder="${isVendorView()?'e.g. 12':''}">`,isVendorView()?'Just how they are packed. It is not the order minimum — that is “Reorder quantity” below. Never shown in the product name.':'⛔ Never appears in the product Name.'))}
+    ${vrow('casepack',null,frow('Case pack',isVendorView()?'how many units come in one case you ship us':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" min="1" step="1" value="${+p.casepack>0?p.casepack:''}" placeholder="${isVendorView()?'e.g. 12':''}">`,(isVendorView()?'Just how they are packed. It is not the order minimum — that is “Reorder quantity” below. Never shown in the product name.':'⛔ Never appears in the product Name.')+(cloneNote(p,'casepack')?'<br>'+cloneNote(p,'casepack'):'')))}
     ${isVendorView()?vrow('visible',null,frow('Offered on our stores','turn off to stop selling it (all stores)',
       `<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Yes — offered</option><option value="0" ${!p.visible?'selected':''}>No — not offered (hidden)</option></select>`,
       'Hidden products cannot be bought or found in search. You can turn it back on any time.')):''}
