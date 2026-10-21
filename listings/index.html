@@ -1167,7 +1167,19 @@ var VENDOR_POLICY_FALLBACK={
   overall_allowed:['approved','pending','rework'],
   vendor_flag_types:['NO_CATEGORY_MATCH','CATEGORY_LOW_CONFIDENCE','SIZE_NEEDED','INGREDIENTS_UNVERIFIED',
                      'IMAGES_NEED_SOURCING','VENDOR_CHANGE_REQUEST','TAX_CLASS_UNVERIFIED','TAX_CLASS_DISAGREES',
-                     'PRICE_UNKNOWN','VENDOR_RIVIR_IDENTITY_CONFLICT','CLONE_COPIED']
+                     'PRICE_UNKNOWN','VENDOR_RIVIR_IDENTITY_CONFLICT','CLONE_COPIED'],
+  /* ⭐ 2026-10-21 (audit D5, Phase 1): the payload keys the BRIDGE keeps of an item (vendor_policy.payload_item_keys,
+     shipped as vendor_policy.item_keys) and the sub-keys an object-valued one is reduced to (item_shapes) — so staff
+     "View as vendor" applies the vendor's real filter (_vendorFilterItem). The suite compares both to the file. */
+  item_keys:['action_needed','badge','badge_alts','brand','casepack','cat','cat2','clone_of','cq','dims','dims_meta',
+             'direct_vendor','flags','images','keywords','kind','live_before','live_edit','live_enhance','live_enhance_mode',
+             'live_gallery_pending','live_suggestions','live_variants','meta_desc','name','owner','page_title','preread',
+             'preread_note','price','prose','published','reorder','sale_ends','sale_price','sku','source','storage','tax',
+             'tax_assessment','tax_live','tiers','upc','vendor_code','visible','volume','volume_basis','waiting_on_us',
+             'warranty','weight_g'],
+  item_shapes:{images:['file','url','caption','w','h','source','broken'],live_suggestions:['field'],
+               live_before:['name','prose_html','warranty','page_title','meta_desc','keywords']},
+  flag_message_chars:500
 };
 var VPOLICY=null;          /* payload.vendor_policy, set by applyPayload */
 /* the static elements a hide_ui name refers to (render-template names are
@@ -1725,11 +1737,50 @@ function startVendorHost(){
   HOST=host;
   return host;
 }
-/* as-vendor: keep only this owner's products (and their answers/deferrals). */
+/* ⭐⭐ 2026-10-21 (audit D5, Phase 1): ONE payload item reduced to what the vendor portal's bridge sends
+   (vendor_policy.filter_item) — the same key list, shapes and flag rule, READ FROM THE POLICY the payload carries
+   (public_policy: item_keys / item_shapes / vendor_flag_types / flag_message_chars), so there is one rule in one file
+   (config/vendor_field_policy.json) and the suite (§71) proves this and the Python give the SAME item.
+   ⛔ Before this, "View as vendor" filtered by OWNER only, so staff saw features a real vendor never got (the keep-current
+   panel, the Vendor code box, the variants note). ⭐ Keys starting with "_" are the page's own state (_batch, _decision,
+   _edits …), added after the bridge, so they are kept — except staff comments, which a vendor never receives
+   (filter_decision_row sends {}). action_needed / waiting_on_us are kept as built (listing_payload runs the same
+   vendor_policy.blocker_summary on every item). */
+function _vendorShape(v, sub){
+  function one(x){ var o={}; sub.forEach(function(k){ if(Object.prototype.hasOwnProperty.call(x,k)) o[k]=x[k]; }); return o; }
+  if(v && typeof v==='object' && !Array.isArray(v)) return one(v);
+  if(Array.isArray(v)) return v.filter(function(x){ return !!x && typeof x==='object' && !Array.isArray(x); }).map(one);
+  return null;
+}
+function _vendorPolicyOf(payload){
+  var p=payload&&payload.vendor_policy;
+  return (p && Array.isArray(p.item_keys)) ? p : VENDOR_POLICY_FALLBACK;   /* an older payload: the embedded copy */
+}
+function _vendorFilterItem(it, pol){
+  it=it||{}; pol=pol||VENDOR_POLICY_FALLBACK;
+  var keep=pol.item_keys||[], out={};
+  Object.keys(it).forEach(function(k){
+    if(keep.indexOf(k)>=0 || (k.charAt(0)==='_' && k!=='_comments')) out[k]=JSON.parse(JSON.stringify(it[k]===undefined?null:it[k]));
+  });
+  if('_comments' in it) out._comments={};
+  if('flags' in out){
+    var types=Array.isArray(pol.vendor_flag_types)?pol.vendor_flag_types:VENDOR_POLICY_FALLBACK.vendor_flag_types;
+    var mx=+(pol.flag_message_chars||500);
+    out.flags=(out.flags||[]).filter(function(f){ return !!f && typeof f==='object' && !Array.isArray(f) && types.indexOf(f.k||f.type)>=0; })
+      .map(function(f){ return {k:f.k||f.type, sev:f.sev||'warn', message:String(f.message||f.t||'').slice(0,mx)}; });
+  }
+  var sh=Object.assign({}, pol.item_shapes||{images:VENDOR_POLICY_FALLBACK.item_shapes.images});
+  ['live_suggestions','live_before'].forEach(function(k){ if(!sh[k]) sh[k]=[]; });   /* ⛔ = vendor_policy._SHAPE_REQUIRED */
+  Object.keys(sh).forEach(function(k){ if(k in out) out[k]=_vendorShape(out[k], sh[k]||[]); });
+  return out;
+}
+/* as-vendor: keep only this owner's products (and their answers/deferrals), each one filtered exactly as the bridge
+   filters it for the real vendor (_vendorFilterItem). */
 function _asVendorFilter(payload, owner){
   var items=((payload&&payload.items)||[]).filter(function(it){ return String((it||{}).owner||'')===String(owner); });
   if(!items.length) throw new Error('"'+owner+'" has no products in this batch');
-  payload.items=items;
+  var pol=_vendorPolicyOf(payload);
+  payload.items=items.map(function(it){ return _vendorFilterItem(it, pol); });
   if(Array.isArray(payload.needs_input))
     payload.needs_input=payload.needs_input.filter(function(n){ return String((n||{}).owner||'')===String(owner); });
   if(Array.isArray(payload.deferred))
