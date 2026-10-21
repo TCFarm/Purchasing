@@ -65,6 +65,10 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .pubbar .ps.park{border-color:var(--stop);color:var(--stop)}
 .pubbar .ps.ask{border-color:var(--warn);color:var(--warn);cursor:pointer}
 .pubbar .ps.zero{opacity:.55}
+/* ⭐ 2026-10-21: Deferred / Removed — a status chip and a row tag (muted: they are not work) */
+.pubbar .ps.def{border-color:var(--warn);color:var(--warn)}.pubbar .ps.rmv{border-color:var(--ink-3);color:var(--ink-3)}
+.chip.ghtag{font-weight:700;letter-spacing:.04em}.chip.ghtag.df{background:var(--warn-soft);color:var(--warn)}.chip.ghtag.rm{background:var(--tile);color:var(--ink-2);border:1px solid var(--line)}
+.qrow.qghost .qname{color:var(--ink-2)}
 .tbtn{border:1px solid var(--line);background:var(--panel);border-radius:5px;padding:3px 9px;font-size:11.5px;font-weight:600;color:var(--ink-2)}
 .tbtn:hover{border-color:var(--accent);color:var(--accent)}
 .tbtn.go{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -480,9 +484,11 @@ select.batch{max-width:100%;min-width:0}
   <span class="lbl" style="margin-right:4px">Source</span>
   <button class="chip-f" data-f="all" aria-pressed="true">All<span class="n" id="fAll"></span></button>
   <button class="chip-f" data-f="newitem" aria-pressed="false">New items<span class="n" id="fNew"></span></button>
-  <button class="chip-f" id="btnDeferred" data-vhide="btnDeferred" hidden title="Products deferred from this batch — bring one back">Deferred<span class="n" id="fDef"></span></button>
+  <!-- ⭐ 2026-10-21 (Jack: "If I have 'All' that should be ALL, not everything except deferred"): Deferred and Removed are
+       FILTERS like the others — their products are rows in the list (tagged DEFERRED / REMOVED), opened to a small panel -->
+  <button class="chip-f" id="btnDeferred" data-f="deferred" aria-pressed="false" data-vhide="btnDeferred" hidden title="Show only the products deferred from the queue — open one to bring it back or remove it">Deferred<span class="n" id="fDef"></span></button>
   <!-- ⭐ P-2933 (2026-10-20): products staff removed from the queue (they will not be created) — staff only, restore from here -->
-  <button class="chip-f" id="btnRemoved" hidden title="Products removed from the queue — they will not be created. Restore one from here.">Removed<span class="n" id="fRem"></span></button>
+  <button class="chip-f" id="btnRemoved" data-f="removed" aria-pressed="false" hidden title="Show only the products removed from the queue — they will not be created. Open one to restore it.">Removed<span class="n" id="fRem"></span></button>
   <button class="chip-f" data-f="enhance" aria-pressed="false">Enhance<span class="n" id="fEnh"></span></button>
   <button class="chip-f" data-f="clone" aria-pressed="false">Clone<span class="n" id="fCln"></span></button>
   <!-- ⭐ 2026-10-11 (Jack): filter by OWNER. Staff open on All queues + Action needed + TC Farm, so our own tasks are not
@@ -855,6 +861,15 @@ function mergeState(payload, rows){
   const by={}; (rows||[]).forEach(r=>{ by[r.sku]=r; });
   /* ⭐ 2026-09-27 (P-1717): answers to "Needs your answer" live on rows keyed `ask:<key>`. */
   payload._ask={}; (rows||[]).forEach(r=>{ if(String(r.sku||'').indexOf('ask:')===0) payload._ask[String(r.sku).slice(4)]=r; });
+  /* ⭐ 2026-10-21: a DEFERRED product whose row was saved 'cancelled' (Remove from queue) but not yet drained shows as
+     REMOVED at once — like a loaded product (st.cancelled). ⛔ A removal the drain refused (parked) is not shown removed. */
+  (payload.deferred||[]).forEach(function(d){
+    delete d._rmPending; var r=by[d.sku]; if(!r) return;
+    if(String(r.overall||'').toLowerCase()!=='cancelled') return;
+    if(String(r.drain_state||'')==='refused@'+String(+(r.revision||0))) return;
+    var e={}; try{ e=JSON.parse(r.edits_json||'{}')||{}; }catch(_){ e={}; }
+    d._rmPending=(e._cancel&&typeof e._cancel==='object')?e._cancel:{};
+  });
   const genAt=String(payload.generated_at||'');
   (payload.items||[]).forEach(item=>{
     item._decision={overall:'pending',revision:0,decided_by:'',decided_at:'',sections:{}};
@@ -2078,7 +2093,9 @@ function chipMatch(i){
   var ps=pubState(i), g=productBlocked(i);
   return CHIP==='pub'?ps==='published':CHIP==='wait'?ps==='waiting':CHIP==='park'?(ps==='parked'||ps==='held')
     :CHIP==='act'?_needsAction(i):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
-    :CHIP==='review'?ps==='review':true;
+    :CHIP==='review'?ps==='review'
+    :(CHIP==='deferred'||CHIP==='removed')?false   /* ⭐ 2026-10-21: those chips list only deferred / removed rows (ghostMatch) */
+    :true;
 }
 /* "Action needed" for one product — the ONE definition the chip, its count and the owner roster all use */
 function _needsAction(i){
@@ -2172,11 +2189,13 @@ function ownerPickApply(){
 }
 /* the owner chips: which is pressed, and how many products each choice would show under the OTHER filters */
 function renderOwnerChips(){
-  var base=P.map(function(p,i){ return i; }).filter(function(i){ return (filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i); });
-  var cnt=function(mode){ return base.filter(function(i){ return ownerModeMatch(ownerOf(P[i]), mode, OWNERF.set); }).length; };
+  var base=P.map(function(p,i){ return i; }).filter(function(i){ return inQueue(i)&&(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i); });
+  var gh=ghostList().filter(function(g){ return ghostMatch(g,{owner:false}); });   /* ⭐ 2026-10-21: deferred/removed rows count too */
+  var cnt=function(mode){ return base.filter(function(i){ return ownerModeMatch(ownerOf(P[i]), mode, OWNERF.set); }).length
+    +gh.filter(function(g){ return ownerModeMatch(g.owner, mode, OWNERF.set); }).length; };
   var put=function(id,v){ var el=document.querySelector(id); if(el) el.textContent=v; };
   var more=(typeof VENDOR_PENDING!=='undefined'&&VENDOR_PENDING)?'…':'';   /* ⭐ vendor live batches still loading */
-  put('#oTcf', cnt('tcf')); put('#oVen', cnt('vendors')+more); put('#oAll', base.length+more);
+  put('#oTcf', cnt('tcf')); put('#oVen', cnt('vendors')+more); put('#oAll', base.length+gh.length+more);
   document.querySelectorAll('.chip-o').forEach(function(c){ c.setAttribute('aria-pressed', String(c.dataset.o===OWNERF.mode)); });
   var pk=document.querySelector('#btnOwnerPick');
   if(pk) pk.innerHTML=OWNERF.mode!=='pick'?'Choose…'
@@ -2192,6 +2211,135 @@ window.ownerPickAll=ownerPickAll; window.ownerPickApply=ownerPickApply;
 /* ⭐ P-2933: a product removed from the queue is never in the list or any count, in either view */
 function inQueue(i){ return !(st[i]&&st[i].cancelled); }
 const visible=()=>P.map((p,i)=>i).filter(i=>inQueue(i)&&(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i)&&ownerMatch(i));
+/* ═══ "All" means ALL (2026-10-21) ════════════════════════════════════════════════════════════════════════════════
+   Jack: "I can't see Fig Chili — there is no 'deferred' option. If I have 'All' that should be ALL, not everything except
+   deferred." … "those should have their own tags and options to remove/filter for those".
+   ⭐ Deferred products (payload.deferred[]) and removed products (removedList(): payload.cancelled[] + loaded products
+   removed but not yet drained) are listed as GHOST ROWS — a row in the product list, tagged DEFERRED / REMOVED, that
+   opens a small panel (ghostOpen), never the editor (the record is not a loaded item).
+   ⛔ They are NOT in visible(): visible() is what j/k, ⌘↵, bulk approve and every editor walk, so none of those can ever
+   act on a ghost — by construction, not by a check each of them has to remember.
+   ⛔ Not work: To review / Action needed / Parked / Publishing / Published and the READY counter exclude them; the
+   Source "All" count, the status "Deferred" / "Removed" chips and "Show all" include them.
+   ⛔ Staff only (cancelStaffOnly — the permission branch of Remove from queue): a vendor sees what they saw before. */
+function _ghKey(d){ return String((d&&d._batch)||'')+'|'+String((d&&d.sku)||''); }
+/* the owner of a ghost: its own owner field → the one owner of the loaded products in its batch → '' (= TC Farm's,
+   exactly like an unowned product in ownerModeMatch) */
+function _batchOwner(b){
+  var o=null, one=true;
+  P.forEach(function(p){ if(String(p._batch||'')!==String(b||'')) return; var w=ownerOf(p); if(o===null) o=w; else if(o!==w) one=false; });
+  return (one&&o)?o:'';
+}
+function ghostOwner(d){ return String((d&&d.owner)||'').trim() || _batchOwner(d&&d._batch); }
+/* every ghost row (staff), removed first; a product is listed ONCE (a deferred product removed this session is Removed) */
+function ghostList(){
+  if(!cancelStaffOnly()) return [];
+  var out=[], seen={};
+  P.forEach(function(p,i){ if(inQueue(i)) seen[_ghKey(p)]=1; });      /* ⛔ never a second row for a product in the list */
+  removedList().forEach(function(d){ if(d.refused) return; var k=_ghKey(d); if(seen[k]) return; seen[k]=1;
+    out.push({kind:'removed', key:'removed|'+k, d:d, owner:(d._i!=null&&P[d._i])?ownerOf(P[d._i]):ghostOwner(d)}); });
+  DEFERRED.forEach(function(d){ var k=_ghKey(d); if(seen[k]||d._rmPending) return; seen[k]=1;
+    out.push({kind:'deferred', key:'deferred|'+k, d:d, owner:ghostOwner(d)}); });
+  return out;
+}
+/* does a ghost row pass the list's filters? (o = {owner:false} skips the owner filter, for the owner chips' counts) */
+function ghostMatch(g, o){
+  o=o||{};
+  if(!(filter==='all'||filter===g.kind)) return false;
+  if(!(CHIP==null||CHIP===g.kind)) return false;
+  if(!_searchHit(Object.assign({}, g.d, {owner:g.owner}))) return false;
+  if(o.owner===false || !_ownerUI()) return true;
+  return ownerModeMatch(g.owner, OWNERF.mode, OWNERF.set);
+}
+function visibleGhosts(){ return ghostList().filter(function(g){ return ghostMatch(g); }); }
+/* the counts: {deferred, removed} under the Owner filter (the status chips), and unfiltered (the Source chips) */
+function ghostCounts(byOwner){
+  var c={deferred:0, removed:0};
+  ghostList().forEach(function(g){ if(!byOwner || !_ownerUI() || ownerModeMatch(g.owner, OWNERF.mode, OWNERF.set)) c[g.kind]++; });
+  return c;
+}
+function ghostRowHtml(g){
+  var d=g.d, rm=g.kind==='removed';
+  var why=rm?cancelReasonLabel(d.reason):(d.reason?String(d.reason):'no reason recorded');
+  var bits=[rm?'Removed — '+why:(d._back?'Coming back to the queue':'Deferred — '+why)];
+  if(_ownerUI()&&OWNERF.mode!=='tcf') bits.push(ownerLabel(g.owner));
+  if(d._batch&&_batchFromUI()==='__all__') bits.push(batchLabel({batch:d._batch}).replace(/^Queue · /,''));
+  return `<button type="button" class="qrow qghost" data-g="${esc(g.key)}" aria-current="${GHOST_OPEN===g.key}">
+      <span class="qthumb none" aria-hidden="true">${rm?'✕':'⏸'}</span>
+      <span><span class="qname">${esc(d.name||d.sku)}</span><span class="qmeta">
+      <span class="chip ghtag ${rm?'rm':'df'}" style="padding:1px 5px">${rm?'REMOVED':'DEFERRED'}</span><span class="mono" style="font-size:10.5px">${esc(d.sku||'')}</span>
+      </span><span class="qbatch" title="${esc(bits.join(' · '))}">${esc(bits.join(' · '))}</span></span></button>`;
+}
+var GHOST_OPEN=null;
+function ghostFind(key){ var L=ghostList(); for(var k=0;k<L.length;k++) if(L[k].key===key) return L[k]; return null; }
+/* ⭐ the panel for a ghost row — what it is, why, and the actions (staff only; a vendor view opens nothing) */
+function ghostOpen(key){
+  if(!cancelStaffOnly()) return null;
+  var g=ghostFind(key); if(!g){ toast('That product is no longer in this list — press ↻ Refresh'); return null; }
+  var d=g.d, rm=g.kind==='removed', opener=_openerOr('#queue');
+  GHOST_OPEN=key;
+  var who=[d.by?'by '+esc(d.by):'', d.at?esc(fmtWhen(d.at)):''].filter(Boolean).join(' · ');
+  var head=`<div class="sub"><b>${esc(d.name||d.sku)}</b><br>SKU <span class="mono">${esc(d.sku||'')}</span>`
+    +(d.upc?` · UPC <span class="mono">${esc(d.upc)}</span>`:'')
+    +(d._batch?` · ${esc(batchLabel({batch:d._batch}).replace(/^Queue · /,''))}`:'')
+    +(_ownerUI()?` · ${esc(ownerLabel(g.owner))}`:'')+`</div>`;
+  if(rm){
+    openSheet(`<h2 id="ghTitle"><span class="chip ghtag rm" style="padding:1px 6px">REMOVED</span> Removed from the queue</h2>${head}
+      <div class="rwitem"><p><b>Removed — ${esc(cancelReasonLabel(d.reason))}</b>${who?' · '+who:''}</p>
+      ${d.ref_sku?'<p>The product: <span class="mono">'+esc(d.ref_sku)+'</span></p>':''}${d.shipper_item?'<p>Part of: '+esc(d.shipper_item)+'</p>':''}
+      ${d.note?'<p>“'+esc(d.note)+'”</p>':''}
+      <p>It will not be created.${d._i!=null||d._deferred?' Waiting to be processed (about 2 minutes).':''} Restoring it puts it back${d._deferred?' as a deferred product':' in the queue for review'} — nothing is published without an approval.</p></div>
+      <div id="ghStatus" class="sub" role="status" aria-live="polite"></div>
+      <button class="btn primary" type="button" id="ghRestore">Restore to queue</button>
+      <button class="btn" type="button" onclick="closeSheet()">Close</button>`);
+  } else {
+    openSheet(`<h2 id="ghTitle"><span class="chip ghtag df" style="padding:1px 6px">DEFERRED</span> Deferred from the queue</h2>${head}
+      <div class="rwitem"><p><b>Deferred — ${esc(d.reason||'no reason recorded')}</b>${who?' · '+who:''}</p>
+      <p>${d._back?'Bringing it back — it reappears in the queue after the next update (about a minute).'
+        :'It is not in the queue for review. Bring it back to review it, or remove it if it is never coming.'}</p></div>
+      <div id="ghStatus" class="sub" role="status" aria-live="polite"></div>
+      ${d._back?'':`<button class="btn primary" type="button" id="ghBack">Bring back to the queue</button>
+      <button class="btn" type="button" id="ghRemove">Remove from queue…</button>`}
+      <button class="btn" type="button" onclick="closeSheet()">Close</button>`);
+  }
+  _sheetDialogOn('ghTitle', opener);
+  var b=document.querySelector('#ghRestore'); if(rm&&b) b.onclick=function(){ restoreAsk(d); };
+  var bb=document.querySelector('#ghBack'); if(!rm&&!d._back&&bb) bb.onclick=function(){ ghostBringBack(key); };
+  var br=document.querySelector('#ghRemove'); if(!rm&&!d._back&&br) br.onclick=function(){ cancelOpen(null, d); };
+  renderQueue();
+  return g;
+}
+/* one save at a time per ghost product (it has no loaded index, so the per-product autosave chain cannot reach it —
+   this chain is what keeps Bring back and Remove from crossing on the same row) */
+var _ghChain={};
+function _ghostSerial(key, fn){
+  var prev=_ghChain[key]||Promise.resolve();
+  var run=prev.then(function(){ return fn(); }, function(){ return fn(); });
+  var tail=run.then(function(){},function(){});
+  _ghChain[key]=tail; tail.then(function(){ if(_ghChain[key]===tail) delete _ghChain[key]; });
+  return run;
+}
+var GH_BUSY={};
+async function ghostBringBack(key){
+  if(!cancelStaffOnly()) return {ok:false, reason:'vendor'};
+  var g=ghostFind(key); if(!g||g.kind!=='deferred') return {ok:false, reason:'gone'};
+  var d=g.d, k=_ghKey(d); if(GH_BUSY[k]) return {ok:false, reason:'busy'};
+  GH_BUSY[k]=true;
+  var el=document.querySelector('#ghStatus'); if(el) el.textContent='Bringing it back…';
+  var res;
+  /* ⛔ re-checked INSIDE the chain: a Remove that finished first wins — it is no longer deferred, so nothing to bring back */
+  try{ res=await _ghostSerial(k, function(){ return d._rmPending?{ok:false, reason:'removed'}:window.undeferProduct(d.sku, d._batch||''); }); }
+  catch(e){ res={ok:false, reason:String(e&&e.message||e)}; }
+  finally{ GH_BUSY[k]=false; }
+  if(res&&res.ok){ d._back=_cxNowIso(); }
+  else if(res&&res.reason==='removed'){ toast('It was removed meanwhile — restore it from Removed to bring it back.'); }
+  else { el=document.querySelector('#ghStatus');
+    if(el) el.innerHTML='Not brought back — '+esc(_cxFailWords(res))+' <button type="button" class="btn sm" onclick="ghostBringBack(\''+esc(String(key).replace(/'/g,"\\'"))+'\')">Try again</button>'; }
+  renderQueue();
+  return res||{ok:false};
+}
+window.ghostList=ghostList; window.ghostOpen=ghostOpen; window.ghostCounts=ghostCounts; window.visibleGhosts=visibleGhosts;
+window.ghostBringBack=ghostBringBack; window.ghostOwner=ghostOwner; window.ghostMatch=ghostMatch; window._ghostSerial=_ghostSerial;
 const catOf=k=>CATS.find(c=>c[0]===k)||null;
 function targetMargin(p){
   /* precedence: an operator override → the PIPELINE's own target for this row
@@ -2367,8 +2515,11 @@ function renderQueue(){
       </span>${(function(){ var bits=[];
         if(_ownerUI()&&OWNERF.mode!=='tcf') bits.push(esc(ownerLabel(ownerOf(p))));
         if(p._batch&&_batchFromUI()==='__all__') bits.push(esc(batchLabel({batch:p._batch}).replace(/^Queue · /,'')));
-        return bits.length?`<span class="qbatch">${bits.join(' · ')}</span>`:''; })()}</span></button>`;}).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?_removedSearchHint()||'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):_emptyNote()}</div>`;
-  $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
+        return bits.length?`<span class="qbatch">${bits.join(' · ')}</span>`:''; })()}</span></button>`;}).join('')
+    /* ⭐ 2026-10-21: deferred and removed products are rows too (staff) — after the products in the queue */
+    +visibleGhosts().map(ghostRowHtml).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?_removedSearchHint()||'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):_emptyNote()}</div>`;
+  $('#queue').querySelectorAll('.qrow[data-g]').forEach(b=>b.onclick=()=>ghostOpen(b.dataset.g));
+  $('#queue').querySelectorAll('.qrow[data-i]').forEach(b=>b.onclick=()=>{
     /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
        not allow a native dialog, and a blocked confirm() returns false silently. */
     if(isVendorView()){ vGoTo(+b.dataset.i); return; }
@@ -2385,8 +2536,14 @@ function renderQueue(){
     +(nRw?` · <span style="color:var(--warn)">${nRw} rework</span>`:'')
     +(nDone?` · ${nDone} done`:'');
   const c=k=>P.filter((p,i)=>inQueue(i)&&p.src===k).length;
-  $('#fAll').textContent=P.filter((p,i)=>inQueue(i)).length;$('#fNew').textContent=c('newitem');
+  /* ⭐ 2026-10-21: All = the products in the queue + deferred + removed (each product once) */
+  const gc=ghostCounts(false);
+  $('#fAll').textContent=P.filter((p,i)=>inQueue(i)).length+gc.deferred+gc.removed;$('#fNew').textContent=c('newitem');
   $('#fEnh').textContent=c('enhance');$('#fCln').textContent=c('clone');
+  var _bd=document.querySelector('#btnDeferred'), _fd=document.querySelector('#fDef');
+  if(_bd) _bd.hidden=!cancelStaffOnly()||(!gc.deferred&&filter!=='deferred'); if(_fd) _fd.textContent=gc.deferred?String(gc.deferred):'';
+  try{ renderRemovedChip(); }catch(_){}
+  document.querySelectorAll('.chip-f').forEach(function(x){ x.setAttribute('aria-pressed', String(x.dataset.f===filter)); });
   renderOwnerChips();
 }
 /* ⭐ 2026-10-11: an empty list says WHY, and how to widen it */
@@ -4003,7 +4160,7 @@ function pubCounts(){
 window.pubCounts=pubCounts;
 function renderPubBar(){
   const el=document.querySelector('#pubBar'); if(!el) return;
-  const c=pubCounts();
+  const c=pubCounts(), g=ghostCounts(true);   /* g = deferred / removed rows under the Owner filter ({0,0} for a vendor) */
   const chip=(cls,icon,n,label,extra,key)=>`<span class="ps ${cls}${n?'':' zero'}${key&&CHIP===key?' on':''}"${
       extra||(key?` role="button" tabindex="0" onclick="setChip('${key}')" title="${CHIP===key?'Show everything':'Show only these'}"`:'')}>${icon} ${label} <b>${n}</b></span>`;
   var act=0, us=0;
@@ -4022,7 +4179,10 @@ function renderPubBar(){
     +chip('ask','❓',c.needs,'Needs your answer',c.needs?' onclick="showNeeds()" title="Products that could not be identified or categorised — answer to restart them"':'')
     +chip('wait','⏳',c.waiting,'Publishing','', 'wait')
     +chip('pub','✓',c.published,IS_TEST?'Published (Dev only)':'Published','', 'pub')
-    +` <span class="ps${CHIP?'':' on'}" role="button" tabindex="0" onclick="setChip(null)" title="Every status — no filter">${CHIP?'✕ ':''}Show all <b>${c.published+c.waiting+c.parked+c.held+c.review}</b></span>`;
+    /* ⭐ 2026-10-21 (Jack: "those should have their own tags and options to remove/filter for those"): staff see
+       Deferred and Removed as status chips too — not work, so they sit after Published, and Show all includes them */
+    +(cancelStaffOnly()?chip('def','⏸',g.deferred,'Deferred','', 'deferred')+chip('rmv','✕',g.removed,'Removed','', 'removed'):'')
+    +` <span class="ps${CHIP?'':' on'}" role="button" tabindex="0" onclick="setChip(null)" title="Every status — no filter">${CHIP?'✕ ':''}Show all <b>${c.published+c.waiting+c.parked+c.held+c.review+g.deferred+g.removed}</b></span>`;
 }
 window.renderPubBar=renderPubBar;
 
@@ -4221,7 +4381,9 @@ document.querySelectorAll('.chip-f').forEach(c=>c.onclick=()=>{
 function openSheet(h){ _sheetSeq=(_sheetSeq||0)+1; _sheetDialogOff($('#sheet')); $('#sheet').innerHTML=h; $('#drawer').dataset.open='1'; }
 function closeSheet(){ $('#drawer').dataset.open='0'; _sheetDialogOff($('#sheet'));
   /* ⭐ focus goes back to what opened the sheet ("Remove from queue…", the Removed chip) */
-  var o=_sheetOpener; _sheetOpener=null; if(o&&o.focus){ try{ o.focus(); }catch(_){} } }
+  var o=_sheetOpener; _sheetOpener=null; if(o&&o.focus){ try{ o.focus(); }catch(_){} }
+  /* ⭐ 2026-10-21: a deferred / removed row stops looking selected once its panel closes */
+  if(typeof GHOST_OPEN!=='undefined' && GHOST_OPEN){ GHOST_OPEN=null; try{ renderQueue(); }catch(_){} } }
 $('#drawer').onclick=e=>{if(e.target.id==='drawer')closeSheet();};
 window.closeSheet=closeSheet;window.toast=toast;
 /* ⭐ `recordOverride`/`resolveFlag`/`submitResolve`/`deferFlag` are defined
@@ -4428,17 +4590,8 @@ window.undeferProduct=async function(sku, ownBatch){
     return res;
   }catch(e){ toast('⛔ Could not bring it back: '+e); return {ok:false,reason:String(e)}; }
 };
-$('#btnDeferred').onclick=()=>openSheet(`<h2>Deferred from this batch</h2>
-  <div class="sub">These were deferred and are hidden from the queue. Bringing one back
-  returns it for review; nothing is published without an approval.</div>
-  ${DEFERRED.map(d=>`<div class="rwitem"><b>${esc(d.name||d.sku)}</b> · <span class="mono">${esc(d.sku)}</span>
-     <p>${esc(d.reason||'(no reason recorded)')}</p>
-     <button class="btn" data-undefer="${esc(d.sku)}" data-undefer-batch="${esc(d._batch||'')}">Bring back</button></div>`).join('')
-   ||'<div class="rwitem"><p>Nothing is deferred.</p></div>'}
-  <button class="btn" onclick="closeSheet()">Close</button>`);
-  /* ⭐ AUDIT FIX: no SKU inside an inline onclick string (quote-escaping). */
-  document.querySelectorAll('[data-undefer]').forEach(function(b){
-    b.onclick=function(){ undeferProduct(b.getAttribute('data-undefer'), b.getAttribute('data-undefer-batch')||''); };});
+/* ⭐ 2026-10-21: the Deferred chip is a FILTER now (the generic .chip-f handler) — each deferred product is a row in the list
+   that opens its own panel (ghostOpen) with "Bring back to the queue" and "Remove from queue…". The old sheet is gone. */
 $('#btnClone').onclick=function(){ cloneSheet(); };
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
@@ -4793,6 +4946,11 @@ function removedList(){
       out.push({sku:p.sku, upc:p.upc||'', name:p.name, reason:ri.reason||'', ref_sku:ri.ref_sku||'', shipper_item:ri.shipper_item||'',
                 note:ri.note||'', by:ri.by||'', at:ri.at||'', _batch:p._batch||'', _i:i, refused:true, refusedNote:_cxNotePlain(r.note, p.sku)});
     } });
+  /* ⭐ 2026-10-21: a DEFERRED product removed (saved 'cancelled', the drain not run yet) — Restore puts it back to deferred */
+  DEFERRED.forEach(function(d){ if(!d._rmPending) return; var key=(d._batch||'')+'|'+d.sku; if(seen[key]) return; seen[key]=1;
+    var c=d._rmPending||{};
+    out.push({sku:d.sku, upc:d.upc||'', name:d.name, owner:d.owner||'', reason:c.reason||'', ref_sku:c.ref_sku||'', shipper_item:c.shipper_item||'',
+              note:c.note||'', by:c.by||'', at:c.at||'', _batch:d._batch||'', _deferred:true}); });
   return out;
 }
 /* the drain's note, in plain words: "<SKU>: not removed from the queue — why" → "why" */
@@ -4803,8 +4961,10 @@ function _cxNotePlain(note, sku){
   return s?s.charAt(0).toUpperCase()+s.slice(1):'No reason was given.';
 }
 function renderRemovedChip(){
-  var n=removedList().length, b=document.querySelector('#btnRemoved'), f=document.querySelector('#fRem');
-  if(b) b.hidden=!n; if(f) f.textContent=n?String(n):'';
+  /* ⭐ 2026-10-21: the number is the REMOVED rows (a refused removal is still in the queue, so it is counted there — All
+     = in the queue + deferred + removed, nothing twice); the chip still shows while a refused one is listed */
+  var L=removedList(), n=L.filter(function(d){ return !d.refused; }).length, b=document.querySelector('#btnRemoved'), f=document.querySelector('#fRem');
+  if(b) b.hidden=!L.length&&filter!=='removed'; if(f) f.textContent=n?String(n):(L.length?'0':'');
   return n;
 }
 /* ⭐ every product in the queue removed → one plain panel instead of an editable removed product */
@@ -4817,17 +4977,25 @@ function renderAllRemoved(){
 }
 
 /* ── the "Remove this product from the queue?" sheet ── */
-var CX={i:-1, reason:'', ref_sku:'', shipper_item:'', note:'', saving:false, gen:0, sheet:0};
-function cancelOpen(i){
+var CX={i:-1, d:null, reason:'', ref_sku:'', shipper_item:'', note:'', saving:false, gen:0, sheet:0};
+/* what the sheet is removing: a loaded product (CX.i) or, since 2026-10-21, a DEFERRED product (CX.d — not a loaded item) */
+function _cxTarget(){ return (CX&&CX.d) ? CX.d : ((CX&&P[CX.i])||null); }
+function cancelOpen(i, d){
   if(!cancelStaffOnly()){ toast('Removing a product is done by our team'); return; }
-  i=(i==null?cur:i);
-  if(!P[i]) return;
-  if(st[i].cancelled){ toast('This product is already removed — restore it from Removed.'); return; }
-  var why=cancelBlocked(i); if(why){ toast(why); return; }
-  var opener=_openerOr('#btnCancel');
-  CX={i:i, reason:'', ref_sku:'', shipper_item:'', note:'', saving:false, gen:(CX.gen||0)+1, sheet:0};
+  d=d||null;
+  if(d){
+    if(d._rmPending){ toast('This product is already removed — restore it from Removed.'); return; }
+    i=-1;
+  } else {
+    i=(i==null?cur:i);
+    if(!P[i]) return;
+    if(st[i].cancelled){ toast('This product is already removed — restore it from Removed.'); return; }
+    var why=cancelBlocked(i); if(why){ toast(why); return; }
+  }
+  var opener=_openerOr(d?'#queue':'#btnCancel');
+  CX={i:i, d:d, reason:'', ref_sku:'', shipper_item:'', note:'', saving:false, gen:(CX.gen||0)+1, sheet:0};
   if(!LIVE_CAT.loading) CXCAT.failed='';   /* a fresh sheet tries the product list again */
-  var p=P[i];
+  var p=d||P[i];
   openSheet(`<h2 id="cxTitle">Remove this product from the queue?</h2>
     <div class="sub"><b>${esc(p.name||p.sku)}</b> · <span class="mono">${esc(p.sku||'')}</span><br>
     It will not be created on our stores or in Finale. You can restore it later from <b>Removed</b>.</div>
@@ -4859,7 +5027,7 @@ function _cxRefHits(q){
 // ⭐ 2026-10-20: the shipper editor URL is a TEMPLATE from P&M (`{upc}` = this product's UPC), e.g.
 //   https://internal.mnfood.club/vendor-orders/?tab=orders&q={upc} — opens their order lines searched to that UPC.
 function shipperEditorHref(tpl){
-  var p=(typeof CX!=='undefined'&&CX&&P[CX.i])||{}, u=String(p.upc||'').replace(/[^0-9]/g,'');
+  var p=(typeof CX!=='undefined'&&_cxTarget())||{}, u=String(p.upc||'').replace(/[^0-9]/g,'');
   return String(tpl==null?SHIPPER_EDITOR_URL:tpl).split('{upc}').join(encodeURIComponent(u));
 }
 function cancelRender(){
@@ -4889,7 +5057,7 @@ function cxCountText(v, max){
   return n>=Math.floor(max*0.8) ? n+' / '+max+' characters'+(n>max?' — too long':'') : '';
 }
 function cancelValidate(){
-  var pr=cancelProblems(CX, P[CX.i]&&P[CX.i].sku), go=document.querySelector('#cxGo'), er=document.querySelector('#cxErr');
+  var pr=cancelProblems(CX, (_cxTarget()||{}).sku), go=document.querySelector('#cxGo'), er=document.querySelector('#cxErr');
   /* ⭐ say what is missing only once a reason is chosen — an empty form is not an error */
   if(er) er.textContent=CX.reason?pr.map(function(x){return x.msg;}).join(' '):'';
   if(go) go.disabled=!!pr.length||!!CX.saving;
@@ -4967,6 +5135,7 @@ function _cxCatalog(force){
    once the save is confirmed (a failed save never leaves it looking removed) */
 async function cancelSubmit(){
   if(!cancelStaffOnly()){ toast('Removing a product is done by our team'); return {ok:false, reason:'vendor'}; }
+  if(CX.d) return cancelSubmitDeferred();
   var i=CX.i; if(!P[i]||CX.saving) return {ok:false, reason:'busy'};
   var why0=cancelBlocked(i); if(why0){ toast(why0); return {ok:false, reason:'blocked'}; }
   if(cancelProblems(CX, P[i].sku).length){ cancelValidate(); return {ok:false, reason:'invalid'}; }
@@ -5020,6 +5189,64 @@ async function cancelSubmit(){
   return res||{ok:false};
 }
 
+/* ⭐⭐ 2026-10-21: Remove a DEFERRED product (Jack could not find a way to remove the deferred Fig Chili). It is not a
+   loaded item, so there is no decisionPatch: it writes the contract shape onto ITS OWN ListingReview row —
+     overall:'cancelled'  +  edits._cancel {reason, ref_sku, shipper_item, note, at, by}
+   MERGED into the row's stored edits (like Restore does for a drained row), with the row's revision as expect_revision.
+   ⭐ One save at a time for that product (_ghostSerial — the same chain Bring back uses; autosave never touches it),
+   the wait shown with its seconds and limit, a plain failure + Try again, and a conflict after a timeout re-reads the row
+   (if the first save landed, it is a success). The drain applies it to a deferred record (apply_cancel remembers the
+   defer, so a later Restore leaves it deferred). */
+async function cancelSubmitDeferred(){
+  var d=CX.d; if(!d||CX.saving) return {ok:false, reason:'busy'};
+  if(cancelProblems(CX, d.sku).length){ cancelValidate(); return {ok:false, reason:'invalid'}; }
+  var f={reason:CX.reason, ref_sku:CX.ref_sku, shipper_item:CX.shipper_item, note:CX.note};
+  var g=CX.gen, sheet=CX.sheet, key=_ghKey(d), batch=d._batch||_batchFromUI();
+  var done=function(info){
+    d._rmPending=info; d._back=null;
+    if(CX.gen===g && _sheetSeq===sheet) closeSheet();
+    GHOST_OPEN=null; renderAll(); renderRemovedChip();
+    toast('Removed — it will not be created. You can restore it from Removed.');
+  };
+  if(!IS_BROWSER){ done(cancelInfoOf(f, _cxWho(), _cxNowIso())); return {ok:true, local:true}; }
+  CX.saving=true; cancelValidate();
+  var t0=_cxNow(), tick=null;
+  var paint=function(){ var el=document.querySelector('#cxStatus');
+    if(el&&CX.gen===g&&CX.saving) el.textContent='Saving… '+Math.max(0,Math.round((_cxNow()-t0)/1000))+'s (it gives up after '+Math.round(CANCEL_SAVE_LIMIT_MS/1000)+' seconds)'; };
+  paint(); if(typeof setInterval==='function') tick=setInterval(paint, 1000);
+  var info=null;
+  var res=await _ghostSerial(key, async function(){
+    var stored={}, rev=0;
+    if((HOST && typeof HOST.readRow==='function') || HOST===GraphHost){
+      var row=await _cxReadRow(batch, d.sku);
+      if(!row) return {ok:false, reason:'unreadable'};
+      stored=row.edits||{}; rev=row.revision||0;
+    }
+    info=cancelInfoOf(f, _cxWho(), _cxAfter(_cxNowIso(), (stored._uncancel||{}).at));
+    var patch={overall:'cancelled', edits:Object.assign({}, stored, {_cancel:info}), comments:{}, expect_revision:rev};
+    var r;
+    try{ r=await _cxTimed(HOST.saveDecision(batch, d.sku, patch), CANCEL_SAVE_LIMIT_MS); }
+    catch(e){ r={ok:false, reason:String(e&&e.message||e)}; }
+    if(r && !r.ok && r.reason==='stale'){
+      var again=await _cxReadRow(batch, d.sku);
+      if(again && again.overall==='cancelled') r={ok:true, revision:again.revision, readback:true, rowInfo:(again.edits||{})._cancel||null};
+    }
+    if(r && r.ok && r.rowInfo) info=r.rowInfo;
+    return r||{ok:false};
+  });
+  if(tick) clearInterval(tick);
+  if(CX.gen===g) CX.saving=false;
+  if(res&&res.ok){ done(info); return res; }
+  var words=res&&res.reason==='unreadable'?'We could not read this product\'s saved record just now. Try again in a moment.':_cxFailWords(res);
+  var timedOut=res&&res.reason==='timeout', stEl=document.querySelector('#cxStatus');
+  if(stEl&&CX.gen===g) stEl.innerHTML=esc(words)+(timedOut?'':' Nothing was removed.')+' <button type="button" class="btn sm" onclick="cancelSubmit()">Try again</button>';
+  if(CX.gen===g) cancelValidate();
+  renderAll();
+  toast((timedOut?'Not confirmed — ':'Not removed — ')+words);
+  return res||{ok:false};
+}
+window.cancelSubmitDeferred=cancelSubmitDeferred; window._cxTarget=_cxTarget;
+
 /* ── the Removed list + Restore to queue ── */
 function removedOpen(){
   if(!cancelStaffOnly()){ return; }
@@ -5034,7 +5261,7 @@ function removedOpen(){
       ${d.refused
         ?`<p style="color:var(--stop)">⛔ <b>Not removed</b> — ${esc(d.refusedNote)} It is still in the queue.</p>
           <button class="btn" type="button" data-goto="${k}">Go to it</button>`
-        :`<p>Removed by ${esc(d.by||'someone')}${d.at?' · '+esc(fmtWhen(d.at)):''}${d._i!=null?' · waiting to be processed (about 2 minutes)':''}</p>
+        :`<p>Removed by ${esc(d.by||'someone')}${d.at?' · '+esc(fmtWhen(d.at)):''}${d._i!=null||d._deferred?' · waiting to be processed (about 2 minutes)':''}</p>
           <button class="btn" type="button" data-restore="${k}">Restore to queue</button>`}</div>`; }).join('')
      ||'<div class="rwitem"><p>Nothing has been removed.</p></div>'}
     <button class="btn" type="button" onclick="closeSheet()">Close</button>`);
@@ -5137,9 +5364,12 @@ async function restoreRemoved(d){
   var mine=RM.gen===g && _sheetSeq===RM.sheet;
   if(res && res.ok){
     if(li==null) for(var k=REMOVED.length-1;k>=0;k--) if(REMOVED[k].sku===d.sku && (REMOVED[k]._batch||'')===(d._batch||'')) REMOVED.splice(k,1);
+    /* ⭐ 2026-10-21: a deferred product that was removed goes back to Deferred (the drain keeps the defer too) */
+    var wasDef=false; DEFERRED.forEach(function(x){ if(_ghKey(x)===_rmKey(d) && x._rmPending){ delete x._rmPending; wasDef=true; } });
+    GHOST_OPEN=null;
     if(mine) closeSheet();
     renderAll(); renderRemovedChip();
-    toast(li!=null?'Restored — it is back in the queue.':'Restored — it comes back to the queue within about 2 minutes.');
+    toast(li!=null?'Restored — it is back in the queue.':wasDef?'Restored — it is deferred again, as it was before it was removed.':'Restored — it comes back to the queue within about 2 minutes.');
     return res;
   }
   var words=res&&res.reason==='unreadable'?'We could not read this product\'s saved record just now. Try again in a moment.':_cxFailWords(res);
@@ -5151,7 +5381,7 @@ async function restoreRemoved(d){
 }
 function restoreRetry(){ if(RM.d) return restoreRemoved(RM.d); }
 $('#btnCancel').onclick=function(){ cancelOpen(cur); };
-$('#btnRemoved').onclick=function(){ removedOpen(); };
+/* ⭐ 2026-10-21: the Removed chip is a FILTER now (the generic .chip-f handler); removedOpen() stays for the search hint */
 window.cancelOpen=cancelOpen; window.shipperEditorHref=shipperEditorHref; window.cancelSet=cancelSet; window.cancelSubmit=cancelSubmit; window.cancelRefInput=cancelRefInput;
 window.cancelPickRef=cancelPickRef; window.removedOpen=removedOpen; window.restoreRemoved=restoreRemoved; window.restoreAsk=restoreAsk; window.restoreRetry=restoreRetry;
 window._cxCatalog=_cxCatalog; window.cancelProblems=cancelProblems; window.cancelInfoOf=cancelInfoOf; window.removedList=removedList;
@@ -6042,6 +6272,13 @@ async function bootPage(){
       _setWho('wireframe mode — not signed in, showing fixtures', false);
       var _t=document.querySelector('#mockTag');
       if(_t) _t.textContent='Wireframe (?wireframe=1)';
+      /* ⭐ 2026-10-21: WIREFRAME FIXTURES ONLY (never real data) — one deferred and one removed product, so the
+         "All means all" rows, chips and panels can be seen without signing in */
+      if(!DEFERRED.length && !REMOVED.length){
+        DEFERRED.push({sku:'DDair0000Wfx', name:'Fig Chili Cheese - 6 oz (wireframe)', reason:'waiting on the vendor for a label photo', at:'2026-10-19T10:00:00Z'});
+        REMOVED.push({sku:'DPant0000Wfx', upc:'000000000000', name:'Holiday Granola Shipper - 12 oz (wireframe)', reason:'shipper', ref_sku:'', shipper_item:'Holiday Shipper 12ct', note:'', by:'eli@tc.farm', at:'2026-10-20T15:00:00Z', owner:'TCFarm'});
+        try{ renderAll(); }catch(_){}
+      }
       return;
     }
     _setWho('redirecting to sign in…', true);
