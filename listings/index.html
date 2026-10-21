@@ -338,6 +338,9 @@ body[data-ops-hidden="1"] .shell{grid-template-columns:250px minmax(0,1fr)}
 body[data-mode="vendor"] .modetag,body[data-mode="as-vendor"] .modetag{display:inline-block}
 fieldset.vro{border:0;padding:0;margin:0;min-width:0}
 body[data-allremoved="1"] .centre .tabs, body[data-allremoved="1"] #decideBar, body[data-allremoved="1"] .centre .pane{display:none}
+/* ⭐ 2026-10-21 (Jack: "when you filter it should jump to the filter"): a filter with no product to open shows #filterEmpty, never a stale product */
+body[data-filterempty="1"] .centre .tabs, body[data-filterempty="1"] #decideBar, body[data-filterempty="1"] .centre .pane{display:none}
+body[data-filterempty="1"] #ops{visibility:hidden}   /* the side panel describes the hidden product too — kept in the layout, not shown */
 /* ⭐ 2026-10-11 (Jack: "it is 'loading' for a long time and displays old data — gray out the background and give a loading
    status bar"). The veil covers the sample products until the real data is on screen. */
 .veil{position:fixed;inset:0;background:rgba(22,33,29,.45);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:95;display:none;align-items:center;justify-content:center;padding:16px}
@@ -521,6 +524,8 @@ select.batch{max-width:100%;min-width:0}
     <div class="vnote" id="vNote" role="status"></div>
     <!-- ⭐ 2026-10-20: every product in the queue removed → this, instead of an editable removed product -->
     <div class="rwitem" id="allRemoved" role="status" hidden></div>
+    <!-- ⭐ 2026-10-21: the filter matches no product to open (nothing, or only deferred / removed rows) → this, not the old product -->
+    <div class="rwitem" id="filterEmpty" role="status" aria-live="polite" hidden></div>
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-pane="listing">Listing</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="fields" id="tabFields">All BC fields</button>
@@ -2102,8 +2107,66 @@ function _needsAction(i){
   var ps=pubState(i), g=productBlocked(i);
   return ps!=='published'&&!st[i].approved&&(g.blk>0||(!isVendorView()&&g.act>0));
 }
-function setChip(c){ CHIP=(c==null||CHIP===c?null:c); var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0]; renderAll(); }
+function setChip(c){ CHIP=(c==null||CHIP===c?null:c); _afterFilter(true); }
 window.setChip=setChip; window.chipMatch=chipMatch;
+/* ═══ a filter JUMPS to what it shows (2026-10-21) ═══════════════════════════════════════════════════════════════════
+   Jack: "when you filter it should jump to the filter". Every filter change — status chip, Source chip, Owner chip,
+   search, Show all — ends here:
+     · the open product is still in the list → it stays open (never jump away from what someone is working on);
+     · else the FIRST product in the list (the list's own order) opens — through openRow(), the row click's own path, so
+       an open edit is asked about exactly as a click would — and the list scrolls to it;
+     · else (no product: nothing at all, or only deferred / removed rows) the middle shows #filterEmpty and the editor is
+       hidden. ⛔ A deferred / removed panel is never popped up by a filter click — the person picks the row.
+   ⛔ j/k and the counts are untouched. Both views (no view branch: a vendor simply never has ghost rows). */
+var FILTER_EMPTY=false;
+function _filterJump(){
+  var v=visible();
+  if(v.indexOf(cur)>=0){ FILTER_EMPTY=false; return 'kept'; }
+  if(v.length){ FILTER_EMPTY=false; return openRow(v[0])?'jumped':'declined'; }
+  FILTER_EMPTY=true; return visibleGhosts().length?'ghosts':'empty';
+}
+function _scrollToCurRow(){
+  var r=document.querySelector('#queue .qrow[data-i][aria-current="true"]');
+  if(r&&typeof r.scrollIntoView==='function'){ try{ r.scrollIntoView({block:'nearest'}); }catch(_){} }
+}
+/* full=false (a search keystroke) re-renders only the list unless what the middle shows changed */
+function _afterFilter(full){
+  var c0=cur, e0=FILTER_EMPTY, r=_filterJump();
+  if(r==='jumped' && cur!==c0){ _scrollToCurRow(); return r; }      /* openRow rendered */
+  if(full || FILTER_EMPTY!==e0 || FILTER_EMPTY) renderAll(); else renderQueue();
+  return r;
+}
+/* the Source chips (All / New items / Deferred / Removed / Enhance / Clone) */
+function setSourceFilter(f){ filter=String(f||'all'); _afterFilter(true); }
+/* the empty state's Show all: every filter off */
+function filterShowAll(){
+  CHIP=null; filter='all'; QSEARCH='';
+  var q=document.querySelector('#qSearch'); if(q) q.value='';
+  if(_ownerUI()) OWNERF={mode:'all', set:[]};
+  _afterFilter(true); if(typeof renderPubBar==='function') renderPubBar();
+}
+function renderFilterEmpty(){
+  var el=document.querySelector('#filterEmpty');
+  if(FILTER_EMPTY && visible().length) FILTER_EMPTY=false;          /* a refresh brought products back into the list */
+  var on=FILTER_EMPTY && !(document.body&&document.body.dataset&&document.body.dataset.allremoved==='1'), h='';
+  if(on){
+    var n={deferred:0, removed:0}; visibleGhosts().forEach(function(g){ n[g.kind]++; });
+    var pl=function(k,w){ return k+' '+w+' product'+(k===1?'':'s'); };
+    if(n.deferred||n.removed){
+      h=(n.deferred?'<p><b>'+pl(n.deferred,'deferred')+'</b> — pick one from the list to bring it back or remove it.</p>':'')
+       +(n.removed?'<p><b>'+pl(n.removed,'removed')+'</b> — pick one from the list to restore it.</p>':'');
+    } else {
+      var q=String(QSEARCH||'').trim();
+      h='<p><b>Nothing matches this filter.</b>'+(q?' No product matches “'+esc(q)+'”.':'')+'</p>'
+       +'<button type="button" class="btn sm" onclick="filterShowAll()">Show all</button>';
+    }
+  }
+  if(el){ el.hidden=!on; el.innerHTML=h; }
+  if(document.body && document.body.dataset) document.body.dataset.filterempty=on?'1':'';
+  return on;
+}
+window.setSourceFilter=setSourceFilter; window.filterShowAll=filterShowAll; window.renderFilterEmpty=renderFilterEmpty;
+window._afterFilter=_afterFilter; window.filterEmptyOn=function(){ return FILTER_EMPTY; };
 /* ⭐ 2026-10-05 (Jack): the queue search. Every word must match one of name / SKU / brand / UPC / batch (case-blind);
    a number also matches a UPC without its leading zeros. ⛔ It only narrows the LIST — it never changes a product. */
 var QSEARCH='';
@@ -2126,7 +2189,7 @@ function _removedSearchHint(){
   return n?(n+' match'+(n>1?'es':'')+' in Removed — <button type="button" class="btn sm" onclick="removedOpen()">open Removed</button>'):'';
 }
 window._removedSearchHint=_removedSearchHint;
-function setSearch(q){ QSEARCH=String(q||''); renderQueue(); }
+function setSearch(q){ QSEARCH=String(q||''); _afterFilter(false); }
 window.setSearch=setSearch;
 /* ⭐⭐ 2026-10-11 (Jack: "default to TCFarm as the owner, but a way to search/select one or more vendors … when our staff
    login, they see the actual tasks they need to do all in one place … if we have dozens of vendors adding queues, we
@@ -2151,8 +2214,7 @@ function ownerMatch(i){ return !_ownerUI() || ownerModeMatch(ownerOf(P[i]), OWNE
 function setOwnerFilter(mode, set){
   OWNERF={mode:(['tcf','vendors','all','pick'].indexOf(mode)>=0?mode:'all'), set:(set||[]).map(String)};
   if(OWNERF.mode==='pick'&&!OWNERF.set.length) OWNERF.mode='all';
-  var v=visible(); if(v.length&&v.indexOf(cur)<0) cur=v[0];
-  renderAll(); if(typeof renderPubBar==='function') renderPubBar();
+  _afterFilter(true); if(typeof renderPubBar==='function') renderPubBar();
 }
 /* every owner in the loaded products, TC Farm first, with how many products and how many need action */
 function ownerRoster(){
@@ -2492,6 +2554,17 @@ function suggestLadder(caseQty){   /* ⛔ A13: price deliberately absent */
 }
 
 /* ═══ queue ═══ */
+/* ⭐ open product i the way a row click does (also the filter jump, 2026-10-21). Returns true once it is open. */
+function openRow(i){
+  /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
+     not allow a native dialog, and a blocked confirm() returns false silently. */
+  if(isVendorView()){ vGoTo(i); return cur===i; }
+  /* ⛔ A9: leaving a product mid-edit used to bin the edit with no signal. */
+  if(editing!==null && !confirm(`You are still editing ${LBL[editing]}.\n\n`
+      +`Leaving now discards that change.\n\nDiscard and move on?`)) return false;
+  cur=+i;editing=null;FILTER_EMPTY=false;renderAll();return true;
+}
+window.openRow=openRow;
 function renderQueue(){
   const vis=visible();
   $('#queue').innerHTML=vis.map(i=>{const p=P[i],s=st[i].sec;
@@ -2519,14 +2592,7 @@ function renderQueue(){
     /* ⭐ 2026-10-21: deferred and removed products are rows too (staff) — after the products in the queue */
     +visibleGhosts().map(ghostRowHtml).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?_removedSearchHint()||'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):_emptyNote()}</div>`;
   $('#queue').querySelectorAll('.qrow[data-g]').forEach(b=>b.onclick=()=>ghostOpen(b.dataset.g));
-  $('#queue').querySelectorAll('.qrow[data-i]').forEach(b=>b.onclick=()=>{
-    /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
-       not allow a native dialog, and a blocked confirm() returns false silently. */
-    if(isVendorView()){ vGoTo(+b.dataset.i); return; }
-    /* ⛔ A9: leaving a product mid-edit used to bin the edit with no signal. */
-    if(editing!==null && !confirm(`You are still editing ${LBL[editing]}.\n\n`
-        +`Leaving now discards that change.\n\nDiscard and move on?`)) return;
-    cur=+b.dataset.i;editing=null;renderAll();});
+  $('#queue').querySelectorAll('.qrow[data-i]').forEach(b=>b.onclick=()=>openRow(+b.dataset.i));
   /* ⭐ C2: the shape of the job at a glance — how many are one click from done. */
   let nReady=0,nBlocked=0,nRw=0,nDone=0;
   vis.forEach(i=>{const g=productBlocked(i);
@@ -2582,7 +2648,7 @@ function askConfirm(o){
 /* vendor view: switch product, asking first if an edit is open */
 function vGoTo(i){
   i=+i; if(!(i>=0 && i<P.length)) return;
-  const go=()=>{ cur=i; editing=null; renderAll(); };
+  const go=()=>{ cur=i; editing=null; FILTER_EMPTY=false; renderAll(); };
   if(editing!==null && i!==cur){
     askConfirm({title:'You are still editing '+LBL[editing],
       body:'Leaving now discards that change.', yes:'Discard and move on', no:'Keep editing', onYes:go,
@@ -4371,11 +4437,8 @@ function selectTab(n){
 }
 window.selectTab=selectTab;
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>selectTab(t.dataset.pane));
-document.querySelectorAll('.chip-f').forEach(c=>c.onclick=()=>{
-  filter=c.dataset.f;
-  document.querySelectorAll('.chip-f').forEach(x=>x.setAttribute('aria-pressed',String(x===c)));
-  const v=visible();if(v.length&&!v.includes(cur))cur=v[0];
-  editing=null;renderAll();});
+/* ⭐ 2026-10-21: through setSourceFilter → the filter jump (renderQueue sets aria-pressed) */
+document.querySelectorAll('.chip-f').forEach(c=>c.onclick=()=>setSourceFilter(c.dataset.f));
 
 /* ⭐ 2026-10-20: every sheet starts plain — the dialog role and focus trap a feature sets are cleared for the next one */
 function openSheet(h){ _sheetSeq=(_sheetSeq||0)+1; _sheetDialogOff($('#sheet')); $('#sheet').innerHTML=h; $('#drawer').dataset.open='1'; }
@@ -5417,7 +5480,7 @@ document.addEventListener('keydown',e=>{
   const vis=visible(), at=vis.indexOf(cur);
   if(e.key==='j'||e.key==='ArrowDown'){ if(at<vis.length-1){cur=vis[at+1];editing=null;renderAll();} e.preventDefault(); }
   else if(e.key==='k'||e.key==='ArrowUp'){ if(at>0){cur=vis[at-1];editing=null;renderAll();} e.preventDefault(); }
-  else if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){ const b=$('#btnApprove'); if(!b.disabled)b.onclick(); e.preventDefault(); }
+  else if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){ const b=$('#btnApprove'); if(!FILTER_EMPTY&&!b.disabled)b.onclick(); e.preventDefault(); }   /* ⛔ never approve a product the filter has hidden */
   else if(/^[1-9]$/.test(e.key)){                       /* toggle image N in grid order */
     const idx=+e.key-1; if(P[cur].imgs[idx]){togglePick(idx);toast(`Toggled image ${e.key}`);} e.preventDefault(); }
   else if(e.key==='u'){ undoClearPicks(); e.preventDefault(); }
@@ -6033,7 +6096,7 @@ window.liveEnhOpen=liveEnhOpen; window.liveEnhSubmit=liveEnhSubmit;
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();renderLiveEnh();
-  renderVendorExtras(); renderStory(); markNeedFix(); renderAllRemoved();
+  renderVendorExtras(); renderStory(); markNeedFix(); renderAllRemoved(); renderFilterEmpty();
 }
 applyModeChrome();
 renderAll();
