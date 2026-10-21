@@ -470,6 +470,10 @@ select.batch{max-width:100%;min-width:0}
        vendor view (VENDOR_ALWAYS_HIDE), which hid this button with it, so vendors had no way to reach the feature.
        It now sits beside Refresh in both views; cloneAvailable() still decides whether it shows. -->
   <button class="tbtn" id="btnClone" data-vhide="btnClone" hidden>+ Make a similar version</button>
+  <!-- ⭐ 2026-10-21 (Jack, in person: vendors "should have the option to edit or enhance live products"): the VENDOR's
+       way in to "Edit or enhance a live product" (staff keep #btnLiveEnh). Shown only when the portal announces
+       `live_enhance` in hello.features (vLiveEnhAvailable), so the page can deploy before the portal. -->
+  <button class="tbtn" id="btnVLiveEnh" hidden title="Ask us to rewrite one of your products that is already on our stores — new copy and photos from your own product page">✨ Enhance a live product</button>
   <span id="refreshNote" class="note" style="font-size:12px"></span>
   <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
@@ -1142,7 +1146,7 @@ window.loadAllLive=loadAllLive; window.isLiveBatch=isLiveBatch;
    owner and supplier data before a vendor payload leaves it. The page is only
    required not to DEPEND on that — and a test proves it renders none of it. */
 var PORTAL_ORIGINS=['https://vendors.mnfood.club','https://main.do89570fqs33f.amplifyapp.com'];
-var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest','clone'];
+var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest','clone','liveEnhance'];
 var PORTAL_TIMEOUT_MS=30000;
 /* ⛔ An EMBEDDED COPY of config vendor_field_policy.json — used ONLY when the
    payload carries no `vendor_policy`. The harness compares it to the file, so
@@ -1150,9 +1154,13 @@ var PORTAL_TIMEOUT_MS=30000;
 var VENDOR_POLICY_FALLBACK={
   version:1,
   edit:['name','badge','prose','warranty','cq','kws','upc','vendorCode','storage','cat','cat2','taxOverride',
-        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','casepack','reorder','visible'],
-  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible','images'],
-  view:['sku','brand','published','taxAssessment','flags'],
+        'price','salePrice','saleEnds','tiers','pageTitle','metaDesc','weightG','dims','volume','casepack','reorder','visible'],
+  /* ⭐ 2026-10-21 (Jack, in person): weight, dimensions and volume are editable on a LIVE product too */
+  live_edit:['name','badge','prose','warranty','cq','kws','price','salePrice','saleEnds','pageTitle','metaDesc','visible','images',
+             'weightG','dims','volume'],
+  view:['sku','brand','published','taxAssessment','flags','dimsMeta','volume','volumeBasis'],
+  /* ⭐ 2026-10-21: `_keepCurrent` — a vendor keeps a section of their ENHANCE item as it is on the store */
+  edit_reserved_allowed:['_commentsAt','_keepCurrent'],
   hide_ui:['ops','tabFlags','tabLog','btnConsign','btnPortal','btnRw','btnRunNow','btnDeferred',
            'costRow','marginRow','finaleRows','ownerRow','supplierRow','itemTypeRow','freeFillRow','visibleRow',
            'variantsBlock','notesBlock','heldBanner','rail'],
@@ -1297,6 +1305,30 @@ function vh(name, html){
    rendered at all; view → read-only (a disabled <fieldset> disables every
    control inside it); edit → exactly as staff sees it. ⛔ Fail closed: a row
    with no key is hidden in a vendor view. */
+/* ⭐ 2026-10-21 (Jack, A to Z "Choc & Awe - Pint"): WHERE a measurement comes from, in words both views read. */
+function volSrcWords(src){
+  return ({live_store:'from our stores', rivir_declared:'from the maker', operator:'you entered', operator_dims:'you entered',
+           template:'copied from the product it was made from', estimate:'estimated — please check the size'})[src]
+         || 'estimated — please check the size';
+}
+/* has the reviewer TYPED a volume on this product (a saved one, or one changed since load)? */
+function volTyped(p){
+  var b=(p&&p._base)||{};
+  return !!(p && ((p.volume!==undefined && JSON.stringify(p.volume)!==JSON.stringify(b.volume===undefined?null:b.volume) && +p.volume>0)
+                  || (p.volumeBasis==='operator' && +p.volume>0)));
+}
+/* -> {value, words}: the Volume box. A typed volume wins; then a dimension changed since load → L × W × H live;
+   then the payload's own volume and source; then L × W × H. ⛔ Nothing is made up: no value = an empty box. */
+function volView(p, dims){
+  var d=dims||p.dims||[0,0,0], b=(p._base&&p._base.dims)||null;
+  var prod=Math.round((+d[0]||0)*(+d[1]||0)*(+d[2]||0));
+  if(volTyped(p)) return {value:+p.volume, words:'you entered'};
+  var dimsChanged=!!(dims || (b && JSON.stringify(b)!==JSON.stringify(p.dims)));
+  if(dimsChanged && prod>0) return {value:prod, words:'L × W × H — you entered'};
+  if(+p.volume>0) return {value:+p.volume, words:volSrcWords(p.volumeBasis||(p.dimsMeta&&p.dimsMeta.source))};
+  if(prod>0) return {value:prod, words:'L × W × H — '+volSrcWords(p.dimsMeta&&p.dimsMeta.source)};
+  return {value:0, words:'not known yet — enter it if you know it'};
+}
 function vrow(key, ui, html){
   if(ui) html=_markVh(ui, html);
   /* ⭐ 2026-10-20: a REMOVED product is read-only in both views (restore it first) */
@@ -1579,7 +1611,11 @@ function makePortalHost(parentWin, parentOrigin, opts){
       return request('clone', Object.assign({}, args, {files:files}), xfer);
     },
     /* the vendor's choice after recording: rewrite this description with the story once it is transcribed? */
-    storyRequest:function(batch, sku, session, rewrite, parts){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true, parts:(parts|0)}); }
+    storyRequest:function(batch, sku, session, rewrite, parts){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true, parts:(parts|0)}); },
+    /* ⭐ 2026-10-21 "Enhance a live product": one of the vendor's OWN live products (the mini re-checks the owner) */
+    liveEnhance:function(a){ a=a||{};
+      return request('liveEnhance',{batch:String(a.batch||''), sku:String(a.sku||''), mode:'enhance',
+                                    urls:(a.urls||[]).map(String), note:String(a.note||'')}); }
   };
 }
 var HOST=GraphHost;
@@ -1832,6 +1868,9 @@ function fromPayload(it){
        test_merge_parity asserts every emitted payload field is read — the
        check that caught this field half-wired. */
     dimsMeta:it.dims_meta||{},
+    /* ⭐ 2026-10-21 (Jack): the __Volume the export would write (listing_payload._volume_info) and WHERE it comes from
+       (operator / operator_dims / rivir_declared / live_store / template / estimate) — '' = none known, never a guess */
+    volume:(it.volume===''||it.volume==null)?null:+it.volume, volumeBasis:it.volume_basis||'',
     visible:it.visible==null?true:!!it.visible,
     units:it.units==null?null:it.units,
     ingredients:it.ingredients||'',
@@ -3371,21 +3410,22 @@ function renderFields(){
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Physical &amp; shipping</h3><div class="body">
     ${vrow('weightG',null,frow('Weight','grams',`<input class="ctl w-sm mono" id="fW" type="number" value="${p.weightG}">`))}
-    ${vrow('dims',null,frow('Dimensions','W × H × D cm',`<div class="inline">
-      <input class="ctl w-sm mono" id="fD0" type="number" value="${p.dims[0]}">
-      <input class="ctl w-sm mono" id="fD1" type="number" value="${p.dims[1]}">
-      <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}"></div>`))}
-    ${vrow('dims',null,isVendorView()
-      ? frow('Volume','worked out from the size',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
-          '<span class="derived">W × H × D, in cm³</span>'
-          +((p.dimsMeta&&p.dimsMeta.basis==='rivir_declared')
-            ? ' · from the manufacturer\'s declared package'
-            : ' · <b>estimated</b> — please check the size'))
-      : frow('__Volume','derived',`<input class="ctl w-sm mono" value="${Math.round(p.dims[0]*p.dims[1]*p.dims[2])||''}" disabled>`,
-      '<span class="derived">L × W × H cm³ — drives van load planning</span>'
-      +((p.dimsMeta&&p.dimsMeta.basis==='rivir_declared')
-        ? ' · <b>from RIVIR</b>, the manufacturer\'s declared package'
-        : ' · <b>ESTIMATED</b> — check it')))}
+    ${vrow('dims',null,frow('Dimensions','L × W × H cm',`<div class="inline">
+      <input class="ctl w-sm mono" id="fD0" type="number" value="${p.dims[0]}" aria-label="length (cm)" title="length">
+      <input class="ctl w-sm mono" id="fD1" type="number" value="${p.dims[1]}" aria-label="width (cm)" title="width">
+      <input class="ctl w-sm mono" id="fD2" type="number" value="${p.dims[2]}" aria-label="height (cm)" title="height"></div>`,
+      (p.dimsMeta&&p.dimsMeta.source)?'<span class="derived">'+esc(volSrcWords(p.dimsMeta.source))+'</span>':''))}
+    ${(function(){ var vv=volView(p), V=isVendorView();
+      /* ⭐ 2026-10-21 (Jack: "if they want to edit that or adjust it, we need them to be able to"): the volume is its own
+         editable answer (edit key `volume`, whole cm³) in BOTH views; until one is typed, a dimension change shows
+         L × W × H live. ⛔ The words differ by view only (wording): staff also see what it drives. */
+      /* ⛔ a payload built before 2026-10-21 carries a policy that never names 'volume': the row then follows 'dims'
+         and is READ-ONLY (the bridge would drop a volume edit under that policy anyway) */
+      var pol=activePolicy(), known=!V||pol.edit.indexOf('volume')>=0||pol.view.indexOf('volume')>=0;
+      return vrow(known?'volume':'dims',null,frow(V?'Volume':'__Volume',V?'cm³ — how much room the package takes':'cm³',
+        `<input class="ctl w-sm mono" id="fV" type="number" min="0" step="1" value="${vv.value||''}"${known?'':' disabled'}>`,
+        '<span class="derived" id="fVsrc">'+esc(vv.words)+'</span>'
+        +(V?'':' · drives van load planning')));})()}
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>${isVendorView()?'Ordering':'Ordering &amp; Finale'}</h3><div class="body">
     ${vrow('casepack',null,frow('Case pack',isVendorView()?'how many units come in one case you ship us':'how KeHE ships it',`<input class="ctl w-sm mono" id="fCP" type="number" min="1" step="1" value="${+p.casepack>0?p.casepack:''}" placeholder="${isVendorView()?'e.g. 12':''}">`,isVendorView()?'Just how they are packed. It is not the order minimum — that is “Reorder quantity” below. Never shown in the product name.':'⛔ Never appears in the product Name.'))}
@@ -3612,8 +3652,14 @@ function renderFields(){
      typed dimension changed the screen and never even flipped the section
      chip. ⚠️ The SAVE is now handled by the snapshot diff, but the chip is
      what tells the reviewer the change was registered at all. */
-  [0,1,2].forEach(i=>{const e=$('#fD'+i);if(e)e.onchange=()=>{
-    p.dims[i]=+e.value||0; markEdited('identity','Dimension saved'); };});
+  [0,1,2].forEach(i=>{const e=$('#fD'+i);if(e){e.onchange=()=>{
+    p.dims[i]=+e.value||0; markEdited('identity','Dimension saved'); };
+    /* ⭐ 2026-10-21: while no volume is typed, the Volume box follows L × W × H as you type */
+    e.oninput=()=>{ const d=p.dims.slice(); d[i]=+e.value||0; const vv=volView(p,d), fv=$('#fV'), fs=$('#fVsrc');
+      if(fv&&!volTyped(p)) fv.value=vv.value||''; if(fs) fs.textContent=vv.words; };}});
+  {const e=$('#fV');if(e)e.onchange=()=>{
+    const v=Math.round(+e.value||0); p.volume=v>0?v:0; e.value=v>0?v:'';
+    markEdited('identity',v>0?'Volume saved':'Volume cleared — it follows the dimensions'); };}
   if(_fSel){
     const back=document.querySelector(_fSel);
     if(back){ back.focus();
@@ -3951,10 +3997,11 @@ function renderGrid(){
   $('#gridSub').innerHTML=`<span class="mono">${p.imgs.length}</span> candidates · ${esc(p.preNote)}`
     /* ⭐ 2026-10-01: say plainly that a LIVE product's photos are not changed from here yet (they are not republished) */
     /* ⭐ P-1931: a LIVE product — its store photos, read-only until "Edit photos" */
-    +(p.liveEdit&&isVendorView()&&liveImgAllowed()
+    /* ⭐ 2026-10-21: a vendor's ENHANCE item too — its picks are kept now (vendor_policy.restrict_patch_live) */
+    +((p.liveEdit||p.liveEnhance)&&isVendorView()&&liveImgAllowed()
       ? (liveImgEditing()
         ? `<div class="hint livimg on">Editing the photos on our stores. Tap photos in the order you want — <b>the first is the thumbnail</b>; tap again to remove one. <b>Upload photo</b> adds a new one. Nothing changes on our stores until you <b>Approve</b>.</div>`
-        : `<div class="hint livimg">These are the photos on our stores now${p.liveGalleryPending?' — <b>your new photo order is waiting for approval</b>':''}. <button type="button" class="tbtn go" id="btnLiveImg" onclick="startLiveImgEdit()">✎ Edit photos</button></div>`)
+        : `<div class="hint livimg">${p.liveEnhance?'The photos on our stores now are picked; new photos we found are here too':'These are the photos on our stores now'}${p.liveGalleryPending?' — <b>your new photo order is waiting for approval</b>':''}. <button type="button" class="tbtn go" id="btnLiveImg" onclick="startLiveImgEdit()">✎ Edit photos</button></div>`)
       : p.liveEdit?`<div class="hint" style="margin-top:6px">These are the photos on our stores now. To change them, leave a comment on this product and our team will update it.</div>`:'');
   $('#grid').innerHTML=p.imgs.map((im,i)=>{
     /* ⭐ 2026-10-01: an UNKNOWN size (0×0 — live store photos carry none) is not "too small"; the tile measures the
@@ -4659,6 +4706,7 @@ window.undeferProduct=async function(sku, ownBatch){
 /* ⭐ 2026-10-21: the Deferred chip is a FILTER now (the generic .chip-f handler) — each deferred product is a row in the list
    that opens its own panel (ghostOpen) with "Bring back to the queue" and "Remove from queue…". The old sheet is gone. */
 $('#btnClone').onclick=function(){ cloneSheet(); };
+$('#btnVLiveEnh').onclick=function(){ vLiveEnhOpen(); };
 $('#btnRw').onclick=()=>{const items=[];
   st.forEach((x,i)=>Object.entries(x.cm).forEach(([k,v])=>items.push([P[i].name,LBL[k],v])));
   openSheet(`<h2>Queued for the next run</h2><div class="sub">Each re-runs <b>only that section</b>
@@ -5937,13 +5985,21 @@ function _liveBeforeText(p, sec){
 function renderLiveEnh(){
   var box=document.querySelector('#liveEnhPanel'); if(!box) return;
   var p=P[cur], s=st[cur]||{};
-  if(!p||!p.liveEnhance||isVendorView()){ box.hidden=true; box.innerHTML=''; return; }
-  var keep=s.keepCur||[], sugg=s.sugg||{};
+  /* ⭐ 2026-10-21 (Jack, in person: vendors "should have the option to edit or enhance live products"): a VENDOR sees this
+     panel on THEIR enhance item too — per section they may keep what is on the store (`_keepCurrent`, now in the vendor
+     policy's edit_reserved_allowed). ⛔ Permission: suggestions (price / category / badge / package size) stay staff's —
+     a vendor reads that they are reviewed by TC Farm, never an Accept button. One branch (`V`), both reasons: wording + permission. */
+  var V=isVendorView();
+  if(!p||!p.liveEnhance||(V&&p.liveEnhMode==='edit')){ box.hidden=true; box.innerHTML=''; return; }
+  var keep=s.keepCur||[], sugg=s.sugg||{}, ro=(V&&!vendorCanApprove())||removedLock(cur);
   var rows=LIVE_ENH_SECTIONS.map(function(x){
     var on=keep.indexOf(x[0])<0, was=_liveBeforeText(p,x[0]);
-    return `<div class="le-row"><label><input type="checkbox" data-le="${x[0]}" ${on?'checked':''}> <b>${esc(x[1])}</b> — use the new version</label>
+    var ctl=V
+      ? `<label><input type="checkbox" data-le="${x[0]}" data-keep="1" ${on?'':'checked'} ${ro?'disabled':''}> <b>${esc(x[1])}</b> — Keep what's on the store</label>`
+      : `<label><input type="checkbox" data-le="${x[0]}" ${on?'checked':''}> <b>${esc(x[1])}</b> — use the new version</label>`;
+    return `<div class="le-row">${ctl}
       <details><summary>On the store now</summary><div class="le-was">${was?esc(was):'<i>(empty on the store)</i>'}</div></details></div>`;}).join('');
-  var sg=(p.liveSuggestions||[]).map(function(g){
+  var sg=V?'':(p.liveSuggestions||[]).map(function(g){
     var a=sugg[g.field]||'', lab=g.field==='price'?'Price':g.field==='categories'?'Category':g.field==='custom_field:__badge'?'Badge':g.field==='dims'?'Package size (from RIVIR)':g.field;
     /* ⭐ 2026-10-18: a measurements suggestion reads as L×W×H cm (volume), never raw JSON */
     var _dv=function(d){ if(!d||typeof d!=='object') return JSON.stringify(d); var n=function(x){return (x===null||x===undefined||x==='')?'?':x;};
@@ -5953,17 +6009,27 @@ function renderLiveEnh(){
       <div class="sub">${esc(g.why||'')}</div>
       <button class="tbtn${a==='accept'?' go':''}" data-sg="${esc(g.field)}" data-a="accept">${a==='accept'?'✓ Accepted':'Accept'}</button>
       <button class="tbtn${a==='reject'?' go':''}" data-sg="${esc(g.field)}" data-a="reject">${a==='reject'?'✓ Rejected':'Reject'}</button></div>`;}).join('');
-  var acc=(p.liveAccepted||[]).length?`<div class="sub">Already accepted: ${esc(p.liveAccepted.join(', '))}</div>`:'';
+  var vsg=V?`<div class="sub" id="leVendorSugg">Price and category suggestions are reviewed by TC Farm.${(p.liveSuggestions||[]).length?' We will tell you if we change anything.':''}</div>`:'';
+  var acc=(!V&&(p.liveAccepted||[]).length)?`<div class="sub">Already accepted: ${esc(p.liveAccepted.join(', '))}</div>`:'';
   box.hidden=false;
-  box.innerHTML=`<div class="note le-banner"><b>${p.liveEnhMode==='edit'?'Editing a product that is already on our stores.':'Enhancing a product that is already on our stores.'}</b>
+  box.innerHTML=V
+    ? `<div class="note le-banner"><b>We have rewritten this product, which is already on our stores.</b>
+    Approving puts the new version on our stores. For any part below, tick <b>Keep what's on the store</b> to leave it exactly as it is now.
+    Photos: on the Images tab, press <b>✎ Edit photos</b> to choose them — the photos on our stores now are there too.</div>
+    ${rows}${vsg}`
+    : `<div class="note le-banner"><b>${p.liveEnhMode==='edit'?'Editing a product that is already on our stores.':'Enhancing a product that is already on our stores.'}</b>
     Approving publishes to all three stores. ${p.liveEnhMode==='edit'?'This started from the copy on the store — only what you change is new.'
     :'Each part below can keep what is on the store instead of the new version.'} Price, category, badge and package size only change if you accept a suggestion.
     Photos: pick them on the Images tab — the store's current photos are there too.</div>
     ${p.liveEnhMode==='edit'?'':rows}${sg?'<h3 class="le-h">Suggestions</h3>'+sg:''}${acc}`;
-  [].slice.call(box.querySelectorAll('input[data-le]')||[]).forEach(function(c){ c.onchange=function(){ setKeepCurrent(c.getAttribute('data-le'), !c.checked); }; });
+  [].slice.call(box.querySelectorAll('input[data-le]')||[]).forEach(function(c){ c.onchange=function(){
+    setKeepCurrent(c.getAttribute('data-le'), c.getAttribute('data-keep')==='1' ? !!c.checked : !c.checked); }; });
   [].slice.call(box.querySelectorAll('button[data-sg]')||[]).forEach(function(b){ b.onclick=function(){ answerSuggestion(b.getAttribute('data-sg'), b.getAttribute('data-a')); }; });
 }
 function setKeepCurrent(sec, keep){
+  if(LIVE_ENH_SECTIONS.every(function(x){ return x[0]!==sec; })) return;
+  if(removedLock(cur)){ toast(cxRemovedWords().lock); return; }
+  if(!vendorCanApprove()){ toast(VIEW_ONLY_NOTE); return; }
   var s=st[cur]; s.keepCur=s.keepCur||[];
   var i=s.keepCur.indexOf(sec);
   if(keep && i<0) s.keepCur.push(sec);
@@ -5972,6 +6038,8 @@ function setKeepCurrent(sec, keep){
 }
 function answerSuggestion(field, ans){
   if(ans!=='accept'&&ans!=='reject') return;
+  /* ⛔ 2026-10-21: a vendor never sets our price / category — the policy drops `_suggest` from their save anyway */
+  if(vpLive()){ toast('Price and category suggestions are reviewed by TC Farm.'); return; }
   var s=st[cur]; s.sugg=s.sugg||{}; s.sugg[field]=ans;
   renderLiveEnh(); scheduleAutosave(cur, ans==='accept'?'Suggestion accepted':'Suggestion rejected');
 }
@@ -6096,6 +6164,98 @@ async function liveEnhSubmit(sku, mode, urls){
 }
 window.liveEnhOpen=liveEnhOpen; window.liveEnhSubmit=liveEnhSubmit;
 
+/* ⭐⭐ 2026-10-21 — "Enhance a live product" for a VENDOR (Jack, in person: "they should have the option to edit or enhance
+   live products. That's kind of an important aspect."). The same feature as the staff button above; the branches are the
+   TRANSPORT (staff → Graph row + job; vendor → HOST.liveEnhance, the portal's postMessage), the AVAILABILITY (the portal
+   says it can take it: hello.features 'live_enhance') and the WORDING. ⛔ Only ENHANCE: a vendor already EDITS a live
+   product in their "On our stores" queue. ⛔ The page offers only the vendor's own LIVE products; the mini checks the owner
+   again (vendor_portal_hooks.on_live_enhance_request) and live_enhance checks the built record's owner a third time. */
+var VLE={sent:{}};
+var VLE_MAX_NOTE=1000;
+function vLiveEnhAvailable(){
+  return isVendorView() && VIEW.mode==='vendor' && !VIEW.viewOnly && Array.isArray(VIEW.features) && VIEW.features.indexOf('live_enhance')>=0;
+}
+/* may product i be enhanced from here? → '' or why not */
+function vLiveEnhWhyNot(i){
+  var p=P[i];
+  if(!p||!p.sku) return 'Pick a product first.';
+  if(st[i]&&st[i].cancelled) return 'TC Farm removed this product — it cannot be changed.';
+  if(!p.liveEdit) return 'Only a product that is already on our stores can be enhanced. Open “On our stores — edit a live product” to choose one.';
+  var b=_itemBatch(i);
+  if(!b||b==='__all__') return 'We could not tell which queue this product is in — reload the page and try again.';
+  return '';
+}
+/* the vendor's own live products in what is loaded (their "On our stores" queue, or "All my products") */
+function vLiveEnhChoices(){
+  var out=[]; P.forEach(function(p,i){ if(!vLiveEnhWhyNot(i)) out.push(i); }); return out;
+}
+function vLiveEnhProblems(i, urls, note){
+  var why=vLiveEnhWhyNot(i), bad=why?[why]:[];
+  if((urls||[]).length>3) bad.push('at most 3 links');
+  (urls||[]).forEach(function(u){ if(!/^https?:\/\/[^\s<>\x22]+$/i.test(u) || u.length>500) bad.push('"'+u.slice(0,40)+'" is not a web link'); });
+  if(String(note||'').length>VLE_MAX_NOTE) bad.push('the note is over '+VLE_MAX_NOTE+' characters');
+  return bad;
+}
+window.vLiveEnhProblems=vLiveEnhProblems;
+/* exactly what goes on the wire (portal_contract.json liveEnhance) */
+function vLiveEnhArgs(i, urls, note){
+  var p=P[i]||{};
+  return {batch:_itemBatch(i), sku:String(p.sku||''), mode:'enhance', urls:(urls||[]).map(String), note:String(note||'')};
+}
+window.vLiveEnhArgs=vLiveEnhArgs;
+function vLiveEnhOpen(){
+  if(!vLiveEnhAvailable()) return;
+  var ch=vLiveEnhChoices(), pre=ch.indexOf(cur)>=0?cur:(ch.length?ch[0]:-1);
+  if(pre<0){
+    openSheet('<h2>Enhance a live product</h2><div class="sub">'+esc(vLiveEnhWhyNot(cur)||'None of the products loaded here is on our stores yet.')
+      +'</div><button class="btn" onclick="closeSheet()">Close</button>'); return;
+  }
+  openSheet(`<h2>Enhance a live product</h2>
+    <div class="sub">We re-read your product page and write <b>new copy and photo choices</b> for one of your products that is already on our
+      stores. It comes back here as its own queue for you to review — <b>nothing changes on our stores until you approve it</b>.
+      To change a few words yourself instead, just edit the product in “On our stores”.</div>
+    <label class="sub" for="vleSku">Product</label>
+    <select class="ctl" id="vleSku" style="width:100%">${ch.map(function(i){ return `<option value="${i}"${i===pre?' selected':''}>${esc(P[i].name)} · ${esc(P[i].sku)}</option>`; }).join('')}</select>
+    <div class="sub" style="margin-top:8px">Your product page, if it is new or changed (optional, up to 3 links):</div>
+    <textarea class="ctl" id="vleUrls" rows="2" style="width:100%" placeholder="https://…"></textarea>
+    <div class="sub" style="margin-top:8px">Anything we should know (optional — e.g. “new recipe”, “new packaging”):</div>
+    <textarea class="ctl" id="vleNote" rows="3" style="width:100%" maxlength="${VLE_MAX_NOTE}"></textarea>
+    <div id="vleStatus" class="sub" role="status" aria-live="polite"></div>
+    <button class="btn primary" id="vleGo">Enhance it</button> <button class="btn" onclick="closeSheet()">Close</button>`);
+  $('#vleGo').onclick=function(){
+    var i=parseInt(($('#vleSku')||{}).value,10);
+    var urls=String(($('#vleUrls')||{}).value||'').split(/\s+/).filter(Boolean);
+    vLiveEnhSubmit(isFinite(i)?i:pre, urls, String(($('#vleNote')||{}).value||''));
+  };
+}
+window.vLiveEnhOpen=vLiveEnhOpen;
+async function vLiveEnhSubmit(i, urls, note){
+  var stEl=$('#vleStatus'), go=$('#vleGo'), bad=vLiveEnhProblems(i, urls, note);
+  function say(h){ if(stEl) stEl.innerHTML=h; }
+  if(bad.length){ say('⛔ '+esc(bad.join('; '))); return {ok:false, problems:bad}; }
+  if(!vLiveEnhAvailable() || !HOST || typeof HOST.liveEnhance!=='function'){ say('⛔ This is not available here right now.'); return {ok:false}; }
+  var p=P[i];
+  if(VLE.sent[p.sku]){ say('✅ Already sent for '+esc(p.name)+' — it appears in your list as its own queue when it is ready.'); return {ok:true, already:true}; }
+  /* ⭐ APP-PROGRESS-STATUS: a named step and a live clock; the portal request itself ends at PORTAL_TIMEOUT_MS */
+  var t0=Date.now(), tick=null;
+  function show(){ say(`<b>Sending it to TC Farm</b> · ${Math.round((Date.now()-t0)/1000)}s`); }
+  if(go) go.disabled=true; show(); if(typeof setInterval==='function') tick=setInterval(show, 1000);
+  try{
+    var r=await HOST.liveEnhance(vLiveEnhArgs(i, urls, note));
+    if(!r||r.ok!==true) throw new Error((r&&(r.message||r.reason))||'the portal did not accept it');
+    VLE.sent[p.sku]=1;
+    say('✅ Sent. We are writing new copy and photos for <b>'+esc(p.name)+'</b>. In about 10–30 minutes it appears in your list as '
+      +'its own queue (“Enhance · '+esc(p.name)+'”) for you to review. Nothing changes on our stores until you approve it.');
+    if(go){ go.textContent='Sent ✓'; }
+    return {ok:true};
+  }catch(e){
+    if(go) go.disabled=false;
+    say('⛔ Not sent — '+esc(e&&e.message||e)+' <button class="btn" onclick="vLiveEnhOpen()">Try again</button>');
+    return {ok:false, error:String(e&&e.message||e)};
+  }finally{ if(tick && typeof clearInterval==='function') clearInterval(tick); }
+}
+window.vLiveEnhSubmit=vLiveEnhSubmit; window.vLiveEnhAvailable=vLiveEnhAvailable;
+
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();renderLiveEnh();
@@ -6157,6 +6317,7 @@ function applyModeChrome(){
   const up=document.querySelector('#btnUpload'); if(up) up.hidden=!(HOST&&HOST.canUpload);
   const ul=document.querySelector('#btnImgUrl'); if(ul) ul.hidden=!(HOST&&HOST.canAddImageUrl);
   const cb=document.querySelector('#btnClone'); if(cb) cb.hidden=!cloneAvailable();   /* ⭐ 2026-10-06 */
+  const ve=document.querySelector('#btnVLiveEnh'); if(ve) ve.hidden=!vLiveEnhAvailable();   /* ⭐ 2026-10-21 */
   const qt=document.querySelector('#qTitle'); if(qt) qt.textContent=V?'Your products':'Prepared overnight';
   const mt=document.querySelector('#modeTag');
   if(mt) mt.textContent=VIEW.mode==='vendor'?'Vendor view'
@@ -6585,7 +6746,7 @@ async function saveDecision(batch, sku, patch){
    already warns about, just three fields it had not caught up to yet. */
 var EDITABLE_FIELDS=['name','badge','brand','upc','vendorCode','price','salePrice','saleEnds','weightG',
   'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
-  'optionName','marginOverride','taxOverride','dims','variants','prose',
+  'optionName','marginOverride','taxOverride','dims','volume','variants','prose',
   'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier','requestFreeFill'];
 
 function _snapshot(p){
