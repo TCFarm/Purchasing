@@ -1,3 +1,6 @@
+<meta charset="utf-8">
+<!-- ⭐ 2026-10-20 (Jack: "can we make it so this can resize in the screen?"): without a viewport meta a tablet / phone-emulating
+     browser lays the page out at a fixed 980px and the right side runs off the screen. --><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Listing Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,11 +78,10 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .opick{display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--line)}
 .opick .n{margin-left:auto;font-family:var(--f-mono);font-size:11px;color:var(--ink-3)}
 
-.shell{display:grid;grid-template-columns:250px minmax(0,1fr) 320px;min-height:calc(100vh - 96px)}
+.shell{display:grid;grid-template-columns:250px minmax(0,1fr) 320px;min-height:calc(100vh - var(--topH,96px))}
 @media (max-width:1240px){.shell{grid-template-columns:220px minmax(0,1fr)}.ops{display:none}}
-@media (max-width:880px){.shell{grid-template-columns:1fr}.queue{display:none}}
 
-.queue{border-right:1px solid var(--line);background:var(--panel);position:sticky;top:96px;max-height:calc(100vh - 96px);overflow:auto}
+.queue{border-right:1px solid var(--line);background:var(--panel);position:sticky;top:var(--topH,96px);max-height:calc(100vh - var(--topH,96px));overflow:auto}
 .queue-h{padding:11px 14px 7px;display:flex;justify-content:space-between;align-items:baseline}
 .qrow{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:center;width:100%;text-align:left;padding:9px 14px;background:none;border:0;border-bottom:1px solid var(--line-soft);border-left:3px solid transparent}
 .qrow:hover{background:var(--accent-soft)}
@@ -102,7 +104,7 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .dots i.ok{background:var(--ok)}.dots i.ed{background:var(--edit)}.dots i.rw{background:var(--warn)}
 
 .centre{min-width:0;padding-bottom:60px}
-.tabs{display:flex;gap:2px;padding:10px 22px 0;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:96px;z-index:30;flex-wrap:wrap}
+.tabs{display:flex;gap:2px;padding:10px 22px 0;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:var(--topH,96px);z-index:30;flex-wrap:wrap}
 .tab{border:0;background:none;padding:8px 13px 10px;font-size:12.5px;font-weight:600;color:var(--ink-3);border-bottom:2px solid transparent;margin-bottom:-1px}
 .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
 .tab .n{font-family:var(--f-mono);font-size:11px;color:var(--ink-3);margin-left:5px}
@@ -132,7 +134,7 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .chip.ed{background:var(--edit-soft);color:var(--edit)}
 .chip.rw{background:var(--warn-soft);color:var(--warn)}
 .byline{font-size:10.5px;color:var(--ink-3);font-style:italic}
-.p-name{font-family:var(--f-shop);font-size:29px;line-height:1.15;font-weight:500;margin:0;text-wrap:balance}
+.p-name{font-family:var(--f-shop);font-size:clamp(22px,2.4vw + 12px,29px);overflow-wrap:break-word;line-height:1.15;font-weight:500;margin:0;text-wrap:balance}
 .p-brand{font-size:12px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
 .p-badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:3px 10px;border-radius:99px;background:var(--accent);color:#fff}
 .p-price{font-family:var(--f-shop);font-size:26px;font-weight:600}
@@ -252,7 +254,7 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .seqstrip{display:flex;gap:10px;flex-wrap:wrap;padding:14px;margin-bottom:14px;border:1px dashed var(--accent);border-radius:8px;background:var(--accent-soft)}
 .seqstrip[hidden]{display:none}
 
-.ops{border-left:1px solid var(--line);background:var(--panel);position:sticky;top:96px;max-height:calc(100vh - 96px);overflow:auto;padding:16px 16px 50px}
+.ops{border-left:1px solid var(--line);background:var(--panel);position:sticky;top:var(--topH,96px);max-height:calc(100vh - var(--topH,96px));overflow:auto;padding:16px 16px 50px}
 .ops h3{margin:0 0 9px;font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
 .ops section+section{margin-top:18px;padding-top:14px;border-top:1px solid var(--line-soft)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;align-items:baseline}
@@ -263,7 +265,7 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .xcheck b{color:var(--ink-2)}
 
 /* ⭐ 2026-10-02 (operator: the Approve / rework bar was missed at the very bottom) — floats at the TOP, pinned just under the tabs */
-.decide{position:sticky;top:calc(96px + var(--tabsH,44px));display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:10px 22px;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 3px 8px -6px rgba(0,0,0,.25);z-index:29}
+.decide{position:sticky;top:calc(var(--topH,96px) + var(--tabsH,44px));display:flex;gap:9px;align-items:center;flex-wrap:wrap;padding:10px 22px;background:var(--panel);border-bottom:1px solid var(--line);box-shadow:0 3px 8px -6px rgba(0,0,0,.25);z-index:29}
 .decide .status{font-size:12.5px;color:var(--ink-3);margin-right:auto}
 .decide .status b{color:var(--ink)}
 .btn{padding:8px 15px;border-radius:var(--r);font-weight:600;font-size:13px;border:1px solid var(--line);background:var(--shop)}
@@ -328,10 +330,10 @@ body[data-mode="vendor"] [data-vh-on="1"],body[data-mode="as-vendor"] [data-vh-o
 body[data-mode="vendor"] .note,body[data-mode="as-vendor"] .note{display:none!important}
 body[data-ops-hidden="1"] .shell{grid-template-columns:250px minmax(0,1fr)}
 @media (max-width:1240px){body[data-ops-hidden="1"] .shell{grid-template-columns:220px minmax(0,1fr)}}
-@media (max-width:880px){body[data-ops-hidden="1"] .shell{grid-template-columns:1fr}}
 .modetag{display:none;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--edit);background:var(--edit-soft);padding:2px 7px;border-radius:99px}
 body[data-mode="vendor"] .modetag,body[data-mode="as-vendor"] .modetag{display:inline-block}
 fieldset.vro{border:0;padding:0;margin:0;min-width:0}
+body[data-allremoved="1"] .centre .tabs, body[data-allremoved="1"] #decideBar, body[data-allremoved="1"] .centre .pane{display:none}
 /* ⭐ 2026-10-11 (Jack: "it is 'loading' for a long time and displays old data — gray out the background and give a loading
    status bar"). The veil covers the sample products until the real data is on screen. */
 .veil{position:fixed;inset:0;background:rgba(22,33,29,.45);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);z-index:95;display:none;align-items:center;justify-content:center;padding:16px}
@@ -365,7 +367,7 @@ body[data-mode="vendor"]:not([data-loaded="1"]) .top .bar,body[data-mode="vendor
 .vpick select{flex:1 1 180px;min-width:0}
 .vpick .chip.stop{background:var(--stop-soft);color:var(--stop)}
 .vpick .chip.warn{background:var(--warn-soft);color:var(--warn)}
-@media (max-width:880px){body[data-mode="vendor"] .vpick,body[data-mode="as-vendor"] .vpick{display:flex}}
+@media (max-width:760px){body[data-mode="vendor"] .vpick,body[data-mode="as-vendor"] .vpick{display:flex}}
 .taxr{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding-top:5px}
 .taxr label{display:inline-flex;gap:6px;align-items:center;font-size:13px}
 
@@ -381,6 +383,56 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
 .needfix{outline:3px solid var(--stop); outline-offset:4px; border-radius:8px; background:var(--stop-soft); animation:needfixPulse 1.6s ease-in-out 3}
 .needfix-tag{color:var(--stop); font-weight:600; font-size:13px; margin-top:6px}
 @keyframes needfixPulse{50%{outline-color:transparent}}
+/* ═══ RESPONSIVE (2026-10-20, Jack: "can we make it so this can resize in the screen?") ════════════════════════════
+   ⭐ Root causes fixed at the source: (1) no <meta name="viewport"> — a tablet / phone-emulating browser laid the page out
+   at 980px and cut the right side off; (2) every sticky offset was a hard-coded 96px, but the header is 90px only on a
+   very wide screen and 128-250px once it wraps, so the tabs and decide bar slid under it — --topH is now MEASURED
+   (script just below the markup); (3) the queue picker <select> sizes itself to its longest option, wider than a
+   narrow window; (4) below 880px the product list was display:none for staff, with no other way to change product.
+   ⛔ Above 1000px nothing below applies except the select cap and the sheet caps (both inert on a wide screen). */
+select.batch{max-width:100%;min-width:0}
+.qrow{grid-template-columns:34px minmax(0,1fr)}.qmeta{flex-wrap:wrap;row-gap:3px}.queue{overflow-x:hidden}
+.qtoggle{display:none;margin-left:8px}
+.pane,.rwitem,.flag p,.decide .status,.qname,.vnote,.cnote{overflow-wrap:break-word}
+.shop-body img,.pane img{max-width:100%}
+.sheet{max-width:min(660px,calc(100vw - 32px))}
+.sheet.wide{max-width:min(1180px,calc(100vw - 32px))}
+@media (max-width:1000px){
+  .shell,body[data-ops-hidden="1"] .shell{grid-template-columns:190px minmax(0,1fr)}
+  .qrow{padding:8px 10px;gap:8px}.qsearch{padding:0 10px 8px}.queue-h{padding:10px 10px 6px}
+}
+@media (max-width:760px){
+  /* stacked: the header scrolls away (it is 4+ lines tall here); the list sits above the product with its own scroll */
+  .top{position:static;padding:9px 12px;gap:8px 10px}
+  .filters{padding:7px 12px}
+  .shell,body[data-ops-hidden="1"] .shell{grid-template-columns:minmax(0,1fr);min-height:0}
+  .queue{position:static;max-height:38vh;border-right:0;border-bottom:1px solid var(--line)}
+  .qtoggle{display:inline-block}
+  .queue-h{align-items:center}
+  body[data-qcollapsed="1"] .queue .qsearch,body[data-qcollapsed="1"] #queue,body[data-qcollapsed="1"] #qFoot{display:none}
+  /* a vendor keeps the product picker (.vpick, fix 10) at this width instead of the list — as before, now from 760px */
+  body[data-mode="vendor"] .queue,body[data-mode="as-vendor"] .queue{display:none}
+  .tabs{padding:6px 12px 0}
+  .tab{padding:7px 10px 9px}
+  .decide{padding:8px 12px;gap:7px}
+  .decide .status{flex:1 1 100%;margin-right:0}
+  .pane{padding:14px 12px}
+  .shop-body{padding:16px 14px 22px}
+  .sec{margin:0 -8px;padding:12px 8px}
+  .legend{margin:14px 12px 0}
+  .vnote{margin:10px 12px 0}
+  .drawer{padding:16px}
+  .sheet{max-height:calc(100vh - 32px);padding:16px}
+}
+@media (max-width:620px){
+  .frow{grid-template-columns:minmax(0,1fr);gap:4px}
+  .frow>.k{padding-top:0}
+  .cn-grid{grid-template-columns:minmax(0,1fr)}
+  .tiers{overflow-x:auto}
+  .w-lg{width:100%;max-width:260px}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+  .grid-h .gactions{margin-left:0}
+}
 </style>
 
 <div class="top">
@@ -429,6 +481,8 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
   <button class="chip-f" data-f="all" aria-pressed="true">All<span class="n" id="fAll"></span></button>
   <button class="chip-f" data-f="newitem" aria-pressed="false">New items<span class="n" id="fNew"></span></button>
   <button class="chip-f" id="btnDeferred" data-vhide="btnDeferred" hidden title="Products deferred from this batch — bring one back">Deferred<span class="n" id="fDef"></span></button>
+  <!-- ⭐ P-2933 (2026-10-20): products staff removed from the queue (they will not be created) — staff only, restore from here -->
+  <button class="chip-f" id="btnRemoved" hidden title="Products removed from the queue — they will not be created. Restore one from here.">Removed<span class="n" id="fRem"></span></button>
   <button class="chip-f" data-f="enhance" aria-pressed="false">Enhance<span class="n" id="fEnh"></span></button>
   <button class="chip-f" data-f="clone" aria-pressed="false">Clone<span class="n" id="fCln"></span></button>
   <!-- ⭐ 2026-10-11 (Jack): filter by OWNER. Staff open on All queues + Action needed + TC Farm, so our own tasks are not
@@ -447,7 +501,7 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
 
 <div class="vwait" id="vendorWait" role="status">Loading your products…</div>
 <div class="shell">
-  <nav class="queue"><div class="queue-h"><span class="lbl" id="qTitle">Prepared overnight</span><span class="lbl" id="qLeft"></span></div>
+  <nav class="queue"><div class="queue-h"><span class="lbl" id="qTitle">Prepared overnight</span><span class="lbl" id="qLeft"></span><button class="tbtn qtoggle" id="btnQToggle" type="button" aria-expanded="true" aria-controls="queue" title="Show or hide the product list (narrow windows only)">Hide list</button></div>
     <!-- ⭐ 2026-10-05 (Jack): find a product by name, SKU, brand or UPC. Pick "All queues" above to search every batch. -->
     <div class="qsearch"><input type="search" id="qSearch" placeholder="Search name, SKU, brand, UPC…"
       aria-label="Search the products in this list" autocomplete="off" spellcheck="false"></div>
@@ -459,6 +513,8 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
     <div class="vpick" id="vPick"></div>
     <!-- ⭐ fix 7: one plain note from us on this product (a refused save, a hold, a photo) -->
     <div class="vnote" id="vNote" role="status"></div>
+    <!-- ⭐ 2026-10-20: every product in the queue removed → this, instead of an editable removed product -->
+    <div class="rwitem" id="allRemoved" role="status" hidden></div>
     <div class="tabs" role="tablist">
       <button class="tab" role="tab" aria-selected="true" data-pane="listing">Listing</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="fields" id="tabFields">All BC fields</button>
@@ -469,6 +525,7 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
     <div class="decide" id="decideBar">
       <div class="status" id="decStatus"></div>
       <button class="btn ghost" id="btnDefer">Defer</button>
+      <button class="btn ghost" id="btnCancel" type="button" title="Take this product out of the queue for good — it will not be created">Remove from queue…</button>
       <button class="btn" id="btnSendRw">Send rework</button>
       <button class="btn primary" id="btnApprove">Approve product</button>
     </div>
@@ -538,8 +595,14 @@ body[data-viewonly="1"]::before { content:"View only — switch on “Act as thi
 <div class="toast" id="toast"></div>
 
 <script>
-(function(){try{function m(){var t=document.querySelector('.centre .tabs');if(t)document.documentElement.style.setProperty('--tabsH',t.offsetHeight+'px');}
-if(window.addEventListener){window.addEventListener('load',m);window.addEventListener('resize',m);}setTimeout(m,300);setTimeout(m,1500);}catch(e){}})();
+(function(){try{function m(){var d=document.documentElement,t=document.querySelector('.centre .tabs'),h=document.querySelector('.top');if(t)d.style.setProperty('--tabsH',t.offsetHeight+'px');
+/* ⭐ 2026-10-20: the sticky header's REAL height (it wraps to more lines in a narrow window); 0 when it is not sticky (≤760px) */
+if(h)d.style.setProperty('--topH',(getComputedStyle(h).position==='sticky'?h.offsetHeight:0)+'px');}
+if(window.addEventListener){window.addEventListener('load',m);window.addEventListener('resize',m);}setTimeout(m,300);setTimeout(m,1500);
+if(window.ResizeObserver){var ro=new ResizeObserver(m);['.top','.centre .tabs'].forEach(function(s){var e=document.querySelector(s);if(e)ro.observe(e);});}
+/* ⭐ 2026-10-20: Hide / Show the product list when it is stacked above the product (narrow windows) */
+var qb=document.getElementById('btnQToggle');if(qb)qb.addEventListener('click',function(){var b=document.body,on=b.dataset.qcollapsed!=='1';b.dataset.qcollapsed=on?'1':'';qb.textContent=on?'Show list':'Hide list';qb.setAttribute('aria-expanded',on?'false':'true');});
+}catch(e){}})();
 /* ═══ category registry — real leaves from config/category_rules.json ═══
    [key, parent, sku_code, target_margin, tax_class, finale_category,
     sales_acct, cogs_acct, inventory_acct]
@@ -982,10 +1045,12 @@ function mergeAll(parts){
     (pl.items||[]).forEach(function(it){ it._batch=pt.batch; });
     ((pl.needs_input)||[]).forEach(function(n){ n._batch=pt.batch; });
     ((pl.deferred)||[]).forEach(function(d){ d._batch=pt.batch; });
-    if(!out){ out=Object.assign({}, pl, {items:[], needs_input:[], deferred:[], _ask:{}, _decisions_found:0}); }
+    ((pl.cancelled)||[]).forEach(function(d){ d._batch=pt.batch; });   /* ⭐ P-2933: removed products, same as deferred */
+    if(!out){ out=Object.assign({}, pl, {items:[], needs_input:[], deferred:[], cancelled:[], _ask:{}, _decisions_found:0}); }
     out.items=out.items.concat(pl.items||[]);
     out.needs_input=out.needs_input.concat(pl.needs_input||[]);
     out.deferred=out.deferred.concat(pl.deferred||[]);
+    out.cancelled=out.cancelled.concat(pl.cancelled||[]);
     Object.assign(out._ask, pl._ask||{});
     out._decisions_found+=+(pl._decisions_found||0);
   });
@@ -1082,7 +1147,7 @@ var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
-var VENDOR_ALWAYS_HIDE=['#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
+var VENDOR_ALWAYS_HIDE=['#btnCancel','#btnRemoved','#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
 
 function _qp(search, name){
   var s=String(search||'').replace(/^\?/,''); if(!s) return null;
@@ -1211,11 +1276,13 @@ function vh(name, html){
    with no key is hidden in a vendor view. */
 function vrow(key, ui, html){
   if(ui) html=_markVh(ui, html);
-  if(!isVendorView()) return html;
+  /* ⭐ 2026-10-20: a REMOVED product is read-only in both views (restore it first) */
+  var _rm=(typeof P!=='undefined')&&removedLock(cur);
+  if(!isVendorView()) return _rm?'<fieldset disabled class="vro">'+html+'</fieldset>':html;
   if(ui && vpHides(ui)) return '';
   var acc=key?vpAccess(key):'hide';
   if(acc==='hide') return '';
-  if(acc==='view') return '<fieldset disabled class="vro">'+html+'</fieldset>';
+  if(acc==='view' || _rm) return '<fieldset disabled class="vro">'+html+'</fieldset>';
   return html;
 }
 /* A field GROUP left with no rows in a vendor view is dropped, heading and all. */
@@ -1608,6 +1675,8 @@ function _asVendorFilter(payload, owner){
     payload.needs_input=payload.needs_input.filter(function(n){ return String((n||{}).owner||'')===String(owner); });
   if(Array.isArray(payload.deferred))
     payload.deferred=payload.deferred.filter(function(d){ return String((d||{}).owner||'')===String(owner); });
+  if(Array.isArray(payload.cancelled))   /* ⭐ 2026-10-20: removed products too — another vendor's are not shown */
+    payload.cancelled=payload.cancelled.filter(function(d){ return String((d||{}).owner||'')===String(owner); });
   return payload;
 }
 
@@ -1792,6 +1861,9 @@ function fromPayload(it){
    REASSIGNING them would leave half the page reading the old array. Mutating
    in place is what keeps one source of truth. */
 var DEFERRED=[];
+/* ⭐ P-2933 (2026-10-20): products removed from the queue — payload.cancelled[] (the drain has applied them) */
+var REMOVED=[];
+var SHIPPER_EDITOR_URL='';
 /* ⭐⭐ 2026-09-27 (P-1717, operator: "a user interface … in Listing Studio for the items that it can't
    identify … asks questions … restart the process"). Products with NO copy that wait on a person,
    from the payload's `needs_input` (listing_answers.needs_input). An answer is saved as a
@@ -1849,6 +1921,9 @@ function applyPayload(payload){
   DEFERRED.length=0; ((payload&&payload.deferred)||[]).forEach(function(d){DEFERRED.push(d);});
   try{ var _bd=document.querySelector('#btnDeferred'), _fd=document.querySelector('#fDef');
        if(_bd){ _bd.hidden=!DEFERRED.length; } if(_fd){ _fd.textContent=DEFERRED.length?String(DEFERRED.length):''; } }catch(_){}
+  /* ⭐ P-2933: products removed from the queue (drained — no longer in items) */
+  REMOVED.length=0; ((payload&&payload.cancelled)||[]).forEach(function(d){REMOVED.push(d);});
+  SHIPPER_EDITOR_URL=/^https:\/\//i.test(String((payload&&payload.shipper_editor_url)||''))?String(payload.shipper_editor_url):'';
   NEEDS.length=0; ((payload&&payload.needs_input)||[]).forEach(function(n){
     var r=(payload._ask||{})[n.key];
     if(r){ n._state=String(r.drain_state||'').indexOf('refused@')===0&&r.drain_state==='refused@'+String(+(r.revision||0))
@@ -1898,6 +1973,14 @@ function applyPayload(payload){
              flagAct:(p._edits&&p._edits._flagActions)||{},
              /* ⭐ P-1483: "keep what's on the store" per section + suggestion answers — restored like flagAct */
              keepCur:((p._edits&&p._edits._keepCurrent)||[]).slice(), sugg:Object.assign({},(p._edits&&p._edits._suggest)||{}),
+             /* ⭐⭐ P-2933: a product whose row says `cancelled` but the drain has not run yet is shown REMOVED at once,
+                and kept cancelled by every later save (decisionPatch) until Restore — restored like `approved`. */
+             /* ⛔ 2026-10-20 (UX hunt): a cancel the drain REFUSED (row parked) did not happen — the product stays IN the
+                queue (Parked, with the reason) and the next save is a normal one; the refusal is kept for the Removed list. */
+             cancelled: d.overall==='cancelled' && !d.parked,
+             cancelInfo:(d.overall==='cancelled'&&d.parked)?null:((p._edits&&p._edits._cancel)||null),
+             cancelRefused:(d.overall==='cancelled'&&d.parked)?{info:(p._edits&&p._edits._cancel)||{}, note:String(d.drain_note||'')}:null,
+             uncancelInfo:(p._edits&&p._edits._uncancel)||null,
              cm:p._comments||{},
              cmAt:(function(){var a=(p._edits&&p._edits._commentsAt)||{},o={};
                Object.keys(p._comments||{}).forEach(function(k){if(a[k])o[k]=a[k];});return o;})(),
@@ -1905,6 +1988,9 @@ function applyPayload(payload){
   });
   try{ _myApprReapply(); }catch(_){}
   cur=0; filter='all'; editing=null;
+  /* ⭐ P-2933: never open on a removed product when there is another one */
+  for(var _c=0;_c<st.length;_c++){ if(!st[_c].cancelled){ cur=_c; break; } }
+  try{ renderRemovedChip(); }catch(_){}
   return P.length;
 }
 
@@ -2004,14 +2090,25 @@ window.setChip=setChip; window.chipMatch=chipMatch;
 /* ⭐ 2026-10-05 (Jack): the queue search. Every word must match one of name / SKU / brand / UPC / batch (case-blind);
    a number also matches a UPC without its leading zeros. ⛔ It only narrows the LIST — it never changes a product. */
 var QSEARCH='';
-function searchMatch(i){
+function searchMatch(i){ return _searchHit(P[i]||{}); }
+/* the same match for any product-shaped record (a removed product no longer in the list, too) */
+function _searchHit(p){
   var q=String(QSEARCH||'').trim().toLowerCase(); if(!q) return true;
-  var p=P[i]||{}, upc=String(p.upc||'');
+  p=p||{}; var upc=String(p.upc||'');
   var hay=[p.name,p.sku,p.brand,p.owner,upc,upc.replace(/^0+/,''),p._batch,p._batch?batchLabel({batch:p._batch}):'']
     .map(function(x){ return String(x||'').toLowerCase(); }).join(' \u0001 ');
   return q.split(/\s+/).every(function(w){ return hay.indexOf(w.replace(/^0+(?=\d)/,''))>=0 || hay.indexOf(w)>=0; });
 }
 window.searchMatch=searchMatch;
+/* ⭐ 2026-10-20: a search that only matches REMOVED products says so, with a way to open them (staff — the list is theirs) */
+function _removedSearchHint(){
+  if(!String(QSEARCH||'').trim() || !cancelStaffOnly()) return '';
+  var n=0, seen={};
+  P.forEach(function(p,i){ if(st[i]&&st[i].cancelled&&_searchHit(p)){ n++; seen[(p._batch||'')+'|'+p.sku]=1; } });
+  REMOVED.forEach(function(d){ if(!seen[(d._batch||'')+'|'+d.sku] && _searchHit(d)) n++; });
+  return n?(n+' match'+(n>1?'es':'')+' in Removed — <button type="button" class="btn sm" onclick="removedOpen()">open Removed</button>'):'';
+}
+window._removedSearchHint=_removedSearchHint;
 function setSearch(q){ QSEARCH=String(q||''); renderQueue(); }
 window.setSearch=setSearch;
 /* ⭐⭐ 2026-10-11 (Jack: "default to TCFarm as the owner, but a way to search/select one or more vendors … when our staff
@@ -2043,7 +2140,7 @@ function setOwnerFilter(mode, set){
 /* every owner in the loaded products, TC Farm first, with how many products and how many need action */
 function ownerRoster(){
   var m={};
-  P.forEach(function(p,i){ var o=ownerOf(p), r=m[o]||(m[o]={owner:o, n:0, act:0}); r.n++; if(_needsAction(i)) r.act++; });
+  P.forEach(function(p,i){ if(!inQueue(i)) return; var o=ownerOf(p), r=m[o]||(m[o]={owner:o, n:0, act:0}); r.n++; if(_needsAction(i)) r.act++; });
   return Object.keys(m).map(function(k){ return m[k]; })
     .sort(function(a,b){ return (b.owner==='TCFarm')-(a.owner==='TCFarm') || a.owner.toLowerCase().localeCompare(b.owner.toLowerCase()); });
 }
@@ -2092,7 +2189,9 @@ document.querySelectorAll('.chip-o').forEach(function(c){ c.onclick=function(){
 window.ownerMatch=ownerMatch; window.ownerModeMatch=ownerModeMatch; window.setOwnerFilter=setOwnerFilter;
 window.ownerRoster=ownerRoster; window.showOwnerPick=showOwnerPick; window.ownerPickFilter=ownerPickFilter;
 window.ownerPickAll=ownerPickAll; window.ownerPickApply=ownerPickApply;
-const visible=()=>P.map((p,i)=>i).filter(i=>(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i)&&ownerMatch(i));
+/* ⭐ P-2933: a product removed from the queue is never in the list or any count, in either view */
+function inQueue(i){ return !(st[i]&&st[i].cancelled); }
+const visible=()=>P.map((p,i)=>i).filter(i=>inQueue(i)&&(filter==='all'||P[i].src===filter)&&chipMatch(i)&&searchMatch(i)&&ownerMatch(i));
 const catOf=k=>CATS.find(c=>c[0]===k)||null;
 function targetMargin(p){
   /* precedence: an operator override → the PIPELINE's own target for this row
@@ -2169,6 +2268,7 @@ function skuOf(p){const c=catOf(p.cat);const letter=STORAGE_LETTER[p.storage]||'
   const brandCode=p.sku.slice(-5).replace(/^[0-9]+/,'')||p.sku.slice(-5);
   return letter+code+digits+brandCode;}
 function markEdited(k,what){
+  if(removedLock(cur)){ toast(cxRemovedWords().lock); renderAll(); return; }   /* ⛔ 2026-10-20 backstop: a removed product is read-only */
   /* ⛔ A1: editing a section must NOT silently cancel a queued rewrite. The block
      is derived from the queued JOB (st.cm), never from the section chip, so there
      is one source of truth. If a job is queued here, say so and leave it queued. */
@@ -2267,7 +2367,7 @@ function renderQueue(){
       </span>${(function(){ var bits=[];
         if(_ownerUI()&&OWNERF.mode!=='tcf') bits.push(esc(ownerLabel(ownerOf(p))));
         if(p._batch&&_batchFromUI()==='__all__') bits.push(esc(batchLabel({batch:p._batch}).replace(/^Queue · /,'')));
-        return bits.length?`<span class="qbatch">${bits.join(' · ')}</span>`:''; })()}</span></button>`;}).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):_emptyNote()}</div>`;
+        return bits.length?`<span class="qbatch">${bits.join(' · ')}</span>`:''; })()}</span></button>`;}).join('')||`<div style="padding:16px" class="lbl">${QSEARCH.trim()?_removedSearchHint()||'no product matches “'+esc(QSEARCH.trim())+'”'+(_batchFromUI()!=='__all__'?' here — choose “All…” in the list at the top to search everything':''):_emptyNote()}</div>`;
   $('#queue').querySelectorAll('.qrow').forEach(b=>b.onclick=()=>{
     /* ⭐ fix 3: a vendor view asks IN THE PAGE — the portal's sandboxed frame may
        not allow a native dialog, and a blocked confirm() returns false silently. */
@@ -2284,8 +2384,8 @@ function renderQueue(){
     +(nBlocked?` · <span style="color:var(--stop)">${nBlocked} blocked</span>`:'')
     +(nRw?` · <span style="color:var(--warn)">${nRw} rework</span>`:'')
     +(nDone?` · ${nDone} done`:'');
-  const c=k=>P.filter(p=>p.src===k).length;
-  $('#fAll').textContent=P.length;$('#fNew').textContent=c('newitem');
+  const c=k=>P.filter((p,i)=>inQueue(i)&&p.src===k).length;
+  $('#fAll').textContent=P.filter((p,i)=>inQueue(i)).length;$('#fNew').textContent=c('newitem');
   $('#fEnh').textContent=c('enhance');$('#fCln').textContent=c('clone');
   renderOwnerChips();
 }
@@ -2415,7 +2515,7 @@ function sec(k,body,extra){
   const note=st[cur].cm[k]?`<div class="cnote"><b>${isVendorView()?(k==='gallery'?'You asked for different photos — our team will find them':k==='price'?'You asked us about the price — our team will reply':'You asked us to rewrite this'):'Queued for the next run'}</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
   /* ⭐ vendor view: Edit only on a section with at least one field the policy lets them edit */
-  const _lock=vRewriting(cur);            /* ⭐ Jack 2026-09-29: no changes while a rewrite is in progress */
+  const _lock=vRewriting(cur)||removedLock(cur);   /* ⭐ Jack 2026-09-29: no changes while a rewrite is in progress — nor on a removed product */
   const canEdit=!_lock&&((k==='gallery'&&(!vpLive()||liveImgEditing()))||!isVendorView()||(SEC_FIELDS[k]||[]).some(f=>vpAccess(f)==='edit'));
   /* ⭐ RULING (Jack, 2026-09-08): APPROVAL IS WHOLE-PRODUCT, not per section.
      Sections still track CHANGE (edited / rework queued) because the rework
@@ -3403,6 +3503,7 @@ let lbIdx=null;
 window.lbOpen=lbOpen;window.lbClose=lbClose;
 
 function togglePick(i){
+  if(removedLock(cur)){ toast(cxRemovedWords().lock); return; }   /* ⛔ 2026-10-20: a removed product is read-only */
   /* ⛔ 2026-09-30 (UX hunt M3): a LIVE product's gallery is not published from here, and a locked product is read-only */
   if(vpLive() && !liveImgEditing()){
     toast(liveImgAllowed()?'Press “✎ Edit photos” first to change the photos on our stores.'
@@ -3895,7 +3996,7 @@ function pubState(i){
 window.pubState=pubState;
 function pubCounts(){
   const c={published:0,waiting:0,parked:0,held:0,review:0};
-  P.forEach((p,i)=>{ if(ownerMatch(i)) c[pubState(i)]++; });   /* ⭐ 2026-10-11: counts follow the Owner filter */
+  P.forEach((p,i)=>{ if(inQueue(i)&&ownerMatch(i)) c[pubState(i)]++; });   /* ⭐ 2026-10-11: counts follow the Owner filter */
   c.needs=(typeof NEEDS!=='undefined'&&NEEDS)?NEEDS.length:0;
   return c;
 }
@@ -3906,7 +4007,7 @@ function renderPubBar(){
   const chip=(cls,icon,n,label,extra,key)=>`<span class="ps ${cls}${n?'':' zero'}${key&&CHIP===key?' on':''}"${
       extra||(key?` role="button" tabindex="0" onclick="setChip('${key}')" title="${CHIP===key?'Show everything':'Show only these'}"`:'')}>${icon} ${label} <b>${n}</b></span>`;
   var act=0, us=0;
-  P.forEach(function(p,i){ if(!ownerMatch(i)) return; var ps=pubState(i), g=productBlocked(i);
+  P.forEach(function(p,i){ if(!inQueue(i)||!ownerMatch(i)) return; var ps=pubState(i), g=productBlocked(i);
     /* ⭐ 2026-10-01 (operator: "if there are actions required on staff side, we should do that flagging too"): for
        staff, "Action needed" = a blocking flag OR a missing field — anything a person on our side must do */
     if(ps!=='published'&&!st[i].approved){ if(g.blk>0||(!isVendorView()&&g.act>0)) act++; else if(g.wait>0) us++; } });
@@ -4061,7 +4162,8 @@ function renderDecide(){
   const s=st[cur].sec;
   const ed=SEC.filter(k=>s[k]==='edited').length;
   const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
-  $('#decStatus').innerHTML=(pubState(cur)==='published'?(IS_TEST?'<b style="color:var(--ok)">✓ Published</b> — on the Dev store only (test item)':'<b style="color:var(--ok)">✓ Published</b> — live on the stores')
+  $('#decStatus').innerHTML=(st[cur].cancelled?cxRemovedWords().status:'')
+    +(st[cur].cancelRefused&&cxRemovedWords().refused?' '+cxRemovedWords().refused+esc(_cxNotePlain(st[cur].cancelRefused.note, P[cur].sku))+' It is still in the queue. · ':'')+(st[cur].cancelled?'':pubState(cur)==='published'?(IS_TEST?'<b style="color:var(--ok)">✓ Published</b> — on the Dev store only (test item)':'<b style="color:var(--ok)">✓ Published</b> — live on the stores')
       :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — '+(IS_TEST?'it will be published to the TEST store within a few minutes (never our real stores)':P[cur].kind==='update'?'the change goes live on our stores within a few minutes':'it will be published to our stores within a few minutes')
         :'<b style="color:var(--ok)">✓ Approved</b> — publishes to the stores within a few minutes')
       :'<b>Not yet approved</b>')
@@ -4087,16 +4189,20 @@ function renderDecide(){
         (<span class="mono">${esc(P[cur].sku||'none')}</span>) — a “?” means the
         storage area or category was never resolved. This cannot be approved
         until it is fixed.</span>`:'');
-  const b=$('#btnApprove');b.disabled=!ok||st[cur].approved||!vendorCanApprove();
-  b.textContent=st[cur].approved?'Approved':!vendorCanApprove()?(VIEW&&VIEW.viewOnly?'View only':'Your admin approves listings')
+  const b=$('#btnApprove');b.disabled=!ok||st[cur].approved||!vendorCanApprove()||!!st[cur].cancelled;
+  try{ renderCancelBtn(); }catch(_){}
+  /* ⭐ 2026-10-20: a removed product can't be deferred or sent for rework either — say why on the button */
+  [['#btnDefer','Defer'],['#btnSendRw',null]].forEach(function(x){ var e=document.querySelector(x[0]); if(!e) return;
+    e.disabled=!!st[cur].cancelled; e.title=st[cur].cancelled?cxRemovedWords().lock:''; });
+  b.textContent=st[cur].cancelled?cxRemovedWords().btn:st[cur].approved?'Approved':!vendorCanApprove()?(VIEW&&VIEW.viewOnly?'View only':'Your admin approves listings')
     :skuBad?'SKU is not final'
     :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule'
     :isVendorView()?(IS_TEST?'Approve — publish to the TEST store':P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'):'Approve product';
-  const readyN=P.filter((p,i)=>productApproved(i)).length;
-  $('#progText').textContent=readyN+' / '+P.length;$('#progBar').style.width=(readyN/P.length*100)+'%';
+  const _qn=P.filter((p,i)=>inQueue(i)).length, readyN=P.filter((p,i)=>inQueue(i)&&productApproved(i)).length;
+  $('#progText').textContent=readyN+' / '+_qn;$('#progBar').style.width=(_qn?readyN/_qn*100:0)+'%';
   renderPubBar();
-  $('#rwN').textContent=st.reduce((a,x)=>a+Object.keys(x.cm).length,0);
+  $('#rwN').textContent=st.reduce((a,x,n)=>a+(inQueue(n)?Object.keys(x.cm).length:0),0);   /* ⭐ a removed product's requests are not work */
 }
 
 function selectTab(n){
@@ -4111,8 +4217,11 @@ document.querySelectorAll('.chip-f').forEach(c=>c.onclick=()=>{
   const v=visible();if(v.length&&!v.includes(cur))cur=v[0];
   editing=null;renderAll();});
 
-function openSheet(h){$('#sheet').innerHTML=h;$('#drawer').dataset.open='1';}
-function closeSheet(){$('#drawer').dataset.open='0';}
+/* ⭐ 2026-10-20: every sheet starts plain — the dialog role and focus trap a feature sets are cleared for the next one */
+function openSheet(h){ _sheetSeq=(_sheetSeq||0)+1; _sheetDialogOff($('#sheet')); $('#sheet').innerHTML=h; $('#drawer').dataset.open='1'; }
+function closeSheet(){ $('#drawer').dataset.open='0'; _sheetDialogOff($('#sheet'));
+  /* ⭐ focus goes back to what opened the sheet ("Remove from queue…", the Removed chip) */
+  var o=_sheetOpener; _sheetOpener=null; if(o&&o.focus){ try{ o.focus(); }catch(_){} } }
 $('#drawer').onclick=e=>{if(e.target.id==='drawer')closeSheet();};
 window.closeSheet=closeSheet;window.toast=toast;
 /* ⭐ `recordOverride`/`resolveFlag`/`submitResolve`/`deferFlag` are defined
@@ -4128,6 +4237,7 @@ window.approveProduct=async function(){
      an approval that looks accepted but was never stored is the worst of the
      available outcomes. */
   if(!vendorCanApprove()){ toast(VIEW&&VIEW.viewOnly?VIEW_ONLY_NOTE:'Your admin approves listings for publishing — your changes are saved.'); return; }
+  if(st[cur]&&st[cur].cancelled){ toast(cxRemovedWords().lock); return; }
   var i=cur, was=st[i].approved, wasBy=st[i].approvedBy;
   st[i].approved=true; st[i].approvedBy=ACCOUNT||'unknown';
   closeSheet(); renderAll();
@@ -4177,7 +4287,7 @@ function nameCore(n){
 function siblings(i){
   const b=(P[i].brand||'').toLowerCase();
   if(!b) return [];
-  return P.map((q,n)=>({q,n})).filter(x=>x.n!==i
+  return P.map((q,n)=>({q,n})).filter(x=>x.n!==i && inQueue(x.n)   /* ⭐ a removed product is not a sibling */
     && (x.q.brand||'').toLowerCase()===b);
 }
 window.siblings=siblings; window.nameCore=nameCore;
@@ -4432,7 +4542,8 @@ $('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].
   :'create it on all three stores via <b>bc_create</b>, create it in Finale, then run <b>product_compliance.gate()</b>'}.</div>
   <div class="rwitem"><b>Recorded against you</b><p>${esc(ACCOUNT||'the signed-in reviewer')} · every section, with what you edited.</p></div>
   <button class="btn primary" onclick="approveProduct()">${P[cur].published?'Approve — overwrite the live product':'Approve and queue'}</button>`);
-$('#btnSendRw').onclick=async()=>{const n=Object.keys(st[cur].cm).length;
+$('#btnSendRw').onclick=async()=>{ if(removedLock(cur)){ toast(cxRemovedWords().lock); return; }
+  const n=Object.keys(st[cur].cm).length;
   if(!n){toast('No rework requests on this product');return;}
   await persist(cur, `${n} rework request${n>1?'s':''} submitted`);};
 $('#btnDefer').onclick=async()=>{
@@ -4440,6 +4551,7 @@ $('#btnDefer').onclick=async()=>{
      sits. Deferring is therefore a RECORDED state, not a no-op. */
   /* ⛔ 'deferred' is not a vendor `overall` — the button is hidden there, and this refuses too */
   if(isVendorView()){ toast('Deferring is done by our team'); return; }
+  if(removedLock(cur)){ toast(cxRemovedWords().lock); return; }   /* ⛔ 2026-10-20: a removed product is not deferred */
   st[cur].approved=false;
   var b=_itemBatch(cur);   /* ⭐ 2026-10-05: in All queues the selector is not this product's batch */
   if(IS_BROWSER){
@@ -4449,6 +4561,605 @@ $('#btnDefer').onclick=async()=>{
     else toast('NOT SAVED — '+((r&&(r.message||r.reason))||'unknown'));
   } else toast('Deferred — stays in the queue, flag open for next time');
   renderAll();};
+/* ═══ REMOVE FROM QUEUE (P-2933, 2026-10-20) ════════════════════════════════
+   Jack: "we need to fully be able to cancel a product pipeline item that isn't going to get into the system for various
+   reasons. Maybe it went in there by mistake, maybe a vendor changed their mind, etc." Spec:
+   docs/PLAN_CANCEL_AND_RELAUNCH_2026-10-20.md §2b.
+   ⭐ Defer is "not now"; this is "never". It saves, on the product's own ListingReview row,
+     overall:'cancelled'  +  edits._cancel = {reason, ref_sku, shipper_item, note, at, by}
+   and Restore saves overall:'pending' + edits._uncancel = {at, by}. The drain applies the LATER of the two.
+   ⛔ STAFF ONLY: the button and the Removed chip are in VENDOR_ALWAYS_HIDE, every entry point refuses in a vendor view, and
+   the vendor policy's overall_allowed never gains 'cancelled'.
+   ⛔ A product already on our stores cannot be removed here — it is hidden in the catalog instead (the backend refuses too).
+   ⭐⭐ UX-hunt fixes (2026-10-20):
+     · a cancel/restore save goes through the SAME per-product chain as autosave (`_persistSerial`), and the local state
+       flips only once the save is confirmed — two saves on one revision used to report "Someone else saved" both ways;
+     · a cancel the drain REFUSED (row parked) keeps the product in the queue with the reason, and the Removed list says so;
+     · the later of cancel/restore wins on the server, so each stamp is forced later than the one it supersedes
+       (`_cxAfter`) — a slow clock can never invert it;
+     · after a timeout, a retry that meets a revision conflict re-reads the row: if the first save landed, it is a success. */
+var CANCEL_REASONS=[
+  {v:'not_coming',      label:'Not coming (supplier or KeHE cancelled it)', need:''},
+  {v:'mistake',         label:'Added by mistake',                           need:''},
+  {v:'vendor_withdrew', label:'The vendor changed their mind',              need:''},
+  {v:'duplicate',       label:'Duplicate of a product we already have',     need:'ref_sku'},
+  {v:'shipper',         label:'Part of a shipper or bundle',                need:'shipper_item'},
+  {v:'relaunch',        label:'We already carry it — bring the old one back', need:'ref_sku'},
+  {v:'other',           label:'Other',                                      need:'note'}
+];
+var CANCEL_SAVE_LIMIT_MS=30000, CANCEL_CATALOG_LIMIT_MS=20000;
+var CANCEL_LIVE_TEXT='Already live — hide it in the catalog instead';
+var CANCEL_PUBLISHING_TEXT="Approved and publishing now — it can't be removed. Hide it in the catalog once it's live.";
+var CANCEL_PUBLISHING_LABEL="Publishing now — can't be removed";
+/* ⭐ the same limits the backend job schema uses (note 500, shipper 120, SKU 64) — refused here before the save */
+var CANCEL_LIMITS={note:500, shipper_item:120, ref_sku:64};
+var SKU_SHAPE=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+function cancelReason(v){ for(var k=0;k<CANCEL_REASONS.length;k++) if(CANCEL_REASONS[k].v===v) return CANCEL_REASONS[k]; return null; }
+function cancelReasonLabel(v){ var r=cancelReason(v); return r?r.label:(v?String(v):'(no reason recorded)'); }
+/* ⛔ the one vendor-view check for this feature (permission — VIEW_PARITY.md) */
+function cancelStaffOnly(){ return !isVendorView(); }
+/* ⭐ the words for a removed product, per view (wording — VIEW_PARITY.md). A vendor never hears "restore it". */
+function cxRemovedWords(){
+  return isVendorView()
+    ? {status:'<b>Removed by TC Farm</b> — no longer being set up.', btn:'Removed by TC Farm',
+       lock:'Removed by TC Farm — this product is no longer being set up.', refused:'',
+       empty:'Every product here has been removed by TC Farm — there is nothing to review.'}
+    : {status:'<b>Removed from the queue</b> — it will not be created. You can restore it from <b>Removed</b>.', btn:'Removed from the queue',
+       lock:'This product was removed from the queue — restore it from Removed first.', refused:'⛔ <b>Not removed</b> — ',
+       empty:'Every product in this queue has been removed — see <button type="button" class="btn sm" onclick="removedOpen()">Removed</button>.'};
+}
+/* is this product locked because it was removed? (every editor, Defer, Send rework, Approve) */
+function removedLock(i){ return !!(st[i]&&st[i].cancelled); }
+/* ⛔ a VENDOR's page never saves a product TC Farm removed (it would re-send overall:'cancelled' as theirs) — permission */
+function _vendorRemoved(i){ return removedLock(i) && isVendorView(); }
+/* is this product already on our stores? (published at some revision, or a live listing being changed) */
+function cancelIsLive(i){
+  var p=P[i]||{};
+  return pubState(i)==='published' || !!p.published || p.kind==='update' || !!p.liveEnhance;
+}
+/* why this product cannot be removed right now ('' = it can) */
+function cancelBlocked(i){
+  if(cancelIsLive(i)) return CANCEL_LIVE_TEXT;
+  if(pubState(i)==='waiting') return CANCEL_PUBLISHING_TEXT;
+  return '';
+}
+/* PURE — what is still missing, in plain words. Empty list = ready to save. */
+function cancelProblems(f, ownSku){
+  f=f||{}; var out=[], r=cancelReason(f.reason);
+  if(!r){ out.push({field:'reason', msg:'Choose why it is being removed.'}); return out; }
+  var ref=String(f.ref_sku||'').trim(), sh=String(f.shipper_item||'').trim(), note=String(f.note||'').trim();
+  if(r.need==='ref_sku'){
+    if(!ref) out.push({field:'ref_sku', msg:r.v==='relaunch'?'Pick the product we already carry.':'Pick the product it duplicates.'});
+    else if(ref.length>CANCEL_LIMITS.ref_sku) out.push({field:'ref_sku', msg:'That is too long for a SKU — a SKU is at most '+CANCEL_LIMITS.ref_sku+' characters.'});
+    else if(!SKU_SHAPE.test(ref)) out.push({field:'ref_sku', msg:'That does not look like a SKU — pick one from the list, or type the exact SKU.'});
+    else if(ownSku && ref.toLowerCase()===String(ownSku).trim().toLowerCase()) out.push({field:'ref_sku', msg:'Pick a different product — that is this one.'});
+  }
+  if(r.need==='shipper_item' && !sh) out.push({field:'shipper_item', msg:'Say which shipper or bundle it is part of.'});
+  if(r.need==='shipper_item' && sh.length>CANCEL_LIMITS.shipper_item)
+    out.push({field:'shipper_item', msg:'The shipper or bundle name is too long — keep it to '+CANCEL_LIMITS.shipper_item+' characters (it has '+sh.length+').'});
+  if(r.need==='note' && !note) out.push({field:'note', msg:'Say why it is being removed.'});
+  if(note.length>CANCEL_LIMITS.note) out.push({field:'note', msg:'The note is too long — keep it to '+CANCEL_LIMITS.note+' characters (it has '+note.length+').'});
+  return out;
+}
+/* PURE — the exact edits._cancel this saves (only the fields the reason uses; note always kept) */
+function cancelInfoOf(f, by, at){
+  var r=cancelReason(f.reason)||{need:''};
+  return {reason:String(f.reason||''),
+          ref_sku: r.need==='ref_sku'?String(f.ref_sku||'').trim():'',
+          shipper_item: r.need==='shipper_item'?String(f.shipper_item||'').trim():'',
+          note:String(f.note||'').trim(), at:at, by:by};
+}
+function _cxNow(){ return typeof _nowFn==='function'?_nowFn():Date.now(); }
+function _cxNowIso(){ return new Date(_cxNow()).toISOString(); }
+/* PURE — a stamp guaranteed LATER than the one it supersedes (the server applies the later of cancel / restore) */
+function _cxAfter(nowIso, prevIso){
+  var n=Date.parse(nowIso), p=Date.parse(String(prevIso||''));
+  return (isFinite(p) && !(n>p)) ? new Date(p+1).toISOString() : nowIso;
+}
+function _cxWho(){ return ACCOUNT||'unknown'; }
+function _cxTimed(pr, ms){
+  return Promise.race([pr, new Promise(function(_,rej){ setTimeout(function(){ rej(new Error('timeout')); }, ms); })]);
+}
+/* PURE — ONE plain-words mapping for a failed cancel or restore save (no internal codes, never doubled) */
+function _cxFailWords(res){
+  var r=String((res&&res.reason)||''), m=String((res&&res.message)||''), both=r+' '+m;
+  if(r==='timeout') return 'No answer after '+Math.round(CANCEL_SAVE_LIMIT_MS/1000)+' seconds — it may have been saved. Reload the page to check before trying again.';
+  if(r==='stale') return 'Someone else saved this product while you were looking at it. Reload the page, then try again.';
+  if(r==='earlier_save') return 'An earlier save of this product has not finished. Reload the page to check, then try again.';
+  if(/\b40[13]\b/.test(both) || /sign.?in|token|unauthori[sz]ed|forbidden/i.test(both)) return 'Your sign-in has run out. Reload the page, sign in again, then try again.';
+  return 'It could not be saved just now — our system did not answer properly. Try again in a moment.';
+}
+/* ⭐ the stored row, re-read (for "did my first save land?"). null when it cannot be read. */
+async function _cxReadRow(batch, sku){
+  try{
+    if(HOST && typeof HOST.readRow==='function') return await _cxTimed(Promise.resolve(HOST.readRow(batch, sku)), CANCEL_SAVE_LIMIT_MS);
+    if(HOST===GraphHost){
+      var row=await _cxTimed(_findRow(batch, sku), CANCEL_SAVE_LIMIT_MS), f=(row&&row.fields)||{}, ed={};
+      try{ ed=JSON.parse(f.edits_json||'{}')||{}; }catch(_){ ed={}; }
+      return {overall:String(f.overall||''), revision:parseInt(f.revision||0,10)||0, edits:ed};
+    }
+  }catch(_){}
+  return null;
+}
+/* PURE — does a stored row show the restore as the later of the two? */
+function _uncancelWins(edits){
+  var e=edits||{}, u=e._uncancel, c=e._cancel;
+  if(!u) return false; if(!c) return true;
+  return String(u.at||'') > String(c.at||'');
+}
+/* ⭐⭐ ONE save at a time per product: a cancel/restore waits for any autosave (queued or in flight) and replaces a
+   pending debounced autosave (its edits ride along — the patch is built inside the chain); an autosave fired meanwhile
+   waits for it (persist() is gated on `_cxInflight`). */
+var _persistInflight={}, _cxInflight={};
+function _persistSerial(i, fn){
+  if(typeof _autosaveTimer!=='undefined' && _autosaveTimer[i]){ clearTimeout(_autosaveTimer[i]); delete _autosaveTimer[i]; }
+  var tail;
+  /* ⛔ never wait on a save that is itself queued behind THIS one (that is a deadlock) */
+  var waitInflight=async function(){ var seen=[], w;
+    while((w=_persistInflight[i]) && seen.indexOf(w)<0 && w.gate!==tail){ seen.push(w); try{ await w.p; }catch(_){} } };
+  var before=Promise.all([(typeof _autosaveChain!=='undefined'&&_autosaveChain[i])||Promise.resolve(),
+                          (_persistInflight[i]&&_persistInflight[i].p)||Promise.resolve()]).then(waitInflight).then(function(){ return true; },function(){ return true; });
+  /* ⭐ an earlier save that never answers must not freeze this one: it gives up in words after the same limit */
+  var run=_cxTimed(before, CANCEL_SAVE_LIMIT_MS).then(function(){ return fn(); }, function(){ return {ok:false, reason:'earlier_save'}; });
+  tail=run.then(function(){},function(){});
+  if(typeof _autosaveChain!=='undefined') _autosaveChain[i]=tail;
+  _cxInflight[i]=tail; tail.then(function(){ if(_cxInflight[i]===tail) delete _cxInflight[i]; });
+  return run;
+}
+/* the next product to show after removing product i: the next one down the list, else the one above */
+function _nextInQueue(i){
+  var v=visible();
+  for(var k=0;k<v.length;k++) if(v[k]>i) return v[k];
+  if(v.length) return v[v.length-1];
+  for(var j=0;j<P.length;j++) if(inQueue(j)) return j;
+  return null;
+}
+/* ⭐ the dialog semantics + focus trap for the sheets this feature opens (the drawer is shared, so they are set when
+   one of OUR sheets opens and cleared by openSheet/closeSheet for every other one) */
+var _sheetOpener=null, _sheetSeq=0;
+function _sheetDialogOn(labelId, opener){
+  var sh=document.querySelector('#sheet'); if(!sh) return;
+  if(sh.setAttribute){ sh.setAttribute('role','dialog'); sh.setAttribute('aria-modal','true'); sh.setAttribute('aria-labelledby', labelId); }
+  _sheetOpener=opener||null;
+  _cxTrapFocus();
+}
+function _sheetDialogOff(sh){
+  sh=sh||document.querySelector('#sheet'); if(!sh) return;
+  if(sh.removeAttribute) ['role','aria-modal','aria-labelledby'].forEach(function(a){ sh.removeAttribute(a); });
+  sh.onkeydown=null;
+}
+function _openerOr(sel){
+  var a=(typeof document!=='undefined')&&document.activeElement;
+  return (a && a.focus && a!==document.body) ? a : document.querySelector(sel);
+}
+/* PURE — the tab stops as the browser sees them: a radio group is ONE stop (its checked radio, else its first) */
+function _trapStops(els){
+  var out=[], at={};
+  (els||[]).forEach(function(e){
+    if(!e || e.disabled || e.hidden) return;
+    if(e.getClientRects && e.getClientRects().length===0) return;
+    if(e.type==='radio' && e.name){
+      if(at[e.name]!=null){ if(e.checked) out[at[e.name]]=e; return; }
+      at[e.name]=out.length; out.push(e); return;
+    }
+    out.push(e);
+  });
+  return out;
+}
+function _sameStop(a, s){ return a===s || !!(a && s && a.type==='radio' && s.type==='radio' && a.name && a.name===s.name); }
+/* PURE — where Tab / Shift+Tab must go to stay inside (null = let the browser move normally) */
+function _trapTarget(els, active, shift){
+  var f=_trapStops(els); if(!f.length) return null;
+  var first=f[0], last=f[f.length-1];
+  if(!f.some(function(x){ return _sameStop(active,x); })) return shift?last:first;   /* focus is outside: pull it back */
+  if(shift && _sameStop(active, first)) return last;
+  if(!shift && _sameStop(active, last)) return first;
+  return null;
+}
+/* ⭐ keyboard: Tab stays inside the sheet while it is open; Escape closes it (the page's global handler) */
+function _cxTrapFocus(){
+  var sh=document.querySelector('#sheet'); if(!sh) return;
+  sh.onkeydown=function(e){
+    if(e.key!=='Tab' || !sh.querySelectorAll) return;
+    var els=[].slice.call(sh.querySelectorAll('button,input,textarea,select,a[href],[tabindex]:not([tabindex="-1"])')||[]);
+    var t=_trapTarget(els, document.activeElement, !!e.shiftKey);
+    if(t){ try{ t.focus(); }catch(_){} e.preventDefault(); }
+  };
+}
+
+/* the decide-bar button: label + disabled state */
+function renderCancelBtn(){
+  var b=document.querySelector('#btnCancel'); if(!b) return;
+  if(!P[cur]||!st[cur]) return;
+  if(st[cur].cancelled){ b.disabled=true; b.textContent='Removed from the queue'; b.title='Restore it from Removed'; return; }
+  if(cancelIsLive(cur)){ b.disabled=true; b.textContent=CANCEL_LIVE_TEXT;
+    b.title='This product is already on our stores, so it cannot be removed from the queue — hide it in the catalog instead'; return; }
+  if(cancelBlocked(cur)){ b.disabled=true; b.textContent=CANCEL_PUBLISHING_LABEL; b.title=CANCEL_PUBLISHING_TEXT; return; }
+  b.disabled=false; b.textContent='Remove from queue…'; b.title='Take this product out of the queue for good — it will not be created';
+}
+/* the Removed chip — payload.cancelled[], any removed product the drain has not reached yet, and any removal the drain
+   REFUSED (still in the queue — listed so staff can see it did not happen, and why) */
+function removedList(){
+  var out=[], seen={};
+  REMOVED.forEach(function(d){ seen[(d._batch||'')+'|'+d.sku]=1; out.push(Object.assign({}, d)); });
+  P.forEach(function(p,i){ if(!st[i]) return;
+    var key=(p._batch||'')+'|'+p.sku; if(seen[key]) return;
+    if(st[i].cancelled){ seen[key]=1;
+      var c=st[i].cancelInfo||{};
+      out.push({sku:p.sku, upc:p.upc||'', name:p.name, reason:c.reason||'', ref_sku:c.ref_sku||'', shipper_item:c.shipper_item||'',
+                note:c.note||'', by:c.by||'', at:c.at||'', _batch:p._batch||'', _i:i});
+    } else if(st[i].cancelRefused){ seen[key]=1;
+      var r=st[i].cancelRefused, ri=r.info||{};
+      out.push({sku:p.sku, upc:p.upc||'', name:p.name, reason:ri.reason||'', ref_sku:ri.ref_sku||'', shipper_item:ri.shipper_item||'',
+                note:ri.note||'', by:ri.by||'', at:ri.at||'', _batch:p._batch||'', _i:i, refused:true, refusedNote:_cxNotePlain(r.note, p.sku)});
+    } });
+  return out;
+}
+/* the drain's note, in plain words: "<SKU>: not removed from the queue — why" → "why" */
+function _cxNotePlain(note, sku){
+  var s=String(note||'').trim();
+  if(sku && s.indexOf(String(sku)+':')===0) s=s.slice(String(sku).length+1).trim();
+  s=s.replace(/^not removed from the queue\s*[—-]\s*/i,'');
+  return s?s.charAt(0).toUpperCase()+s.slice(1):'No reason was given.';
+}
+function renderRemovedChip(){
+  var n=removedList().length, b=document.querySelector('#btnRemoved'), f=document.querySelector('#fRem');
+  if(b) b.hidden=!n; if(f) f.textContent=n?String(n):'';
+  return n;
+}
+/* ⭐ every product in the queue removed → one plain panel instead of an editable removed product */
+function renderAllRemoved(){
+  var none=P.length>0 && !P.some(function(_,i){ return inQueue(i); });
+  var el=document.querySelector('#allRemoved');
+  if(el){ el.hidden=!none; el.innerHTML=none?cxRemovedWords().empty:''; }
+  if(document.body && document.body.dataset) document.body.dataset.allremoved=none?'1':'';
+  return none;
+}
+
+/* ── the "Remove this product from the queue?" sheet ── */
+var CX={i:-1, reason:'', ref_sku:'', shipper_item:'', note:'', saving:false, gen:0, sheet:0};
+function cancelOpen(i){
+  if(!cancelStaffOnly()){ toast('Removing a product is done by our team'); return; }
+  i=(i==null?cur:i);
+  if(!P[i]) return;
+  if(st[i].cancelled){ toast('This product is already removed — restore it from Removed.'); return; }
+  var why=cancelBlocked(i); if(why){ toast(why); return; }
+  var opener=_openerOr('#btnCancel');
+  CX={i:i, reason:'', ref_sku:'', shipper_item:'', note:'', saving:false, gen:(CX.gen||0)+1, sheet:0};
+  if(!LIVE_CAT.loading) CXCAT.failed='';   /* a fresh sheet tries the product list again */
+  var p=P[i];
+  openSheet(`<h2 id="cxTitle">Remove this product from the queue?</h2>
+    <div class="sub"><b>${esc(p.name||p.sku)}</b> · <span class="mono">${esc(p.sku||'')}</span><br>
+    It will not be created on our stores or in Finale. You can restore it later from <b>Removed</b>.</div>
+    <fieldset id="cxReasons" style="border:0;padding:0;margin:0 0 10px"><legend class="lbl" style="margin-bottom:6px">Why is it being removed?</legend>
+    ${CANCEL_REASONS.map(function(r){ return `<div><label for="cxR_${r.v}"><input type="radio" name="cxReason" id="cxR_${r.v}" value="${r.v}" onchange="cancelSet('reason','${r.v}')"> ${esc(r.label)}</label></div>`; }).join('')}
+    </fieldset>
+    <div id="cxMore"></div>
+    <label for="cxNote" id="cxNoteLbl" class="lbl" style="display:block;margin-top:8px">Anything else to add? (optional)</label>
+    <textarea class="ctl" id="cxNote" rows="2" style="width:100%" maxlength="${CANCEL_LIMITS.note}" oninput="cancelSet('note',this.value)" aria-describedby="cxErr cxNoteN"></textarea>
+    <div id="cxNoteN" class="sub" aria-live="polite"></div>
+    <div id="cxErr" class="sub" role="status" aria-live="polite" style="color:var(--stop)"></div>
+    <div id="cxStatus" class="sub" role="status" aria-live="polite"></div>
+    <button class="btn primary" id="cxGo" type="button" disabled onclick="cancelSubmit()">Remove — it will not be created</button>
+    <button class="btn" id="cxNo" type="button" onclick="closeSheet()">Keep it</button>`);
+  CX.sheet=_sheetSeq;
+  _sheetDialogOn('cxTitle', opener);
+  cancelRender();
+  var first=document.querySelector('#cxR_'+CANCEL_REASONS[0].v); if(first&&first.focus) try{ first.focus(); }catch(_){}
+}
+function _cxRefHits(q){
+  q=String(q||'').trim(); if(q.length<2) return [];
+  var out=[], seen={}, ql=q.toLowerCase();
+  (liveCatSearch(q)||[]).forEach(function(h){ if(!seen[h.sku]){ seen[h.sku]=1; out.push({sku:h.sku, name:h.name, br:h.br, vis:h.vis}); } });
+  /* ⛔ a product that is itself removed is never offered as "the one we keep" */
+  P.forEach(function(p,i){ if(out.length>=25||i===CX.i||seen[p.sku]||!p.sku||!inQueue(i)) return;
+    if((p.sku+' '+p.name+' '+(p.brand||'')+' '+(p.upc||'')).toLowerCase().indexOf(ql)>=0){ seen[p.sku]=1; out.push({sku:p.sku, name:p.name, br:p.brand||'', vis:true, queued:true}); } });
+  return out.slice(0,25);
+}
+// ⭐ 2026-10-20: the shipper editor URL is a TEMPLATE from P&M (`{upc}` = this product's UPC), e.g.
+//   https://internal.mnfood.club/vendor-orders/?tab=orders&q={upc} — opens their order lines searched to that UPC.
+function shipperEditorHref(tpl){
+  var p=(typeof CX!=='undefined'&&CX&&P[CX.i])||{}, u=String(p.upc||'').replace(/[^0-9]/g,'');
+  return String(tpl==null?SHIPPER_EDITOR_URL:tpl).split('{upc}').join(encodeURIComponent(u));
+}
+function cancelRender(){
+  var r=cancelReason(CX.reason), more=document.querySelector('#cxMore');
+  if(more){
+    if(r&&r.need==='ref_sku'){
+      more.innerHTML=`<label for="cxRef" class="lbl" style="display:block">${r.v==='relaunch'?'Which product do we already carry? (required)':'Which product does it duplicate? (required)'}</label>
+        <input class="ctl" id="cxRef" style="width:100%" autocomplete="off" spellcheck="false" maxlength="${CANCEL_LIMITS.ref_sku}" aria-describedby="cxErr"
+          placeholder="Search by name, brand, SKU or UPC — or type the exact SKU" value="${esc(CX.ref_sku)}" oninput="cancelRefInput(this.value)">
+        <div id="cxCat" class="sub" role="status" aria-live="polite"></div>
+        <div id="cxRefHits"></div>`;
+      _cxCatalog();
+    } else if(r&&r.need==='shipper_item'){
+      more.innerHTML=`<label for="cxShip" class="lbl" style="display:block">Which shipper or bundle is it part of? (required — its SKU, UPC or name)</label>
+        <input class="ctl" id="cxShip" style="width:100%" autocomplete="off" maxlength="${CANCEL_LIMITS.shipper_item}" aria-describedby="cxErr cxShipN" value="${esc(CX.shipper_item)}" oninput="cancelSet('shipper_item',this.value)">
+        <div id="cxShipN" class="sub" aria-live="polite"></div>
+        ${SHIPPER_EDITOR_URL?`<div class="sub"><a href="${esc(shipperEditorHref())}" target="_blank" rel="noopener">Open the shipper contents list</a> to record what is inside it.</div>`:''}`;
+    } else more.innerHTML='';
+  }
+  var nl=document.querySelector('#cxNoteLbl');
+  if(nl) nl.textContent=(r&&r.need==='note')?'Why is it being removed? (required)':'Anything else to add? (optional)';
+  cancelValidate();
+}
+/* PURE — the character count shown once a field is near its limit ('' below 80%) */
+function cxCountText(v, max){
+  var n=String(v||'').length;
+  return n>=Math.floor(max*0.8) ? n+' / '+max+' characters'+(n>max?' — too long':'') : '';
+}
+function cancelValidate(){
+  var pr=cancelProblems(CX, P[CX.i]&&P[CX.i].sku), go=document.querySelector('#cxGo'), er=document.querySelector('#cxErr');
+  /* ⭐ say what is missing only once a reason is chosen — an empty form is not an error */
+  if(er) er.textContent=CX.reason?pr.map(function(x){return x.msg;}).join(' '):'';
+  if(go) go.disabled=!!pr.length||!!CX.saving;
+  var nn=document.querySelector('#cxNoteN'); if(nn) nn.textContent=cxCountText(CX.note, CANCEL_LIMITS.note);
+  var sn=document.querySelector('#cxShipN'); if(sn) sn.textContent=cxCountText(CX.shipper_item, CANCEL_LIMITS.shipper_item);
+  return pr;
+}
+function cancelSet(field, value){
+  if(['reason','ref_sku','shipper_item','note'].indexOf(field)<0) return;
+  CX[field]=String(value==null?'':value);
+  if(field==='reason') cancelRender(); else cancelValidate();
+}
+function cancelRefInput(v){
+  CX.ref_sku=String(v||'').trim();
+  var box=document.querySelector('#cxRefHits'), hits=_cxRefHits(v), q=String(v||'').trim();
+  /* ⛔ "No match" only once the product list has loaded — before that, say it is still loading */
+  var none=q.length>=2&&!hits.length;
+  var noneMsg=!none?'':(LIVE_CAT.items||typeof fetch!=='function')?'No match — check the spelling, or type the exact SKU.'
+    :CXCAT.failed?'No match in this queue — the product list did not load, so type the exact SKU.'
+    :'Still loading the product list — matches will show here when it is ready.';
+  if(box) box.innerHTML=hits.map(function(h){ return `<div><button type="button" class="btn sm" data-cxref="${esc(h.sku)}">Pick</button> <b>${esc(h.name)}</b>${h.br?' · '+esc(h.br):''} · <span class="mono">${esc(h.sku)}</span>${h.queued?' · in the queue':h.vis===false?' · hidden on the stores':''}</div>`; }).join('')
+    +(noneMsg?'<div class="sub">'+noneMsg+'</div>':'');
+  if(box&&box.querySelectorAll) [].slice.call(box.querySelectorAll('[data-cxref]')||[]).forEach(function(b){
+    b.onclick=function(){ cancelPickRef(b.getAttribute('data-cxref')); }; });
+  cancelValidate();
+}
+function cancelPickRef(sku){
+  CX.ref_sku=String(sku||'');
+  var inp=document.querySelector('#cxRef'); if(inp) inp.value=CX.ref_sku;
+  var box=document.querySelector('#cxRefHits'); if(box) box.innerHTML='<div class="sub">Chosen: <span class="mono">'+esc(CX.ref_sku)+'</span></div>';
+  cancelValidate();
+}
+/* the product list for the picker — the same receiving catalog "Edit or enhance a live product" reads.
+   ⭐ APP-PROGRESS-STATUS: it says what it is doing, shows the seconds, and gives up in words with Try again.
+   ⭐ The status is painted into whichever #cxCat is on screen NOW (switching reasons re-renders it), and a load another
+   sheet started is watched the same way — with the same clock and the same limit. */
+var CXCAT={t0:0, tick:null, failed:'', mine:false, seq:0};
+function _cxCatPaint(){
+  var el=document.querySelector('#cxCat'); if(!el) return;
+  if(LIVE_CAT.items){ el.textContent=''; return; }
+  if(CXCAT.failed){ el.innerHTML=esc(CXCAT.failed)+' You can still type the exact SKU. <button type="button" class="btn sm" onclick="_cxCatalog(true)">Try again</button>'; return; }
+  if(LIVE_CAT.loading){ el.textContent='Loading the product list… '+Math.max(0,Math.round((_cxNow()-CXCAT.t0)/1000))+'s'; return; }
+  el.textContent='';
+}
+function _cxCatStop(){ if(CXCAT.tick){ clearInterval(CXCAT.tick); CXCAT.tick=null; } }
+function _cxCatDone(){
+  _cxCatStop(); _cxCatPaint();
+  var inp=document.querySelector('#cxRef'); if(inp&&inp.value) cancelRefInput(inp.value);
+}
+function _cxCatTick(){
+  if(LIVE_CAT.items){ CXCAT.failed=''; _cxCatDone(); return; }
+  if(!LIVE_CAT.loading){ if(!CXCAT.failed) CXCAT.failed='The product list did not load.'; _cxCatDone(); return; }
+  if(_cxNow()-CXCAT.t0>CANCEL_CATALOG_LIMIT_MS){
+    CXCAT.failed='The product list did not load in '+Math.round(CANCEL_CATALOG_LIMIT_MS/1000)+' seconds.';
+    CXCAT.seq++; CXCAT.mine=false; LIVE_CAT.loading=false; _cxCatDone(); return; }
+  _cxCatPaint();
+}
+function _cxCatalog(force){
+  var el=document.querySelector('#cxCat');
+  if(LIVE_CAT.items){ CXCAT.failed=''; _cxCatPaint(); return; }
+  if(typeof fetch!=='function'){ if(el) el.textContent='Type the exact SKU (the product list is not available here).'; return; }
+  if(force){ CXCAT.failed=''; CXCAT.seq++; CXCAT.mine=false; LIVE_CAT.loading=false; }
+  if(CXCAT.failed && !LIVE_CAT.loading){ _cxCatPaint(); return; }   /* it already gave up — the Try again button is shown */
+  if(!CXCAT.tick && typeof setInterval==='function') CXCAT.tick=setInterval(_cxCatTick, 1000);
+  if(LIVE_CAT.loading){ if(!CXCAT.t0) CXCAT.t0=_cxNow(); _cxCatPaint(); return; }   /* someone else's load: watch it */
+  LIVE_CAT.loading=true; CXCAT.mine=true; CXCAT.t0=_cxNow(); var my=++CXCAT.seq;
+  _cxCatPaint();
+  _cxTimed(fetch('/receiving/catalog.json',{cache:'no-cache'}).then(function(r){ if(!r.ok) throw new Error(String(r.status)); return r.json(); }), CANCEL_CATALOG_LIMIT_MS)
+    .then(function(d){ if(my!==CXCAT.seq) return; liveCatLoad(d); LIVE_CAT.loading=false; CXCAT.mine=false; CXCAT.failed=''; CXCAT.t0=0; _cxCatDone(); })
+    .catch(function(e){ if(my!==CXCAT.seq) return; LIVE_CAT.loading=false; CXCAT.mine=false; CXCAT.t0=0;
+      CXCAT.failed=String(e&&e.message)==='timeout'?'The product list did not load in '+Math.round(CANCEL_CATALOG_LIMIT_MS/1000)+' seconds.':'The product list did not load.';
+      _cxCatDone(); });
+}
+/* save: the patch is built INSIDE the per-product chain with the product marked removed; the page shows it removed only
+   once the save is confirmed (a failed save never leaves it looking removed) */
+async function cancelSubmit(){
+  if(!cancelStaffOnly()){ toast('Removing a product is done by our team'); return {ok:false, reason:'vendor'}; }
+  var i=CX.i; if(!P[i]||CX.saving) return {ok:false, reason:'busy'};
+  var why0=cancelBlocked(i); if(why0){ toast(why0); return {ok:false, reason:'blocked'}; }
+  if(cancelProblems(CX, P[i].sku).length){ cancelValidate(); return {ok:false, reason:'invalid'}; }
+  var s=st[i], sku=P[i].sku, batch=_itemBatch(i), g=CX.gen, sheet=CX.sheet;
+  var info=cancelInfoOf(CX, _cxWho(), _cxAfter(_cxNowIso(), s.uncancelInfo&&s.uncancelInfo.at));
+  var apply=function(rev, rowInfo){
+    if(!P[i]||P[i].sku!==sku) return false;     /* the page reloaded underneath — the next load shows the row */
+    s.cancelInfo=rowInfo||info; s.cancelled=true; s.approved=false; s.cancelRefused=null;
+    P[i]._decision=Object.assign({}, P[i]._decision||{}, {overall:'cancelled', parked:false, held:false,
+      revision:rev!=null?rev:(P[i]._decision||{}).revision});
+    if(typeof _dirty!=='undefined') delete _dirty[i];
+    return true;
+  };
+  var done=function(){
+    /* ⛔ only close the sheet THIS save belongs to — never one opened for another product meanwhile */
+    if(CX.gen===g && _sheetSeq===sheet) closeSheet();
+    if(cur===i){ var n=_nextInQueue(i); if(n!=null){ cur=n; editing=null; } }
+    renderAll(); renderRemovedChip();
+    toast('Removed — it will not be created. You can restore it from Removed.');
+  };
+  if(!IS_BROWSER){ apply(null); done(); return {ok:true, local:true}; }
+  CX.saving=true; cancelValidate();
+  var t0=_cxNow(), tick=null;
+  var paint=function(){ var el=document.querySelector('#cxStatus');
+    if(el&&CX.gen===g&&CX.saving) el.textContent='Saving… '+Math.max(0,Math.round((_cxNow()-t0)/1000))+'s'; };
+  paint(); if(typeof setInterval==='function') tick=setInterval(paint, 1000);
+  var res=await _persistSerial(i, async function(){
+    var was={cancelled:s.cancelled, cancelInfo:s.cancelInfo, approved:s.approved}, patch;
+    s.cancelled=true; s.cancelInfo=info; s.approved=false;
+    try{ patch=decisionPatch(i); } finally { s.cancelled=was.cancelled; s.cancelInfo=was.cancelInfo; s.approved=was.approved; }
+    var r;
+    try{ r=await _cxTimed(HOST.saveDecision(batch, sku, patch), CANCEL_SAVE_LIMIT_MS); }
+    catch(e){ r={ok:false, reason:String(e&&e.message||e)}; }
+    /* ⭐ a conflict after an earlier "no answer": if that first save landed, this is a success, not a failure */
+    if(r && !r.ok && r.reason==='stale'){
+      var row=await _cxReadRow(batch, sku);
+      if(row && row.overall==='cancelled') r={ok:true, revision:row.revision, readback:true, rowInfo:(row.edits||{})._cancel||null};
+    }
+    if(r && r.ok) apply(r.revision, r.rowInfo);
+    return r||{ok:false};
+  });
+  if(tick) clearInterval(tick);
+  if(CX.gen===g) CX.saving=false;
+  if(res&&res.ok){ done(); return res; }
+  var words=_cxFailWords(res), timedOut=res&&res.reason==='timeout';
+  var stEl=document.querySelector('#cxStatus');
+  if(stEl&&CX.gen===g) stEl.innerHTML=esc(words)+(timedOut?'':' Nothing was removed.')+' <button type="button" class="btn sm" onclick="cancelSubmit()">Try again</button>';
+  if(CX.gen===g) cancelValidate();
+  renderAll();
+  toast((timedOut?'Not confirmed — ':'Not removed — ')+words);
+  return res||{ok:false};
+}
+
+/* ── the Removed list + Restore to queue ── */
+function removedOpen(){
+  if(!cancelStaffOnly()){ return; }
+  var opener=_openerOr('#btnRemoved');
+  var L=removedList();
+  openSheet(`<h2 id="rmTitle">Removed from the queue</h2>
+    <div class="sub">These will not be created. Restoring one puts it back in the queue for review — nothing is published
+    without an approval.</div>
+    ${L.map(function(d,k){ return `<div class="rwitem"><b>${esc(d.name||d.sku)}</b> · <span class="mono">${esc(d.sku)}</span>
+      <p>${esc(cancelReasonLabel(d.reason))}${d.ref_sku?' · the product: <span class="mono">'+esc(d.ref_sku)+'</span>':''}${d.shipper_item?' · part of: '+esc(d.shipper_item):''}</p>
+      ${d.note?`<p>“${esc(d.note)}”</p>`:''}
+      ${d.refused
+        ?`<p style="color:var(--stop)">⛔ <b>Not removed</b> — ${esc(d.refusedNote)} It is still in the queue.</p>
+          <button class="btn" type="button" data-goto="${k}">Go to it</button>`
+        :`<p>Removed by ${esc(d.by||'someone')}${d.at?' · '+esc(fmtWhen(d.at)):''}${d._i!=null?' · waiting to be processed (about 2 minutes)':''}</p>
+          <button class="btn" type="button" data-restore="${k}">Restore to queue</button>`}</div>`; }).join('')
+     ||'<div class="rwitem"><p>Nothing has been removed.</p></div>'}
+    <button class="btn" type="button" onclick="closeSheet()">Close</button>`);
+  _sheetDialogOn('rmTitle', opener);
+  var sh=document.querySelector('#sheet');
+  if(sh&&sh.querySelectorAll){
+    [].slice.call(sh.querySelectorAll('[data-restore]')||[]).forEach(function(b){
+      b.onclick=function(){ restoreAsk(L[+b.getAttribute('data-restore')]); }; });
+    [].slice.call(sh.querySelectorAll('[data-goto]')||[]).forEach(function(b){
+      b.onclick=function(){ var d=L[+b.getAttribute('data-goto')]; closeSheet();
+        if(d&&d._i!=null&&P[d._i]&&P[d._i].sku===d.sku){ cur=d._i; editing=null; renderAll(); } }; });
+  }
+  return L;
+}
+function restoreAsk(d){
+  if(!d) return;
+  askConfirm({title:'Put this product back in the queue?', body:(d.name||d.sku)+'\nIt comes back for review. Nothing is published without an approval.',
+    yes:'Restore to queue', no:'Keep it removed', onYes:function(){ restoreRemoved(d); }});
+}
+/* PURE — the edits a Restore writes onto an already-drained row (its stored edits kept, _uncancel added) */
+function uncancelEdits(stored, by, at){
+  var ed=Object.assign({}, stored||{}); ed._uncancel={at:at, by:by}; return ed;
+}
+var RM_BUSY={}, RM={gen:0, sheet:0, d:null};
+function _rmKey(d){ return (d._batch||'')+'|'+d.sku; }
+/* which loaded product a Removed entry is (⛔ never trusts a stale index: the SKU must match) */
+function _rmIndex(d){
+  if(d._i!=null && P[d._i] && P[d._i].sku===d.sku && st[d._i] && st[d._i].cancelled) return d._i;
+  for(var k=0;k<P.length;k++) if(P[k].sku===d.sku && (P[k]._batch||'')===(d._batch||'') && st[k] && st[k].cancelled) return k;
+  return null;
+}
+async function _restoreLoaded(i, d){
+  return _persistSerial(i, async function(){
+    var s=st[i];
+    if(!P[i]||P[i].sku!==d.sku) return {ok:false, reason:'moved'};
+    if(!s.cancelled) return {ok:true, already:true};
+    var info={at:_cxAfter(_cxNowIso(), s.cancelInfo&&s.cancelInfo.at), by:_cxWho()};
+    var was={cancelled:s.cancelled, uncancelInfo:s.uncancelInfo}, patch, batch=_itemBatch(i);
+    s.cancelled=false; s.uncancelInfo=info;
+    try{ patch=decisionPatch(i); } finally { s.cancelled=was.cancelled; s.uncancelInfo=was.uncancelInfo; }
+    var r;
+    try{ r=await _cxTimed(HOST.saveDecision(batch, d.sku, patch), CANCEL_SAVE_LIMIT_MS); }
+    catch(e){ r={ok:false, reason:String(e&&e.message||e)}; }
+    if(r && !r.ok && r.reason==='stale'){
+      var row=await _cxReadRow(batch, d.sku);
+      if(row && row.overall!=='cancelled' && _uncancelWins(row.edits)) r={ok:true, revision:row.revision, readback:true, rowInfo:row.edits._uncancel};
+    }
+    if(r && r.ok && P[i] && P[i].sku===d.sku){
+      s.cancelled=false; s.uncancelInfo=r.rowInfo||info;
+      P[i]._decision=Object.assign({}, P[i]._decision||{}, {overall:'pending', revision:r.revision!=null?r.revision:(P[i]._decision||{}).revision});
+      if(typeof _dirty!=='undefined') delete _dirty[i];
+    }
+    return r||{ok:false};
+  });
+}
+async function _restoreDrained(d){
+  var batch=d._batch||_batchFromUI(), stored={}, rev=0;
+  if((HOST && typeof HOST.readRow==='function') || HOST===GraphHost){
+    var row=await _cxReadRow(batch, d.sku);
+    if(!row) return {ok:false, reason:'unreadable'};
+    stored=row.edits||{}; rev=row.revision||0;
+  }
+  var at=_cxAfter(_cxAfter(_cxNowIso(), (stored._cancel||{}).at), d.at);
+  var r;
+  try{ r=await _cxTimed(HOST.saveDecision(batch, d.sku, {overall:'pending', edits:uncancelEdits(stored, _cxWho(), at),
+                                                   comments:{}, expect_revision:rev}), CANCEL_SAVE_LIMIT_MS); }
+  catch(e){ r={ok:false, reason:String(e&&e.message||e)}; }
+  if(r && !r.ok && r.reason==='stale'){
+    var again=await _cxReadRow(batch, d.sku);
+    if(again && again.overall!=='cancelled' && _uncancelWins(again.edits)) r={ok:true, revision:again.revision, readback:true};
+  }
+  return r||{ok:false};
+}
+/* ⭐ Restore: one at a time per product, with the wait shown (step, seconds, limit) and a plain failure + Try again */
+async function restoreRemoved(d){
+  if(!cancelStaffOnly()){ toast('Restoring a product is done by our team'); return {ok:false, reason:'vendor'}; }
+  if(!d) return {ok:false};
+  var key=_rmKey(d); if(RM_BUSY[key]) return {ok:false, reason:'busy'};
+  var li=_rmIndex(d);
+  if(!IS_BROWSER){
+    if(li==null){ toast('Restoring needs the live page'); return {ok:false, reason:'not a browser'}; }
+    var s0=st[li]; s0.cancelled=false; s0.uncancelInfo={at:_cxAfter(_cxNowIso(), s0.cancelInfo&&s0.cancelInfo.at), by:_cxWho()};
+    renderAll(); renderRemovedChip(); toast('Restored — it is back in the queue.'); return {ok:true, local:true};
+  }
+  RM_BUSY[key]=true;
+  var g=++RM.gen; RM.d=d;
+  openSheet(`<h2 id="rmTitle">Putting it back in the queue</h2>
+    <div class="sub"><b>${esc(d.name||d.sku)}</b> · <span class="mono">${esc(d.sku)}</span></div>
+    <div id="rmStatus" class="sub" role="status" aria-live="polite">Restoring… 0s</div>
+    <button class="btn" type="button" onclick="closeSheet()">Close</button>`);
+  RM.sheet=_sheetSeq; _sheetDialogOn('rmTitle', document.querySelector('#btnRemoved'));
+  var t0=_cxNow(), tick=null;
+  var paint=function(){ var el=document.querySelector('#rmStatus');
+    if(el&&RM.gen===g&&_sheetSeq===RM.sheet) el.textContent='Restoring… '+Math.max(0,Math.round((_cxNow()-t0)/1000))+'s (it gives up after '+Math.round(CANCEL_SAVE_LIMIT_MS/1000)+' seconds)'; };
+  paint(); if(typeof setInterval==='function') tick=setInterval(paint, 1000);
+  var res;
+  try{ res=(li!=null) ? await _restoreLoaded(li, d) : await _restoreDrained(d); }
+  catch(e){ res={ok:false, reason:String(e&&e.message||e)}; }
+  finally{ RM_BUSY[key]=false; if(tick) clearInterval(tick); }
+  var mine=RM.gen===g && _sheetSeq===RM.sheet;
+  if(res && res.ok){
+    if(li==null) for(var k=REMOVED.length-1;k>=0;k--) if(REMOVED[k].sku===d.sku && (REMOVED[k]._batch||'')===(d._batch||'')) REMOVED.splice(k,1);
+    if(mine) closeSheet();
+    renderAll(); renderRemovedChip();
+    toast(li!=null?'Restored — it is back in the queue.':'Restored — it comes back to the queue within about 2 minutes.');
+    return res;
+  }
+  var words=res&&res.reason==='unreadable'?'We could not read this product\'s saved record just now. Try again in a moment.':_cxFailWords(res);
+  var el=document.querySelector('#rmStatus');
+  if(mine && el) el.innerHTML=esc(words)+' <button type="button" class="btn sm" onclick="restoreRetry()">Try again</button>';
+  renderAll(); renderRemovedChip();
+  toast((res&&res.reason==='timeout'?'Not confirmed — ':'Not restored — ')+words);
+  return res||{ok:false};
+}
+function restoreRetry(){ if(RM.d) return restoreRemoved(RM.d); }
+$('#btnCancel').onclick=function(){ cancelOpen(cur); };
+$('#btnRemoved').onclick=function(){ removedOpen(); };
+window.cancelOpen=cancelOpen; window.shipperEditorHref=shipperEditorHref; window.cancelSet=cancelSet; window.cancelSubmit=cancelSubmit; window.cancelRefInput=cancelRefInput;
+window.cancelPickRef=cancelPickRef; window.removedOpen=removedOpen; window.restoreRemoved=restoreRemoved; window.restoreAsk=restoreAsk; window.restoreRetry=restoreRetry;
+window._cxCatalog=_cxCatalog; window.cancelProblems=cancelProblems; window.cancelInfoOf=cancelInfoOf; window.removedList=removedList;
+window.uncancelEdits=uncancelEdits; window.CANCEL_REASONS=CANCEL_REASONS; window.cancelIsLive=cancelIsLive; window.cancelBlocked=cancelBlocked;
+window._trapTarget=_trapTarget; window._trapStops=_trapStops; window._cxAfter=_cxAfter; window._cxFailWords=_cxFailWords;
+window._cxCatTick=_cxCatTick; window._cxCatState=function(){ return {cat:LIVE_CAT, cx:CXCAT}; }; window.cxCountText=cxCountText;
+window._persistSerial=_persistSerial; window.renderAllRemoved=renderAllRemoved; window.removedLock=removedLock;
+window.getCX=function(){ return CX; }; window.renderRemovedChip=renderRemovedChip; window.inQueue=inQueue;
 /* ⭐ 2026-09-27 (P-1716): the old "Publish N" button did nothing but toast — approving IS publishing. */
 
 /* ⭐ C4: the drawer closes on its backdrop; the lightbox did not. */
@@ -5092,7 +5803,7 @@ window.liveEnhOpen=liveEnhOpen; window.liveEnhSubmit=liveEnhSubmit;
 function renderAll(){
   $('#tabImgN').textContent=P[cur].imgs.length;
   renderQueue();renderShop();renderFields();renderGrid();renderFlags();renderLog();renderOps();renderDecide();renderLiveEnh();
-  renderVendorExtras(); renderStory(); markNeedFix();
+  renderVendorExtras(); renderStory(); markNeedFix(); renderAllRemoved();
 }
 applyModeChrome();
 renderAll();
@@ -5615,6 +6326,9 @@ function decisionPatch(i){
   /* ⭐ P-1483: reserved keys like _flagActions — listing_drain pops them; listing_publish reads _keepCurrent */
   if(s.keepCur && s.keepCur.length) edits._keepCurrent=s.keepCur.slice();
   if(s.sugg && Object.keys(s.sugg).length) edits._suggest=Object.assign({},s.sugg);
+  /* ⭐ P-2933: reserved keys — listing_drain pops them; the LATER of the two timestamps wins (like _undefer) */
+  if(s.cancelInfo) edits._cancel=Object.assign({},s.cancelInfo);
+  if(s.uncancelInfo) edits._uncancel=Object.assign({},s.uncancelInfo);
   /* ⭐ VERIFY F9 (2026-09-23): WHEN each queued comment was typed. The server tells
      a comment this page is merely re-sending (same stamp) from the same words typed
      again after a rework (new stamp) — without it, one of the two had to be wrong. */
@@ -5630,7 +6344,8 @@ function decisionPatch(i){
   var _picks=s.picks, _vUntouched=isVendorView() && !s.picksTouched;
   if(_vUntouched) _picks=(p._loadedPicks||p.pre||[]);
   return {
-    overall: s.approved?'approved':(Object.keys(s.cm||{}).length?'rework':'pending'),
+    /* ⭐⭐ P-2933: a removed product STAYS removed on every later save until Restore (st.cancelled is restored on load) */
+    overall: s.cancelled?'cancelled':s.approved?'approved':(Object.keys(s.cm||{}).length?'rework':'pending'),
     sections: s.sec, edits: edits, comments: s.cm||{},
     image_order: _picks.slice(),
     image_excluded: (_vUntouched && !_picks.length) ? [] : p.imgs.map(function(_,n){return n;})
@@ -5686,6 +6401,7 @@ function scheduleAutosave(i, label){
     toast('Changed after approval — press Approve again when you want this change to go live.');
   }
   if(!IS_BROWSER) return;   /* test harness / no session — persist() would refuse anyway */
+  if(_vendorRemoved(i)) return;   /* ⛔ 2026-10-20: nothing is saved for a product TC Farm removed */
   _dirty[i]=true;
   clearTimeout(_autosaveTimer[i]);
   _autosaveTimer[i]=setTimeout(function(){
@@ -5695,14 +6411,24 @@ function scheduleAutosave(i, label){
       /* ⛔ Only clear the dirty flag on a CONFIRMED save. A failed save
          (network error or a 'stale' conflict) already toasts loudly via
          `persist()` — the flag stays true so `beforeunload` keeps warning. */
-      if(res && res.ok) delete _dirty[i];
+      if(res && (res.ok || res.reason==='removed')) delete _dirty[i];
     });
   }, 700);
 }
 window.scheduleAutosave=scheduleAutosave; window.pendingAutosave=pendingAutosave;
 
-async function persist(i, label){
+/* ⭐⭐ 2026-10-20: a save waits for an in-flight Remove / Restore on the same product (they share one revision), and is
+   recorded as in flight so a Remove / Restore waits for IT. */
+function persist(i, label){
+  var gate=_cxInflight[i];
+  var pr=gate?gate.then(function(){ return _persistNow(i, label); }):_persistNow(i, label);
+  _persistInflight[i]={p:pr.then(function(){},function(){}), gate:gate||null};
+  return pr;
+}
+async function _persistNow(i, label){
   if(!IS_BROWSER) return {ok:false, reason:'not a browser'};
+  /* ⛔ a vendor's page sends NOTHING for a product TC Farm removed (it would re-send overall:'cancelled' as theirs) */
+  if(_vendorRemoved(i)) return {ok:false, reason:'removed'};
   var batch=_itemBatch(i);
   try{
     var _patch=decisionPatch(i);
