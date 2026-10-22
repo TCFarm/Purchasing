@@ -1839,6 +1839,9 @@ function _vendorFilterItem(it, pol){
   var sh=Object.assign({}, pol.item_shapes||{images:VENDOR_POLICY_FALLBACK.item_shapes.images});
   ['live_suggestions','live_before'].forEach(function(k){ if(!sh[k]) sh[k]=[]; });   /* ⛔ = vendor_policy._SHAPE_REQUIRED */
   Object.keys(sh).forEach(function(k){ if(k in out) out[k]=_vendorShape(out[k], sh[k]||[]); });
+  /* ⭐ P-3000 (2026-10-21): the bridge pops `owner` from every item a vendor receives (_publish_studio), so staff
+     "View as vendor" drops it too — staff must see EXACTLY what the vendor sees, or an owner-dependent bug hides from them. */
+  delete out.owner;
   return out;
 }
 /* as-vendor: keep only this owner's products (and their answers/deferrals), each one filtered exactly as the bridge
@@ -3435,7 +3438,7 @@ function renderFields(){
         ?`<div class="hint okk" style="margin-top:6px">${IS_TEST?'✓ Published to the Dev store only (test item)':'✓ Live'}${p.published.at?' since '+esc(String(p.published.at).slice(0,10)):''}</div>`
         :(p.kind==='update'?'<div class="hint okk" style="margin-top:6px">✓ On our stores now — approving updates the live listing.</div>'
           :'<div class="hint" style="margin-top:6px">Not published yet — approving publishes it.</div>'))):''}
-    ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':'none — house item'}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':'House items have no UPC; the SKU is the identity.'))}
+    ${vrow('upc',null,frow('UPC','12 digits',`<input class="ctl mono w-md" id="fUpc" value="${esc(p.upc)}" placeholder="${p.upc?'':(p.src==='clone'?'not set yet':'none — house item')}">`,p.upc?'Leading zeros are part of the identity — stored as text everywhere.':(p.src==='clone'?'A new version gets its own barcode — enter it from the label (12 digits). Until then the SKU is its identity.':'House items have no UPC; the SKU is the identity.')))}
     ${p.direct?vrow('vendorCode',null,frow('Vendor code','the code printed on the label',`<input class="ctl mono w-md" id="fVC" value="${esc(p.vendorCode)}" placeholder="${p.vendorCode?'':'not known yet'}">`,
       p.upc?'Scans at receiving alongside the UPC.':'With no UPC this is what the warehouse scans — it is added to Finale and the item code (SKU) takes its digits.')):''}
     ${vrow('brand',null,frow('Brand',null,`<select class="ctl w-md" id="fBrand">${selOpts(brandList(),p.brand)}</select>`))}
