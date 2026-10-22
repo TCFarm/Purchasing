@@ -7436,7 +7436,36 @@ var CLN_KINDS=[['flavour','A new flavour or recipe','e.g. salted caramel instead
                ['size','A new size or pack of the same thing','e.g. the 12 oz is now also a 16 oz'],
                ['other','Something else','tell us in your own words']];
 var CLN=null;
-function cloneFresh(){ return {files:[], text:'', kind:'flavour', mode:'separate', count:'', busy:false, err:'', fileErr:'',
+/* ⭐⭐ 2026-10-22 (Jack, plan docs/PLAN_SIMILAR_VERSION_KEEP_REPLACE_2026-10-22.md): what a similar version KEEPS and what it
+   takes FRESH depends on the kind of change. ⛔ The SAME words as clone_template.keep_text (test_clone_keep_replace.py
+   checks they agree); an unknown kind reads as a new flavour, like the server (fail closed). */
+function cloneKeepText(kind){
+  if(kind==='size') return 'We keep: brand, storage, category, ingredients, allergens, the description, badge and your other settings. We take fresh from what you give us: the size, price, case pack, volume, weight, dimensions and photos.';
+  return 'We keep: brand, storage, category, price, volume, weight, dimensions, badge and your other settings. We take fresh from what you give us: the name, description, ingredients, allergens and photos.';
+}
+/* ⭐ 2026-10-22: the optional link to the NEW product's own page — ONE web address. It travels inside the request text as a
+   labelled line ("New product page: …"), so the portal contract is unchanged; our computer reads that page like any
+   pasted link. '' when it is fine (or empty), else the one thing to fix. */
+var CLN_LINK_MAX=500;
+function cloneLinkProblem(link){
+  var l=String(link||'').trim();
+  if(!l) return '';
+  if(l.length>CLN_LINK_MAX) return 'That link is too long — paste just the address of the product\'s page.';
+  if(/\s/.test(l) || (l.match(/https?:\/\//ig)||[]).length>1) return 'Give one link only — put any others in the text.';
+  if(/[<>"'`\\]/.test(l)) return 'That does not look like a web page address — copy it from the address bar.';
+  var m=/^https?:\/\/([^\/?#]+)(?:[\/?#]|$)/i.exec(l);
+  if(!m) return 'The link must start with http:// or https:// (copy it from the address bar).';
+  if(m[1].indexOf('@')>=0 || !/^[a-z0-9.-]+(:\d{1,5})?$/i.test(m[1]) || !/[a-z0-9-]\.[a-z]{2,}(:\d{1,5})?$/i.test(m[1]))
+    return 'That does not look like a web page address — copy it from the address bar.';
+  return '';
+}
+/* what is sent: their words, then the link as its own labelled line */
+function cloneText(s){
+  s=s||{}; var t=String(s.text||''), l=String(s.link||'').trim().replace(/^https?:/i,function(x){return x.toLowerCase();});
+  /* ⭐ FIRST, so no truncation anywhere downstream can cut it; the scheme lower-cased so the server's link reader sees it */
+  return l ? ('New product page: '+l+(t.trim()?'\n\n'+t:'')) : t;
+}
+function cloneFresh(){ return {files:[], text:'', link:'', kind:'flavour', mode:'separate', count:'', busy:false, err:'', fileErr:'',
   parts:[], phase:'idle', stream:null, mr:null, t0:0, timer:null, n:1, starting:false, recErr:'', sess:'',
   sub:null, poll:null, iid:''}; }
 /* is the button OFFERED at all — staff on the live page, or a vendor whose portal says it can take it (hello.features) */
@@ -7473,9 +7502,10 @@ function cloneProblem(s){
   s=s||{};
   if(s.phase==='recording'||s.phase==='starting') return 'You are still recording — press “I\'m done” (or Pause), then Process now.';
   if(s.sending) return 'A recording is still being prepared — wait a moment.';
-  if(!String(s.text||'').trim() && !(s.files||[]).length && !(s.parts||[]).length)
-    return 'Say what is different — type it, add a file, or record it.';
-  if(String(s.text||'').length>CLN_LIMITS.text) return 'The text is too long ('+CLN_LIMITS.text+' characters at most) — put the rest in a file.';
+  var lp=cloneLinkProblem(s.link); if(lp) return lp;
+  if(!String(s.text||'').trim() && !String(s.link||'').trim() && !(s.files||[]).length && !(s.parts||[]).length)
+    return 'Say what is different — type it, add a file, give a link, or record it.';
+  if(cloneText(s).length>CLN_LIMITS.text) return 'The text is too long ('+CLN_LIMITS.text+' characters at most) — put the rest in a file.';
   var c=String(s.count||'').trim();
   if(c && (!/^\d{1,3}$/.test(c) || +c<1 || +c>500)) return '“How many new products” should be a number from 1 to 500 — or leave it empty.';
   return '';
@@ -7509,7 +7539,7 @@ function cloneRowFields(p, batch, s, o){
 /* what a vendor's request carries — nothing but the source's name, their words, files, recordings */
 function cloneVendorArgs(p, batch, s, iid, memoIds){
   return {batch:batch, sku:p.sku, intake_id:iid, name:'Similar to '+String(p.name||p.sku).slice(0,50),
-          text:String(s.text||''), count:String(s.count||'').trim(), kind:s.kind, mode:s.mode==='decide'?'decide':'separate',
+          text:cloneText(s), count:String(s.count||'').trim(), kind:s.kind, mode:s.mode==='decide'?'decide':'separate',
           memos:memoIds||[]};
 }
 function cloneAudioSeconds(s){ return (s.parts||[]).reduce(function(n,x){return n+(x.seconds||0);},0); }
@@ -7569,7 +7599,7 @@ function cloneRender(){
   var c=CLN; if(!c||!P[cur]) return;
   var p=P[cur], V=isVendorView(), us=V?'we':'our team';
   if(c.sub){ return cloneProgress(); }
-  var probl=cloneProblem({text:c.text, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':(c.starting?'starting':''), count:c.count}),
+  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':(c.starting?'starting':''), count:c.count}),
       est=cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)});
   var rec=c.phase==='recording'
       ? '<span class="vs-rec" aria-hidden="true"></span><b>Recording · <span id="clnTime">0:00</span></b> <button class="btn" onclick="cloneRecPause()">Pause</button> <button class="btn primary" onclick="cloneRecDone()">I\'m done</button>'
@@ -7577,10 +7607,10 @@ function cloneRender(){
         : (c.starting?'<button class="btn" disabled>Starting the microphone…</button>':'<button class="btn" onclick="cloneRecStart()">🎙 Start dictating</button>'));
   var sizeNote=c.kind==='size'?'Say the new size, and its price if it is different. ':'';
   openSheet(`<h2>Make a similar version of ${esc(p.name)}</h2>
-    <div class="sub">Starts from <b>${esc(p.name)}</b> <span class="mono">${esc(p.sku)}</span> and <b>copies what is similar</b> —
-      category, storage, tax, size, price, ingredients, dimensions, volume and the other settings. ${V?'Tell us':'Tell it'} only what is
-      <b>different</b>; everything you do not mention is reused. The new product gets its own barcode and SKU, and you can fix anything
+    <div class="sub">Starts from <b>${esc(p.name)}</b> <span class="mono">${esc(p.sku)}</span> and <b>copies what is similar</b>.
+      ${V?'Tell us':'Tell it'} what is <b>different</b>. The new product gets its own barcode and SKU, and you can fix anything
       that is wrong in the listing afterwards. Nothing is published without an approval.</div>
+    <div class="hint" id="clnKeep" role="note">${esc(cloneKeepText(c.kind))}</div>
     <fieldset style="border:0;padding:0;margin:0 0 10px"><legend class="lbl">What kind of change?</legend>
       ${CLN_KINDS.map(function(k){ return `<label style="display:block;font-size:13px;margin:2px 0"><input type="radio" name="clnKind" value="${k[0]}" ${c.kind===k[0]?'checked':''}> <b>${esc(k[1])}</b> <span class="note">— ${esc(k[2])}</span></label>`; }).join('')}
     </fieldset>
@@ -7589,6 +7619,10 @@ function cloneRender(){
         placeholder="${c.kind==='size'?'The 16 oz version of the same thing. Price $24, UPC 0…':'Salted caramel ice cream with a ribbon of caramel. Ingredients: cream, milk, sugar, … Contains: milk. UPC …'}">${esc(c.text)}</textarea>
       <span class="note">${sizeNote}Name it, give its UPC if you have it, its ingredients and anything else new. You can also add files or dictate below.
         <span id="clnCount">${c.text.length.toLocaleString()} of ${CLN_LIMITS.text.toLocaleString()} characters</span></span></label>
+    <label style="display:block;margin-bottom:10px"><span class="lbl">Link to the new product's page <span class="note">(optional)</span></span>
+      <input id="clnLink" class="ctl" type="url" inputmode="url" maxlength="${CLN_LINK_MAX}" style="width:100%" value="${esc(c.link||'')}"
+        placeholder="https://…/products/the-new-one">
+      <span class="note">${c.kind==='size'?'We read the size and price from it when it shows them.':'We read the new product\'s name, description, ingredients, allergens and photos from it.'}</span></label>
     <div class="cn-drop" id="clnDrop"><b>Drag files here</b> (price lists, spec sheets, label photos, ingredient PDFs…) or
       <input type="file" id="clnFile" multiple ${c.busy?'disabled':''}></div>
     ${c.fileErr?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.fileErr)}</div>`:''}
@@ -7619,6 +7653,7 @@ function cloneWire(){
   var c=CLN; if(!c) return;
   var qa=function(s){ return document.querySelectorAll(s)||[]; };
   Array.prototype.forEach.call(qa('input[name="clnKind"]'), function(r){ r.onchange=function(){ c.kind=r.value; cloneRender(); }; });
+  var lk=document.querySelector('#clnLink'); if(lk) lk.oninput=function(){ c.link=lk.value; cloneRefresh(); };
   var t=document.querySelector('#clnText'); if(t) t.oninput=function(){ c.text=t.value; var n=document.querySelector('#clnCount'); if(n) n.textContent=t.value.length.toLocaleString()+' of '+CLN_LIMITS.text.toLocaleString()+' characters'; cloneRefresh(); };
   var cn=document.querySelector('#clnCnt'); if(cn) cn.oninput=function(){ c.count=cn.value; cloneRefresh(); };
   var md=document.querySelector('#clnMode'); if(md) md.onchange=function(){ c.mode=md.value; };
@@ -7636,7 +7671,7 @@ function cloneWire(){
 /* update just the estimate + button + reason as the user types */
 function cloneRefresh(){
   var c=CLN; if(!c) return;
-  var probl=cloneProblem({text:c.text, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
+  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
   var go=document.querySelector('#clnGo'); if(go){ go.disabled=!!probl||c.busy; go.title=probl; }
   var est=document.querySelector('#clnEst'); if(est) est.textContent='⏱ '+cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)}).text;
   var why=document.querySelector('#clnWhy'); if(why) why.textContent=' '+probl;
@@ -7658,7 +7693,7 @@ window.cloneSheet=cloneSheet; window.cloneClose=cloneClose;
 /* ── Process now ── */
 async function cloneSubmit(){
   var c=CLN, p=P[cur]; if(!c||!p||c.busy) return;
-  var probl=cloneProblem({text:c.text, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
+  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
   if(probl){ c.err=probl; cloneRender(); return; }
   if(!cloneAvailable()){ c.err='This is not available here right now.'; cloneRender(); return; }
   c.busy=true; c.err=''; cloneRender();
@@ -7678,7 +7713,7 @@ async function cloneSubmitStaff(c, p){
   var iid=c.iid, owner=p.owner, folder=owner+'/'+iid, now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
   var stem=cloneStem(now, owner, now.slice(11,19));
   for(var i=0;i<c.files.length;i++) await cnUpload(folder+'/files/'+c.files[i].name, c.files[i]);
-  await cnPut(folder+'/paste.txt', 'What is different:\n'+c.text, 'text/plain');
+  await cnPut(folder+'/paste.txt', 'What is different:\n'+cloneText(c), 'text/plain');
   for(var k=0;k<c.parts.length;k++){
     var x=c.parts[k]; await cnPut(folder+'/audio/dictation-'+String(x.n).padStart(2,'0')+'.'+cloneAudioExt(x.type), x.blob, x.type);
   }
