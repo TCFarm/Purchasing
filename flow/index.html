@@ -555,17 +555,18 @@
   <div class="step you">
     <div class="when">Sunday<small>after you approve</small></div>
     <details class="sd">
-      <summary><span class="what">Finalize and send to KeHE <span class="tag t-you">you</span></span><span class="who">Produces the file you place at KeHE</span></summary>
+      <summary><span class="what">Finalize &amp; send to KeHE <span class="tag t-you">you</span></span><span class="who">Staff portal &middot; KeHE orders &middot; Send &middot; one button</span></summary>
       <div class="sdbody">
-      <div class="desc">Writes the order in the three-column shape KeHE&rsquo;s importer reads, honouring every quantity you approved. Upload it to KeHE Connect the same evening.</div>
+      <div class="desc">One button does it all: it finalizes every quantity you approved, uploads the order file to KeHE, then creates and locks the Finale purchase order. Four steps tick on the screen as they finish (Finalize, Send to KeHE, Finale PO, KeHE confirmed), with who pressed it and a clock on each. Anyone who opens the tab later sees the same steps.</div>
       <details>
-        <summary>the one irreversible step in the whole flow</summary>
+        <summary>what happens when you press it</summary>
         <ul>
-          <li><code>kehe_order.py finalize --sunday &lt;sunday&gt;</code></li>
-          <li>Finalizing <b>closes</b> the pre-order lines, and that can't be undone. Rebuilding the order afterwards is fine and supported &mdash; the closed lines are pulled back in and flagged &mdash; but only for the <em>same</em> Sunday.</li>
-          <li>It refuses to send zero-cost or order-dominating lines without a flagged review.</li>
-          <li><b>The file you upload is <code>KeheUpload_&lt;sunday&gt;.xlsx</code></b> &mdash; three columns, nothing else. Two files are written and only this one goes to KeHE Connect.</li>
-          <li>The other one, <code>KeheOrder_&lt;sunday&gt;</code>, is the priced copy Finale&rsquo;s own format uses. It carries our costs and margins. <b>Never upload that one to KeHE.</b></li>
+          <li>The confirm says it is a real order and names the lines, units, dollars and you. After that it cannot be taken back from the app: to change the order, call KeHE.</li>
+          <li>It checks first and sends nothing if the week was already sent, was placed on KeHE&rsquo;s website by hand, or already has a Finale order. Your sign-in is checked too: the order goes out under your name.</li>
+          <li>Finalizing <b>closes</b> the pre-order lines, and that can&rsquo;t be undone. If finalize finds a line KeHE cannot place, or pre-orders missing from the file, it <b>holds</b> the order: nothing goes to KeHE, and the screen says why.</li>
+          <li>The file goes to KeHE once. If an upload does not finish cleanly, the screen says <b>check KeHE</b> and nothing will send it again.</li>
+          <li>The Finale order carries the same PO number KeHE got. If making it fails, the order is still at KeHE: press <b>Make the Finale order</b>. KeHE&rsquo;s confirmation email also makes it, and it never sends KeHE anything.</li>
+          <li><b>&#11015; KeHE upload file</b> still downloads the file, for your records or to place it by hand.</li>
         </ul>
       </details>
       </div>
@@ -573,19 +574,18 @@
   </div>
 
   <div class="step you">
-    <div class="when">Sunday<small>after you place it at KeHE</small></div>
+    <div class="when">Sunday<small>only if you place it by hand</small></div>
     <details class="sd">
-      <summary><span class="what">Order placed at KeHE <span class="tag t-you">you</span></span><span class="who">Staff portal &middot; KeHE orders &middot; Send</span></summary>
+      <summary><span class="what">Other ways to send <span class="tag t-you">you</span></span><span class="who">Folded under the button &middot; for when the send cannot run</span></summary>
       <div class="sdbody">
-      <div class="desc">Once KeHE&rsquo;s website has accepted the order, press <b>Order placed at KeHE</b>. The Finale purchase order is made and locked for you from what you finalized. You no longer upload KeHE&rsquo;s file back into the app.</div>
+      <div class="desc">Folded away but always there: <b>Finalize only</b>, then place the file on KeHE&rsquo;s website yourself and press <b>Order placed at KeHE</b>. The Finale order is made for you from what you finalized.</div>
       <details>
-        <summary>what happens after you press it</summary>
+        <summary>what happens after you press Order placed at KeHE</summary>
         <ul>
           <li>The Finale order is made from your finalized order, at our cost for now. KeHE&rsquo;s confirmation email then corrects it by itself: quantities, items out of stock (set to 0, never deleted) and add-on orders.</li>
           <li>If KeHE&rsquo;s confirmation email arrives first, it makes the Finale order itself, and the button just says so. A second press never makes a second order.</li>
           <li>Pressed by mistake? <b>I did not place this order&hellip;</b> cancels that Finale order (kept as cancelled, never deleted). It is refused once KeHE has confirmed the order or anything has been received.</li>
-          <li>This is the same step that will happen with no button once we send KeHE the order file automatically. Only who presses it changes.</li>
-          <li>For a few weeks, <b>Upload a KeHE file by hand (fallback)</b> is still there, folded under the button, if something goes wrong.</li>
+          <li><b>Upload a KeHE file by hand (fallback)</b> is folded under that, if something goes wrong.</li>
         </ul>
       </details>
       </div>
