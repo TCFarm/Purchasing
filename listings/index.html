@@ -7446,6 +7446,10 @@ function cloneEligible(p, batch){
   if(!p || !p.sku) return {ok:false, reason:'Pick a product first.'};
   if(!batch || batch==='__all__') return {ok:false, reason:'We could not tell which queue this product is in — reload the page and try again.'};
   var o=String(p.owner||'');
+  /* ⛔ 2026-10-21 (live portal, A to Z): the BRIDGE strips `owner` from every item it publishes (vendor_portal_bridge.
+     _publish_studio) because a vendor's folder only ever holds their OWN products — so in vendor view an empty owner means
+     "yours", never "unknown". The mini re-derives and re-checks the owner from (batch, sku) before any clone is built. */
+  if(!o && isVendorView()) return {ok:true, reason:''};
   if(!o) return {ok:false, reason:'This product has no owner recorded yet, so we cannot tell whose it is.'};
   if(CLN_NOT_OWNERS.indexOf(o)>=0)
     return {ok:false, reason:'This is one of TC Farm\'s own items. Similar versions of those are made with the house-product flow — ask the team. This tool is for vendor products.'};
