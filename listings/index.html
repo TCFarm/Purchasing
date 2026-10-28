@@ -355,6 +355,20 @@ body[data-mode="vendor"] .note,body[data-mode="as-vendor"] .note{display:none!im
 .nwkind{border:0;padding:0;margin:8px 0}
 table.sfcard{border-collapse:collapse;margin:6px 0}table.sfcard td,table.sfcard th{padding:2px 12px 2px 0;text-align:left;font-size:12.5px}
 .sfstop{border-left:4px solid var(--stop)}
+/* ⭐ 2026-10-28 (Jack): tick several hits, load them together; each opens from the tray as soon as it is ready */
+.fhitrow{display:flex;align-items:stretch;border-bottom:1px solid var(--line-soft)}
+.fhitrow .fhit{border-bottom:0;flex:1 1 auto;min-width:0}
+.fsel{display:flex;align-items:flex-start;padding:10px 0 8px 10px;cursor:pointer}
+.fsel input{width:18px;height:18px;margin:0}
+.fhitrow.sib .fsel{padding-left:26px}.fhitrow.sib .fhit{padding-left:8px}
+.fselbar{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 10px;background:var(--accent-soft);border-bottom:1px solid var(--line);font-size:12.5px}
+.sftray{position:fixed;right:16px;bottom:16px;z-index:80;width:min(380px,calc(100vw - 32px));max-height:60vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
+.sftray header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:13px}
+.sftray header b{flex:1}
+.sftrow{padding:8px 10px;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+.sftrow .tn{font-weight:600}.sftrow .ts{color:var(--ink-3);margin-left:6px;font-size:12px}
+.sftrow .tw{color:var(--ink-2)}.sftrow .tw.bad{color:var(--stop)}.sftrow .tw.ok{color:var(--accent)}
+.sftrow .wprog{height:4px;margin:4px 0}
 @media (max-width:400px){.findres{width:94vw}.findwrap{max-width:none}}
 body[data-ops-hidden="1"] .shell{grid-template-columns:250px minmax(0,1fr)}
 @media (max-width:1240px){body[data-ops-hidden="1"] .shell{grid-template-columns:220px minmax(0,1fr)}}
@@ -636,6 +650,8 @@ select.batch{max-width:100%;min-width:0}
   <aside class="ops" id="ops" data-vhide="ops"></aside>
 </div>
 <div class="drawer" id="drawer"><div class="sheet" id="sheet"></div></div>
+<!-- ⭐ 2026-10-28: products loading together (staff only; VENDOR_ALWAYS_HIDE) -->
+<section class="sftray" id="sfTray" aria-label="Products loading" hidden></section>
 <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
   aria-label="Full-size image"><div class="frame"><div class="big" id="lbBig"><span></span></div></div><div class="meta" id="lbMeta"></div><div class="bar2"><button class="btn" onclick="lbStep(-1)">← Previous</button><button class="btn" onclick="lbStep(1)">Next →</button><button class="btn" onclick="lbClose()">Close</button><button class="btn primary" id="lbPick"></button></div></div>
 <div class="veil" id="loadVeil" role="status" aria-live="polite"><div class="vcard">
@@ -1224,7 +1240,7 @@ var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
-var VENDOR_ALWAYS_HIDE=['#findWrap','#btnNewProd','#btnCancel','#btnRemoved','#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
+var VENDOR_ALWAYS_HIDE=['#findWrap','#sfTray','#btnNewProd','#btnCancel','#btnRemoved','#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
 
 function _qp(search, name){
   var s=String(search||'').replace(/^\?/,''); if(!s) return null;
@@ -4131,12 +4147,12 @@ function _unsaved(){
   try{ if(document.querySelectorAll('.cbox').length) return true; }catch(_){}
   try{ const a=document.activeElement, t=a&&String(a.tagName||'').toLowerCase();
        /* ⭐ 2026-10-05: the queue search and the queue picker are not edits — a refresh must not wait on them */
-       if(a&&(a.id==='qSearch'||a.id==='batchSel')) {} else
+       if(a&&(a.id==='qSearch'||a.id==='batchSel'||a.id==='findQ'||(a.getAttribute&&a.getAttribute('data-noedit')==='1'))) {} else
        if(t==='input'||t==='textarea'||t==='select'||(a&&a.isContentEditable)) return true; }catch(_){}
   /* ⛔ 2026-10-28 (Jack: "why is this part taking FOREVER"): the "open a product" card (#openProg) is a read-only progress
      panel, not an edit. Counting it as one made its own wait self-deadlock: step 3 needs a reload to see the new record,
      and the reload refused while the card was showing — so the record only appeared once the card was CLOSED. */
-  try{ const d=document.querySelector('#drawer'); if(d&&d.dataset&&d.dataset.open==='1' && !document.querySelector('#sheet #openProg')) return true; }catch(_){}
+  try{ const d=document.querySelector('#drawer'); if(d&&d.dataset&&d.dataset.open==='1' && !(typeof sfCardShowing==='function' && sfCardShowing())) return true; }catch(_){}
   return false;
 }
 async function uploadPollTick(){
@@ -6096,12 +6112,12 @@ async function refreshBatchList(manual){
   if(named.length) toast('New: '+named.map(batchLabel).join(', ')+' — pick it in the list above');
   return fresh;
 }
-async function liveRefresh(manual){
+async function liveRefresh(manual, quiet){
   if(manual || (++_BATCH_LIST_TICK % 5)===0){ try{ await refreshBatchList(manual); }catch(_){} }
   var batch=_batchFromUI(); if(!batch||!HOST) return 'nobatch';
   if(_unsaved()){
     LIVE.waiting=true; var n=$('#refreshNote');
-    if(n) n.textContent=manual?'Finish or cancel your edit first — then press Refresh.':'New changes may be waiting — they load when you finish your edit.';
+    if(n) n.textContent=(manual&&!quiet)?'Finish or cancel your edit first — then press Refresh.':'New changes may be waiting — they load when you finish your edit.';
     return 'held';
   }
   try{
@@ -6116,9 +6132,9 @@ async function liveRefresh(manual){
     if(!visible().includes(cur)){ var v=visible(); if(v.length) cur=v[0]; }
     reconcileUploads(); renderAll();
     var n2=$('#refreshNote'); if(n2) n2.textContent='Up to date · '+new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-    if(manual) toast('Up to date');
+    if(manual && !quiet) toast('Up to date');     /* quiet: a waiting product's background reload (2026-10-28) */
     return 'reloaded';
-  }catch(e){ if(manual) toast('Could not refresh just now — try again in a minute'); return 'failed'; }
+  }catch(e){ if(manual && !quiet) toast('Could not refresh just now — try again in a minute'); return 'failed'; }
 }
 function startLiveRefresh(){
   if(LIVE.timer!=null || typeof setInterval!=='function' || !IS_BROWSER) return;
@@ -8272,7 +8288,8 @@ if(document.querySelector('#btnPortal')){ $('#btnPortal').onclick=function(){ vd
    ⛔ Every wait: a named step, a progress bar, a live clock, a limit that ends in words plus Try again / Check again, and a
      late answer changes nothing (APP-PROGRESS-STATUS.md). Limits live in STUDIO_LIMITS, not in the code. */
 var STUDIO_LIMITS={indexMs:45000, requestMs:10*60*1000, recordMs:15*60*1000, undoMs:10*60*1000, newMs:20*60*1000,
-  pollMs:5000, recordPollMs:10000, pollTimeoutMs:20000, clockMs:1000, minChars:2, maxHits:30, recentMax:20, editingMs:2*3600*1000, bigLb:20};
+  pollMs:5000, recordPollMs:10000, pollTimeoutMs:20000, clockMs:1000, minChars:2, maxHits:30, recentMax:20, editingMs:2*3600*1000, bigLb:20,
+  multiMax:20, refreshShareMs:9000, sendStepMs:30000};
 var STUDIO_INDEX_PATH='ListingReview/studio/catalog_index.json';
 var STUDIO_STORES=[['tcfarm','TC Farm'],['mnfc','MN Food Club'],['ngf','Nelson Grass Farm']];
 function sfStoreName(k){ for(var i=0;i<STUDIO_STORES.length;i++) if(STUDIO_STORES[i][0]===k) return STUDIO_STORES[i][1]; return String(k||''); }
@@ -8292,6 +8309,12 @@ function sfAct(el){
   if(a==='wait-retry') return sfWaitRetry(x);
   if(a==='undo-ask') return sfUndoAsk(x);
   if(a==='card') return sfCardDo(x, y);
+  if(a==='sel') return findToggle(x, !!(el&&el.checked));
+  if(a==='sel-load') return findLoadSelected();
+  if(a==='sel-clear') return findSelClear();
+  if(a==='tray-open') return sfTrayOpen(x);
+  if(a==='tray-close') return sfTrayClose();
+  if(a==='tray-show') return sfTrayShow();
 }
 window.sfAct=sfAct;
 function sfRootOf(sku){ return String(sku||'').split('-')[0].toLowerCase(); }
@@ -8332,7 +8355,7 @@ function staffLiveRec(p){ return !!p && staffEditUI() && (p.kind==='update' || !
 
 /* ── the search index ────────────────────────────────────────────────────────────────────────────────────────────── */
 var FIND={st:'idle', rows:null, bySku:{}, builtAt:'', stores:{}, err:'', gen:0, q:'', open:false,
-          recent:[], recentSt:'idle', recentErr:'', others:{}};
+          recent:[], recentSt:'idle', recentErr:'', others:{}, sel:[]};
 function sfNormIndex(d){
   if(!d || typeof d!=='object' || !Array.isArray(d.rows)) throw new Error('the list is not in the shape the page expects');
   var rows=[], by={};
@@ -8414,8 +8437,40 @@ function sfHitHtml(h){
   var body='<span class="fn">'+esc(r.name||r.sku)+'</span> <span class="fs mono">'+esc(r.sku)+'</span>'
     +'<span class="fm">'+esc([r.brand, r.upc?'UPC '+r.upc:'no UPC', ownerLabel(r.owner)].filter(Boolean).join(' · '))+'</span>'
     +'<span class="fc">'+sfStoreChips(r)+'</span>'+sfConflictNote(r);
-  return ok?'<button type="button" class="fhit'+(h.sibling?' sib':'')+'" role="option"'+sfBtnAttrs('pick', r.sku)+'>'+body+'</button>'
-          :'<div class="fhit sib" role="option" aria-disabled="true">'+body+'<span class="fm">This SKU has characters the Studio cannot open.</span></div>';
+  if(!ok) return '<div class="fhit sib" role="option" aria-disabled="true">'+body+'<span class="fm">This SKU has characters the Studio cannot open.</span></div>';
+  /* ⭐ 2026-10-28: a tick box beside each hit — tick several, then "Load selected". The box is its OWN control (a button
+     cannot hold one); clicking the name still opens that one product exactly as before. */
+  var on=findIsSel(r.sku), full=!on && FIND.sel.length>=STUDIO_LIMITS.multiMax;
+  return '<div class="fhitrow'+(h.sibling?' sib':'')+'"><label class="fsel" title="'+(full?'At most '+STUDIO_LIMITS.multiMax+' at once':'Tick to load several together')+'">'
+    +'<input type="checkbox" class="fselbox" data-noedit="1" aria-label="Select '+esc(r.sku)+'"'+(on?' checked':'')+(full?' disabled':'')+sfBtnAttrs('sel', r.sku)+'></label>'
+    +'<button type="button" class="fhit" role="option"'+sfBtnAttrs('pick', r.sku)+'>'+body+'</button></div>';
+}
+/* ── several at once: the selection (an ordered list of SKUs, never a second copy of the index row) ─────────────────── */
+function findIsSel(sku){ var k=String(sku||'').toLowerCase(); return FIND.sel.some(function(s){ return s.toLowerCase()===k; }); }
+function findToggle(sku, on){
+  sku=String(sku||''); if(!sfSkuOk(sku)) return false;
+  var k=sku.toLowerCase();
+  if(on && findIsSel(sku)){ findPaint(); return true; }            /* ticking again keeps its place */
+  FIND.sel=FIND.sel.filter(function(s){ return s.toLowerCase()!==k; });
+  if(on){
+    if(FIND.sel.length>=STUDIO_LIMITS.multiMax){ toast('At most '+STUDIO_LIMITS.multiMax+' products at once.'); findPaint(); return false; }
+    FIND.sel.push(sku);
+  }
+  findPaint(); return true;
+}
+function findSelClear(){ FIND.sel=[]; findPaint(); }
+function findSelBarHtml(){
+  var n=FIND.sel.length; if(!n) return '';
+  return '<div class="fselbar" role="status"><b>'+n+' selected</b>'
+    +'<button type="button" class="btn sm primary"'+sfBtnAttrs('sel-load')+'>Load '+n+' selected</button>'
+    +'<button type="button" class="btn sm"'+sfBtnAttrs('sel-clear')+'>Clear</button>'
+    +'<span class="fm">Each opens from the list at the bottom right as soon as it is ready.</span></div>';
+}
+function findLoadSelected(){
+  var skus=FIND.sel.slice(0, STUDIO_LIMITS.multiMax); if(!skus.length) return 0;
+  FIND.sel=[]; FIND.open=false; findPaint();
+  var q=document.querySelector('#findQ'); if(q) q.value=''; FIND.q='';
+  return sfMultiOpen(skus);
 }
 function findPaint(){
   var box=document.querySelector('#findRes'); if(!box) return;
@@ -8432,6 +8487,8 @@ function findPaint(){
   }
   var s=String(FIND.q||'').trim();
   if(FIND.st==='ready'){
+    if(TRAY.items.length && !TRAY.open) h+='<div class="fstat"><button type="button" class="btn sm"'+sfBtnAttrs('tray-show')+'>Show the '+TRAY.items.length+' product'+(TRAY.items.length>1?'s':'')+' you loaded</button></div>';
+    h+=findSelBarHtml();
     var r=findSearch(s);
     if(r.short){
       h+=s.length?'<div class="fstat">Keep typing — at least '+STUDIO_LIMITS.minChars+' characters.</div>':'';
@@ -8581,11 +8638,16 @@ window.sfWaitHtmlFor=function(k){ return sfWaitHtml(SFW[k]); }; window.sfWaitAga
 async function sfSubmit(rowTitle, overall, edits, jobKind){
   var res=await saveDecision('__requests__', rowTitle, {overall:overall, edits:edits});
   if(!res || !res.ok || !res.sp_id) throw new Error((res&&res.message)||'the request could not be saved');
+  var j=await sfPostJob(res.sp_id, jobKind);
+  return {spId:String(res.sp_id), jobId:j.jobId, jobs:j.jobs, title:rowTitle};
+}
+/* the job pointer for a request row. ⭐ Safe to repeat: the handler re-reads the row and a handled row is a no-op. */
+async function sfPostJob(spId, jobKind){
   var jobs=await _agentJobsListId(), now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
   var jobRow=await graph('/sites/'+CFG.siteId+'/lists/'+jobs+'/items',{method:'POST',body:JSON.stringify({fields:{
-    Title:jobKind+':'+res.sp_id, Kind:jobKind, Subject:String(res.sp_id), Params:'{}', State:'queued', Attempts:0,
+    Title:jobKind+':'+spId, Kind:jobKind, Subject:String(spId), Params:'{}', State:'queued', Attempts:0,
     RequestedUtc:now, RequestedBy:ACCOUNT||'listing-studio'}})});
-  return {spId:String(res.sp_id), jobId:(jobRow&&jobRow.id)?String(jobRow.id):'', jobs:jobs, title:rowTitle};
+  return {jobId:(jobRow&&jobRow.id)?String(jobRow.id):'', jobs:jobs};
 }
 /* -> {kind:'wait'|'applied'|'refused'|'jobfail', text, ds, state} — the server's words, never rewritten */
 async function sfReadRequest(req){
@@ -8654,17 +8716,29 @@ function sfCardHtml(o){
     +(rows?'<table class="sfcard"><tr><th>Store</th><th>On the store</th><th>Price</th></tr>'+rows+'</table>'
       +(r?sfConflictNote(r):'')+(r&&r.ownerBasis==='unknown'?'<div class="sub">The owner is not known for certain.</div>':'')
       +'<div class="sub">Read-only, from the list updated '+esc(sfTimeText(FIND.builtAt)||'earlier')+'.</div>':'')
-    +'<div id="openProg" class="rwitem"></div>'
-    +'<div id="opBtns" style="margin:8px 0">'
-    +[['Edit','edit'],['Approve','approve'],['Enhance','enhance'],['Similar version','similar'],['Undo','undo']]
-      .map(function(b){ return '<button type="button" class="btn" data-op="'+b[0]+'" disabled title="ready when the record finishes"'+sfBtnAttrs('card', o.sku, b[1])+'>'+b[0]+'</button> '; }).join('')
-    +'</div><div class="sub" id="opWhy">Edit, Approve, Enhance, Similar version and Undo are ready when the record finishes.</div>'
+    /* ⛔ 2026-10-28: the progress box names its SKU — with several loading at once, a wait paints ONLY its own card */
+    +'<div id="openProg" class="rwitem" data-sku="'+esc(key)+'"></div>'
+    +'<div id="opBtns" style="margin:8px 0">'+sfCardBtnsHtml(o.sku, sfRecordIndex(o.sku)>=0)+'</div>'
+    +'<div class="sub" id="opWhy">Edit, Approve, Enhance, Similar version and Undo are ready when the record finishes.</div>'
     +'<button class="btn" type="button" onclick="closeSheet()">Close</button>';
 }
-function sfCardOpen(o){ openSheet(sfCardHtml(o)); sfCardBtns(o); var w=SFW['open:'+o.sku.toLowerCase()]; if(w) sfPaint(w); }
+/* ⛔ 2026-10-28: these were drawn disabled and NEVER switched on (the record jumped straight to Edit), so Enhance and Similar
+   version could not be reached from here. They are enabled the moment the record is in the list. */
+function sfCardBtnsHtml(sku, ready){
+  return [['Edit','edit'],['Approve','approve'],['Enhance','enhance'],['Similar version','similar'],['Undo','undo']]
+    .map(function(b){ return '<button type="button" class="btn" data-op="'+b[0]+'"'+(ready?'':' disabled title="ready when the record finishes"')+sfBtnAttrs('card', sku, b[1])+'>'+b[0]+'</button> '; }).join('');
+}
+/* which product's card is showing: set when the card opens, tied to that sheet (any other sheet bumps _sheetSeq) */
+var SF_CARD={sku:'', seq:-1};
+function sfCardShowing(){ var d=document.querySelector('#drawer'); return !!(SF_CARD.sku && d && d.dataset && d.dataset.open==='1' && SF_CARD.seq===_sheetSeq); }
+function sfCardIsFor(sku){ return sfCardShowing() && SF_CARD.sku===String(sku||'').toLowerCase(); }
+function sfCardOpen(o){ openSheet(sfCardHtml(o)); SF_CARD={sku:o.sku.toLowerCase(), seq:_sheetSeq}; sfCardBtns(o); var w=SFW['open:'+o.sku.toLowerCase()]; if(w) sfPaint(w); }
 function sfCardBtns(o){
   var ready=sfRecordIndex(o.sku)>=0, why=document.querySelector('#opWhy');
-  if(why) why.textContent=ready?'The record is ready.':'Edit, Approve, Enhance, Similar version and Undo are ready when the record finishes.';
+  if(sfCardIsFor(o.sku)){
+    if(why) why.textContent=ready?'The record is ready.':'Edit, Approve, Enhance, Similar version and Undo are ready when the record finishes.';
+    var b=document.querySelector('#opBtns'); if(b) b.innerHTML=sfCardBtnsHtml(o.sku, ready);
+  }
   o.ready=ready;
 }
 function sfCardDo(sku, what){
@@ -8677,28 +8751,53 @@ function sfCardDo(sku, what){
 }
 var LE_PREFILL='';
 window.sfCardDo=sfCardDo;
-function sfOpenStart(o){
-  var key=o.sku.toLowerCase(), wk='open:'+key;
-  var w=sfWait(wk,{sel:'#openProg', names:OPEN_STAGES, limits:[STUDIO_LIMITS.requestMs, STUDIO_LIMITS.requestMs, STUDIO_LIMITS.recordMs],
-    pollEvery:[STUDIO_LIMITS.pollMs, STUDIO_LIMITS.pollMs, STUDIO_LIMITS.recordPollMs], doneText:'The record is ready.',
+/* opts (several at once, 2026-10-28): {scan: one shared read of the request list, group: one id for the whole selection,
+   spread: how many are polling, so N waits do not each poll every 5 s}. A single open passes none of them. */
+function sfOpenStart(o, opts){
+  opts=opts||{};
+  var key=o.sku.toLowerCase(), wk='open:'+key, spread=Math.max(1, Math.ceil((+opts.spread||1)/4));
+  var w=sfWait(wk,{names:OPEN_STAGES, limits:[STUDIO_LIMITS.requestMs, STUDIO_LIMITS.requestMs, STUDIO_LIMITS.recordMs],
+    pollEvery:[STUDIO_LIMITS.pollMs*spread, STUDIO_LIMITS.pollMs*spread, STUDIO_LIMITS.recordPollMs], doneText:'The record is ready.',
     limitText:'The record is not ready yet.', safeText:'Your request is saved — the Mac mini will still build it. Nothing has changed on the stores.',
-    retryKey:true, retry:function(){ delete OPEN[key]; findOpen(o.sku, o.row); },
+    retryKey:true, retry:function(){ delete OPEN[key]; if(o.tray){ sfOpenStart(OPEN[key]=Object.assign(o,{req:null, sending:false})); sfTrayPaint(); } else findOpen(o.sku, o.row); },
+    /* ⛔ paint ONLY this SKU's own card (never whichever card happens to be open) and the tray */
+    paint:function(w){ if(sfCardIsFor(key)){ var el=document.querySelector('#openProg'); if(el) el.innerHTML=sfWaitHtml(w); } sfTrayPaint(); },
     poll:function(w, alive){ return sfOpenPoll(o, w, alive); },
-    onEnd:function(w){ if(w.state==='done'){ sfCardBtns(o); var d=document.querySelector('#drawer'); var i=sfRecordIndex(o.sku);
-        if(i>=0 && d && d.dataset && d.dataset.open==='1' && o.showing!==false) sfGoRecord(i); } }});
+    onEnd:function(w){ if(w.state==='done'){ sfCardBtns(o); var i=sfRecordIndex(o.sku);
+        /* a single open jumps straight into the record (as before); a tray item WAITS for its Open — it never pulls you off
+           the product you are working on */
+        if(i>=0 && !o.tray && sfCardIsFor(o.sku) && o.showing!==false) sfGoRecord(i); }
+      sfTrayPaint(); }});
   o.sending=true;
-  if(!IS_BROWSER){ o.sending=false; sfFinish(w,'failed','This needs the live page (sign in).'); return; }
-  Promise.resolve().then(async function(){
+  if(!IS_BROWSER){ o.sending=false; sfFinish(w,'failed','This needs the live page (sign in).'); return Promise.resolve(); }
+  return Promise.resolve().then(async function(){
     /* a request of mine for this SKU that is still alive is joined, never repeated (even from another tab) */
     var reuse=null;
-    try{ reuse=(await sfScanRequests()).filter(function(r){ return sfMine(r) && r.sku.toLowerCase().indexOf('enh:'+key+':')===0 && r.ds.indexOf('refused@')!==0 && r.ds.indexOf('applied@')!==0
+    try{ reuse=(await (opts.scan||sfScanRequests())).filter(function(r){ return sfMine(r) && r.sku.toLowerCase().indexOf('enh:'+key+':')===0 && r.ds.indexOf('refused@')!==0 && r.ds.indexOf('applied@')!==0
         && _sfNow()-_whenMs(r.at)<24*3600*1000 && r.edits && r.edits.mode==='edit'; }).sort(function(a,b){ return a.at<b.at?1:-1; })[0]||null; }catch(_){ reuse=null; }
     if(SFW[wk]!==w || w.state!=='run') return;
-    if(reuse){ o.req={spId:reuse.spId, listId:reuse.listId, jobId:'', jobs:'', title:reuse.sku}; }
-    else { o.req=await sfSubmit('enh:'+o.sku+':'+_photoId(), 'enhance_request', {mode:'edit', urls:[]}, 'productpipeline.live_enhance_request'); }
+    /* ⛔ 2026-10-28 (review): a row saved by a tab that closed before its job pointer was written has NO job — joining it
+       waited forever (and Try again joined it again for 24 h). A joined row gets a fresh pointer; a repeat is a no-op. */
+    if(reuse){ var jr=await sfPostJob(reuse.spId, 'productpipeline.live_enhance_request');
+      o.req={spId:reuse.spId, listId:reuse.listId, jobId:jr.jobId, jobs:jr.jobs, title:reuse.sku}; }
+    else { o.req=await sfSubmit('enh:'+o.sku+':'+_photoId(), 'enhance_request', Object.assign({mode:'edit', urls:[]}, opts.group?{group:String(opts.group)}:{}),
+                                'productpipeline.live_enhance_request'); }
     if(SFW[wk]!==w || w.state!=='run') return;
     o.sending=false; sfStage(w,1);
   }).catch(function(e){ o.sending=false; if(SFW[wk]===w && w.state==='run') sfFinish(w,'failed','Not sent — '+String(e&&e.message||e).slice(0,200)); });
+}
+/* ⛔ 2026-10-28: ONE reload serves every waiting product. Each wait used to call liveRefresh(true) itself — ten products
+   meant ten full reloads of every queue every 10 s. A reload already running is joined; a recent one is reused. */
+var _SF_REFRESH={p:null, at:0, res:''};
+function sfSharedRefresh(){
+  var now=_sfNow();
+  if(_SF_REFRESH.p) return _SF_REFRESH.p;
+  if(_unsaved()) return Promise.resolve('held');        /* ⛔ (review) an edit is open: nothing would load — do not even ask */
+  if(_SF_REFRESH.at && now-_SF_REFRESH.at<STUDIO_LIMITS.refreshShareMs && _SF_REFRESH.res!=='held') return Promise.resolve(_SF_REFRESH.res);
+  _SF_REFRESH.p=Promise.resolve().then(function(){ return liveRefresh(true, true); })
+    .then(function(r){ _SF_REFRESH.n=(_SF_REFRESH.n||0)+1; _SF_REFRESH.res=r; _SF_REFRESH.at=_sfNow(); _SF_REFRESH.p=null; return r; },
+          function(e){ _SF_REFRESH.p=null; _SF_REFRESH.at=0; throw e; });
+  return _SF_REFRESH.p;
 }
 async function sfOpenPoll(o, w, alive){
   if(!o.req) return;
@@ -8711,12 +8810,98 @@ async function sfOpenPoll(o, w, alive){
     return;
   }
   if(w.stage===2){
-    var res=await liveRefresh(true); if(!alive()) return;
+    if(sfRecordIndex(o.sku)>=0){ sfFinish(w,'done',''); return; }     /* another wait's reload may already have brought it */
+    var res=await sfSharedRefresh(); if(!alive()) return;
     if(sfRecordIndex(o.sku)>=0){ sfFinish(w,'done',''); return; }
-    w.note=(res==='held')?'Finish or cancel the edit you have open so the new record can load.':'The record is being built — it appears here by itself.';
+    if(res==='held'){ w.stageT0=_sfNow(); w.note='Built — it opens here when you finish or cancel the edit you have open.'; }  /* not stuck: the limit waits */
+    else w.note='The record is being built — it appears here by itself.';
   }
 }
 window.findOpen=findOpen; window.sfOpenState=function(){ return OPEN; };
+
+/* ── several at once: send one request per SKU (the same `enh:` row + job as a single open, so the mini, the reuse and
+   the refusals are unchanged) and show them in a small tray; each opens as soon as its own record is ready ───────────── */
+var TRAY={items:[], open:false};
+function sfMultiOpen(skus){
+  if(!staffEditUI()) return 0;
+  var seen={}, list=[];
+  (skus||[]).forEach(function(s){ s=String(s||'').trim(); var k=s.toLowerCase(); if(sfSkuOk(s) && !seen[k]){ seen[k]=1; list.push(s); } });
+  list=list.slice(0, STUDIO_LIMITS.multiMax); if(!list.length) return 0;
+  var group=_photoId(), scan=null, toStart=[];
+  list.forEach(function(sku){
+    var k=sku.toLowerCase();
+    if(!TRAY.items.some(function(x){ return x===k; })) TRAY.items.push(k);
+    var o=OPEN[k]; if(!o) o=OPEN[k]={sku:sku, row:sfIndexRow(sku), sending:false, req:null};
+    o.tray=true;
+    var w=SFW['open:'+k];
+    if(sfRecordIndex(sku)>=0) return;                                   /* already open in the list: ready now, nothing sent */
+    if(o.sending || (w && (w.state==='run' || w.state==='done'))) return; /* already loading (or loaded): joined, never sent twice */
+    toStart.push(o);
+  });
+  TRAY.open=true; TRAY.t0=_sfNow(); sfTrayPaint();
+  if(toStart.length){
+    if(IS_BROWSER){ scan=sfScanRequests(); scan.catch(function(){}); }
+    /* ⭐ one at a time: each row and job is written in order (a burst of parallel writes is how two saves collide) */
+    /* ⛔ (review) each step RE-CHECKS (a name clicked meanwhile may have started it) and gets at most sendStepMs — one hung
+       save used to leave every later product at "Waiting to send" with no clock and no end */
+    toStart.reduce(function(p, o){ return p.then(function(){
+      var w=SFW['open:'+o.sku.toLowerCase()];
+      if(o.sending || sfRecordIndex(o.sku)>=0 || (w && (w.state==='run' || w.state==='done'))) return;
+      var step=sfOpenStart(o, {scan:scan, group:group, spread:toStart.length});
+      return Promise.race([step, new Promise(function(res){ setTimeout(res, STUDIO_LIMITS.sendStepMs); })]);
+    }); }, Promise.resolve());
+  }
+  return list.length;
+}
+function sfTrayStatus(k){
+  var o=OPEN[k]||{sku:k}, w=SFW['open:'+k], ready=sfRecordIndex(o.sku)>=0;
+  if(ready) return {cls:'ok', text:'✓ Ready', btn:'Open'};
+  if(!w) return {cls:'', text:'Waiting to send · ⏱ '+sfClock(_sfNow()-(TRAY.t0||_sfNow())), btn:''};
+  if(w.state==='done') return {cls:'ok', text:'✓ Ready', btn:'Open'};
+  if(w.state==='failed') return {cls:'bad', text:'⛔ '+(w.note||'It did not finish.'), btn:'Details'};
+  if(w.state==='limit') return {cls:'bad', text:'⛔ Not ready after '+sfMins(sfLimitOf(w))+' — the request is saved.', btn:'Details'};
+  var n=w.names.length, st=Math.min(w.stage,n-1);
+  return {cls:'', text:'Step '+(st+1)+' of '+n+' · '+w.names[st]+' · ⏱ '+sfClock(_sfNow()-w.t0)+(w.note?' — '+w.note:''), btn:'Details', w:w};
+}
+function sfTrayPaint(){
+  var el=document.querySelector('#sfTray'); if(!el) return;
+  if(!TRAY.open || !TRAY.items.length || !staffEditUI()){ el.hidden=true; el._sig=''; return; }
+  el.hidden=false;
+  var done=0, st=TRAY.items.map(function(k){ var s=sfTrayStatus(k); if(s.btn==='Open') done++; return s; });
+  /* ⛔ 2026-10-28 (real-click test): the tray used to be rebuilt every second, so its buttons were REPLACED between a
+     press and its release and the click was lost. It is rebuilt only when a row's button or state changes; the clock and
+     bar are updated in place. */
+  var sig=TRAY.items.join(',')+'|'+st.map(function(s){ return s.btn+':'+s.cls; }).join(',');
+  var pct=function(s){ if(!s.w) return 0; var n=s.w.names.length, i=Math.min(s.w.stage,n-1), lim=sfLimitOf(s.w);
+    return Math.min(100, Math.round(100*(i+Math.min(0.9,(_sfNow()-s.w.stageT0)/lim))/n)); };
+  if(el._sig===sig && el.querySelectorAll){
+    var tw=el.querySelectorAll('.sftrow .tw'), bars=el.querySelectorAll('.sftrow .wprog');
+    if(tw.length===st.length){
+      st.forEach(function(s,i){ if(tw[i].textContent!==s.text) tw[i].textContent=s.text; });
+      var bi=0; st.forEach(function(s){ if(!s.w) return; var b=bars[bi++]; if(b){ var v=pct(s); b.setAttribute('aria-valuenow', v); if(b.firstChild) b.firstChild.style.width=v+'%'; } });
+      return;
+    }
+  }
+  el._sig=sig;
+  var rows=TRAY.items.map(function(k, i){
+    var o=OPEN[k]||{sku:k}, r=o.row||sfIndexRow(o.sku), s=st[i];
+    var bar=s.w?'<div class="wprog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+pct(s)+'"><i style="width:'+pct(s)+'%"></i></div>':'';
+    return '<div class="sftrow"><span class="tn">'+esc(r?r.name:o.sku)+'</span><span class="ts mono">'+esc(o.sku)+'</span>'
+      +'<div class="tw '+s.cls+'" role="status">'+esc(s.text)+'</div>'+bar
+      +(s.btn?'<button type="button" class="btn sm'+(s.btn==='Open'?' primary':'')+'"'+sfBtnAttrs('tray-open', o.sku)+'>'+s.btn+'</button>':'')+'</div>';
+  }).join('');
+  el.innerHTML='<header><b>'+done+' of '+TRAY.items.length+' ready</b>'
+    +'<button type="button" class="btn sm"'+sfBtnAttrs('tray-close')+' title="Hide this list — nothing is cancelled">Hide</button></header>'+rows;
+}
+function sfTrayOpen(sku){
+  var k=String(sku||'').toLowerCase(), o=OPEN[k]; if(!o) return false;
+  o.showing=true; sfCardOpen(o); sfCardBtns(o); return true;
+}
+/* Hide only hides the list: requests already sent still build, and the products appear in the queue by themselves */
+function sfTrayClose(){ TRAY.open=false; sfTrayPaint(); findPaint(); }
+function sfTrayShow(){ if(!TRAY.items.length) return; TRAY.open=true; sfTrayPaint(); findPaint(); }
+window.sfMultiOpen=sfMultiOpen; window.sfTrayPaint=sfTrayPaint; window.sfTrayOpen=sfTrayOpen; window.sfTrayClose=sfTrayClose; window.sfTrayShow=sfTrayShow;
+window.findToggle=findToggle; window.findLoadSelected=findLoadSelected; window.findSelClear=findSelClear; window.sfTrayState=function(){ return TRAY; };
 
 /* ── the editor on a LIVE record (staff): header bar, notices, the money guards, the registry-driven boxes ──────────── */
 function sfIncomeAcct(owner, p){ var c=catOf(p.cat)||[]; return owner==='TCFarm'?('the departmental account'+(c[6]?' ('+c[6]+')':'')):'RFS Sales Clearing Account (consignment clearing)'; }
@@ -9249,7 +9434,8 @@ window.nwSetLike=nwSetLike; window.nwOpen=nwOpen; window.nwSet=nwSet; window.nwS
 window.nwClose=nwClose; window.nwRender=nwRender; window.nwProblems=nwProblems; window.nwKey=nwKey; window.nwWarnings=nwWarnings; window.nwSubmitText=nwSubmitText;
 window.sfSimilarOpen=sfSimilarOpen; window.getNW=function(){ return NW; }; window.nwRowOut=nwRowOut;
 
-window.__sf={EDITABLE:function(){ return EDITABLE_FIELDS; },FIND:FIND,OPEN:OPEN,UNDO:UNDO,SFW:SFW,REG:STAFF_FIELD_REGISTRY,LIM:STUDIO_LIMITS,sfLiveFields:sfLiveFields,sfHistoryHtml:sfHistoryHtml,sfNormIndex:sfNormIndex,sfPriceNoteHtml:sfPriceNoteHtml,sfOwnerProblem:sfOwnerProblem,sfSuggest:nwSuggestSku,sfHash:sfHash,resetFind:function(){FIND.st='idle';FIND.rows=null;FIND.bySku={};FIND.gen++;FIND.recentSt='idle';FIND.recent=[];}};
+window.__sf={EDITABLE:function(){ return EDITABLE_FIELDS; },FIND:FIND,OPEN:OPEN,UNDO:UNDO,SFW:SFW,REG:STAFF_FIELD_REGISTRY,LIM:STUDIO_LIMITS,sfLiveFields:sfLiveFields,sfHistoryHtml:sfHistoryHtml,sfNormIndex:sfNormIndex,sfPriceNoteHtml:sfPriceNoteHtml,sfOwnerProblem:sfOwnerProblem,sfSuggest:nwSuggestSku,sfHash:sfHash,resetFind:function(){FIND.st='idle';FIND.rows=null;FIND.bySku={};FIND.gen++;FIND.recentSt='idle';FIND.recent=[];FIND.sel=[];TRAY.items=[];TRAY.open=false;_SF_REFRESH={p:null,at:0,res:'',n:0};SF_CARD={sku:'',seq:-1};},
+  unsaved:function(){ return _unsaved(); }, refreshes:function(){ return _SF_REFRESH.n||0; }, TRAY:function(){ return TRAY; }};
 /* ── wiring (staff only) ─────────────────────────────────────────────────────────────────────────────────────────── */
 (function(){
   var q=document.querySelector('#findQ');
