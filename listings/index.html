@@ -1229,7 +1229,7 @@ var VENDOR_POLICY_FALLBACK={
                live_before:['name','prose_html','warranty','page_title','meta_desc','keywords']},
   flag_message_chars:500,
   /* ⭐ 2026-10-27: payload keys that exist for STAFF only (config vendor_field_policy.json staff_only_item_keys; this lists the ones added with the staff-editing build) */
-  staff_only_item_keys:['staff_history','fresh_kitchen','lead_days']
+  staff_only_item_keys:['staff_history','fresh_kitchen','lead_days','sale_ends_basis','sale_default_end']
 };
 var VPOLICY=null;          /* payload.vendor_policy, set by applyPayload */
 /* the static elements a hide_ui name refers to (render-template names are
@@ -1958,6 +1958,8 @@ function fromPayload(it){
     /* ⭐ 2026-09-22 (ruling: Jack): a sale carries its END DATE — the badge and
        the automatic takedown. */
     saleEnds:it.sale_ends||'',
+    /* ⭐ 2026-10-28 (ruling: Jack): who picked the end date, and the default a sale gets when nobody does */
+    saleEndsBasis:it.sale_ends_basis||'', saleDefault:(it.sale_default_end&&typeof it.sale_default_end==='object')?it.sale_default_end:null,
     /* ⭐ 2026-09-22 (plan B6): set when this product is ALREADY live from this batch. */
     published:it.published||null,
     priceNote:it.price_basis||'',
@@ -2327,6 +2329,7 @@ function chipMatch(i){
   return CHIP==='pub'?ps==='published':CHIP==='wait'?ps==='waiting':CHIP==='park'?(ps==='parked'||ps==='held')
     :CHIP==='act'?_needsAction(i):CHIP==='us'?(ps!=='published'&&g.wait>0&&!g.blk)
     :CHIP==='review'?ps==='review'
+    :CHIP==='saledflt'?(+P[i].salePrice>0 && (!P[i].saleEnds || /^default/.test(P[i].saleEndsBasis||'')))
     :(CHIP==='deferred'||CHIP==='removed')?false   /* ⭐ 2026-10-21: those chips list only deferred / removed rows (ghostMatch) */
     :true;
 }
@@ -3539,9 +3542,11 @@ function renderFields(){
     ${vrow('salePrice',null,frow('Sale price','0 = not on sale',`<input class="ctl w-sm mono" id="fSale" type="number" step="0.01" min="0" value="${p.salePrice}">`,
       isVendorView()?'':'⚠ The fortnightly promo flip also writes this field — a hand-set sale is never taken down by that process.'))}
     ${vrow('saleEnds',null,frow('Sale ends','last delivery date at the sale price',
-      `<input class="ctl w-md mono" id="fSaleEnds" type="date" value="${esc(p.saleEnds||'')}">`,
+      `<input class="ctl w-md mono" id="fSaleEnds" type="date" min="${_sfTodayISO(0)}" max="${_sfTodayISO(180)}" value="${esc(p.saleEnds||'')}">`,
       (p.salePrice>0&&!p.saleEnds)
-        ? '<span class="bad">⛔ A sale needs its end date — it becomes the badge ("for delivery by M/D") and the automatic takedown. Without it the sale is not applied — you will see why on this product.</span>'
+        ? '<span style="color:var(--warn)">⚠ '+esc(saleDefaultWords(p))+'</span>'
+        : (p.salePrice>0 && /^default/.test(p.saleEndsBasis||''))
+        ? '<span style="color:var(--warn)">⚠ Nobody picked this date — it was set by default ('+esc(saleDefaultWhy(p.saleEndsBasis))+'). Change it if you like.</span>'
         : '<span class="derived">Shown to shoppers as "for delivery by M/D"; the sale comes down automatically after this date.</span>'))}
     ${vrow(null,'costRow',sfCostFrow(p))}
     ${vrow(null,'marginRow',frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`))}
@@ -4493,6 +4498,9 @@ function renderPubBar(){
     /* ⭐ 2026-10-21 (Jack: "those should have their own tags and options to remove/filter for those"): staff see
        Deferred and Removed as status chips too — not work, so they sit after Published, and Show all includes them */
     +(cancelStaffOnly()?chip('def','⏸',g.deferred,'Deferred','', 'deferred')+chip('rmv','✕',g.removed,'Removed','', 'removed'):'')
+    /* ⭐ 2026-10-28 (ruling: Jack): every sale whose end date nobody picked — shown only when there is one */
+    +(function(){ var n=0; P.forEach(function(p,i){ if(inQueue(i)&&ownerMatch(i)&&+p.salePrice>0&&(!p.saleEnds||/^default/.test(p.saleEndsBasis||''))) n++; });
+        return (n||CHIP==='saledflt')?chip('wait','📅',n,'Sale end by default','', 'saledflt'):''; })()
     +` <span class="ps${CHIP?'':' on'}" role="button" tabindex="0" onclick="setChip(null)" title="Every status — no filter">${CHIP?'✕ ':''}Show all <b>${c.published+c.waiting+c.parked+c.held+c.review+g.deferred+g.removed}</b></span>`;
 }
 window.renderPubBar=renderPubBar;
@@ -4720,7 +4728,35 @@ window.approveProduct=async function(){
   }
   _myApprSet(P[i].sku, res&&res.revision);
   toast(isVendorView()?vendorApprovedMsg(i):CADENCE_PUBLISH);
+  saleDefaultNotice([i]);
 };
+/* ⭐ 2026-10-28 (ruling: Jack, Julia's suggestion): a sale with no end date is never held back — the Mac mini gives it
+   the default (sale_defaults.py: the supplier promo window, else 2 weeks). The person is TOLD, in a panel they must
+   close, so it cannot be missed: "You didn't select an end date for the sale on this item, so we added M/D". */
+/* ⛔ (review finding 6) the SAME rule as the mini, from TODAY: a 2-week default is today + 14 (the payload's was computed
+   when the batch was built, maybe days ago); a promo default is a fixed date, used while it is still ahead */
+function _sfTodayISO(off){ var d=new Date(_cxNow()+(off||0)*864e5); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function saleDefaultEnd(p){ var d=p&&p.saleDefault;
+  if(d&&d.basis==='default_promo_window'&&d.ends&&d.ends>=_sfTodayISO(0)) return d.ends;
+  return _sfTodayISO(14); }
+function saleDefaultBasis(p){ var d=p&&p.saleDefault; return (d&&d.basis==='default_promo_window'&&d.ends&&d.ends>=_sfTodayISO(0))?'default_promo_window':'default_two_weeks'; }
+function saleDefaultWhy(basis){ return basis==='default_promo_window'?'the supplier promo window':'2 weeks — no supplier promo found'; }
+function saleDefaultWords(p){
+  if(!(p.saleDefault&&p.saleDefault.ends)) return 'No end date picked — when this is approved a default end date is set (the supplier promo window, else 2 weeks). Pick a date to choose it yourself.';
+  return 'No end date picked — when this is approved the sale will end '+fmtMD(saleDefaultEnd(p))+' ('+saleDefaultWhy(saleDefaultBasis(p))+'). Pick a date to change it.'; }
+function fmtMD(iso){ var m=/^(\d{4})-(\d\d)-(\d\d)/.exec(String(iso||'')); return m?(+m[2])+'/'+(+m[3]):String(iso||''); }
+function saleDefaultNotice(idx){
+  var hit=(idx||[]).filter(function(i){ var p=P[i]; return p && +p.salePrice>0 && !p.saleEnds; });
+  if(!hit.length) return '';
+  var h='<h2>Sale end date set for you</h2>'+hit.map(function(i){ var p=P[i];
+      var known=p.saleDefault&&p.saleDefault.ends;
+      return '<div class="rwitem"><b>'+esc(p.name||p.sku)+'</b><p>You didn\'t select an end date for the sale on this item, so '
+        +(known?'we added '+esc(fmtMD(saleDefaultEnd(p)))+' as a default ('+esc(saleDefaultWhy(saleDefaultBasis(p)))+')':'a default end date is being added (the supplier promo window, else 2 weeks)')
+        +'. Adjust it if you\'d like.</p></div>'; }).join('')
+    +'<div class="sub">Find these any time with the “Sale end by default” filter.</div><button class="btn" type="button" onclick="closeSheet()">OK</button>';
+  openSheet(h); return h;
+}
+window.saleDefaultNotice=saleDefaultNotice; window.saleDefaultEnd=saleDefaultEnd;
 
 
 
@@ -4859,6 +4895,7 @@ window.bulkApprove=async function(){
       <button class="btn" onclick="closeSheet()">Close</button>`);
   } else {
     toast(`${done} product${done>1?'s':''} approved`);
+    saleDefaultNotice(yes.filter(function(i){ return st[i].approved; }));
   }
 };
 window.queueCostQuery=function(){
@@ -6538,7 +6575,7 @@ function staffDefaults(search){
       :ol==='tcf'||ol==='tcfarm'?{mode:'tcf',set:[]}
       :{mode:'pick', set:String(o).split(',').map(function(x){ return x.trim(); }).filter(Boolean)};
   } else OWNERF={mode:named?'all':'tcf', set:[]};
-  if(c!=null) CHIP=['act','review','wait','park','pub','us'].indexOf(String(c))>=0?String(c):null;
+  if(c!=null) CHIP=['act','review','wait','park','pub','us','saledflt'].indexOf(String(c))>=0?String(c):null;
   else CHIP=named?null:'review';    /* ⭐ 2026-10-20 (Jack): open on the next action — To review (was ❗ Action needed) */
 }
 window.staffDefaults=staffDefaults;
