@@ -4697,7 +4697,12 @@ document.querySelectorAll('.chip-f').forEach(c=>c.onclick=()=>setSourceFilter(c.
 
 /* ⭐ 2026-10-20: every sheet starts plain — the dialog role and focus trap a feature sets are cleared for the next one */
 function openSheet(h){ _sheetSeq=(_sheetSeq||0)+1; _sheetDialogOff($('#sheet')); $('#sheet').innerHTML=h; $('#drawer').dataset.open='1'; }
-function closeSheet(){ $('#drawer').dataset.open='0'; _sheetDialogOff($('#sheet'));
+function closeSheet(){
+  /* ⭐ 2026-10-28 (Jack: "it doesn't automatically refresh … the new item doesn't appear until I manually click refresh"): a
+     FINISHED New product / Similar version panel closed any way (outside click, Esc) loads the new products too */
+  var _nwDone=(typeof NW!=='undefined' && NW && NW.done)?NW.done:null; if(_nwDone) NW=null;
+  $('#drawer').dataset.open='0'; _sheetDialogOff($('#sheet'));
+  if(_nwDone) setTimeout(function(){ nwLoadNew(_nwDone, false); }, 0);
   /* ⭐ focus goes back to what opened the sheet ("Remove from queue…", the Removed chip) */
   var o=_sheetOpener; _sheetOpener=null; if(o&&o.focus){ try{ o.focus(); }catch(_){} }
   /* ⭐ 2026-10-21: a deferred / removed row stops looking selected once its panel closes */
@@ -8721,6 +8726,7 @@ function sfRecordIndex(sku, any){
 }
 function sfHdrRefresh(){ var p=P[cur], el=document.querySelector('#sfHdr'); if(el && staffLiveRec(p)) el.innerHTML=sfHeaderInner(p); }
 function sfGoRecord(i){
+  if(FIND.open) findClose();                             /* ⭐ 2026-10-28 (Jack): the results list never sits over the product it opened */
   cur=+i; editing=null; FILTER_EMPTY=false; closeSheet(); renderAll();
   findRecentLoad(true);                                  /* who else is editing it: re-read each time a record opens */
   if(staffLiveRec(P[cur])) selectTab('fields');
@@ -8927,12 +8933,17 @@ function sfTrayPaint(){
       +'<div class="tw '+s.cls+'" role="status">'+esc(s.text)+'</div>'+bar
       +(s.btn?'<button type="button" class="btn sm'+(s.btn==='Open'?' primary':'')+'"'+sfBtnAttrs('tray-open', o.sku)+'>'+s.btn+'</button>':'')+'</div>';
   }).join('');
+  var loading=st.some(function(s){ return !!s.w; });
   el.innerHTML='<header><b>'+done+' of '+TRAY.items.length+' ready</b>'
-    +'<button type="button" class="btn sm"'+sfBtnAttrs('tray-close')+' title="Hide this list — nothing is cancelled">Hide</button></header>'+rows;
+    +'<button type="button" class="btn sm"'+sfBtnAttrs('tray-close')+(loading?' title="Hide this list — nothing is cancelled">Hide':' title="Close this list">Close')+'</button></header>'+rows;
 }
 function sfTrayOpen(sku){
   var k=String(sku||'').toLowerCase(), o=OPEN[k]; if(!o) return false;
-  o.showing=true; sfCardOpen(o); sfCardBtns(o); return true;
+  o.showing=true; sfCardOpen(o); sfCardBtns(o);
+  /* ⭐ 2026-10-28 (Jack: the tray kept listing the product he had already opened): a READY product leaves the tray once it is
+     opened; the tray closes itself when nothing is left. A still-loading one stays (Details only shows its progress). */
+  if(sfTrayStatus(k).btn==='Open'){ TRAY.items=TRAY.items.filter(function(x){ return x!==k; }); if(!TRAY.items.length) TRAY.open=false; sfTrayPaint(); }
+  return true;
 }
 /* Hide only hides the list: requests already sent still build, and the products appear in the queue by themselves */
 function sfTrayClose(){ TRAY.open=false; sfTrayPaint(); findPaint(); }
@@ -9394,7 +9405,7 @@ function nwRender(){
     +n.rows.map(function(r,i){ return nwRowHtml(n,r,i); }).join('')
     +'<div style="margin:8px 0"><button type="button" class="btn" id="nwAdd" onclick="nwAddRow()">+ Add another product</button></div>'
     +'<div id="nwWarn" class="hint"></div><div id="nwProg" class="rwitem" role="status" hidden></div>'
-    +'<div style="margin-top:10px"><button class="btn primary" id="nwGo" type="button" onclick="nwSubmit()">'+esc(nwSubmitText(n))+'</button> <button class="btn" type="button" onclick="nwClose()">Cancel</button>'
+    +'<div style="margin-top:10px" id="nwBtns"><button class="btn primary" id="nwGo" type="button" onclick="nwSubmit()">'+esc(nwSubmitText(n))+'</button> <button class="btn" type="button" onclick="nwClose()">Cancel</button>'
     +' <span class="note" id="nwWhy"></span></div>');
   var g=$('#nwGo'); if(g) g.onclick=function(){ nwSubmit(); };
   nwRefresh();
@@ -9422,7 +9433,30 @@ function nwAddRow(){ if(!NW||NW.rows.length>=20) return; var r=nwFresh(), s=NW.r
   if(NW.from && s){ r.storage=s.storage; r.unit=s.unit; r.ingredients=s.ingredients; r.name=s.name; r.copied={name:true,storage:!!s.storage,ingredients:!!s.ingredients}; }
   NW.rows.push(r); nwRender(); }
 function nwRemoveRow(i){ if(!NW||NW.rows.length<2) return; NW.rows.splice(i,1); nwRender(); }
-function nwClose(){ var w=SFW['new:'+(NW&&NW.key||'')]; NW=null; closeSheet(); }
+/* ⭐ 2026-10-28 (Jack: "I don't have a way to like close out when it seems like my make a similar item is completed"): once
+   the Mac mini has made the products the panel says what it made and offers Open the new product / Close — and the new products
+   are loaded when it closes (an open panel holds every reload back, so loading them while it was open never worked). */
+function nwClose(){ var n=NW; NW=null; closeSheet(); if(n&&n.done) nwLoadNew(n.done, false); }
+function nwOpenNew(){ var n=NW; NW=null; closeSheet(); if(n&&n.done) return nwLoadNew(n.done, true); }
+async function nwLoadNew(done, open){
+  var res; try{ res=await liveRefresh(true, true); }catch(_){ res='failed'; }
+  var i=-1; (done.skus||[]).some(function(k){ i=sfRecordIndex(k, true); return i>=0; });
+  if(open && i>=0){ sfGoRecord(i); return 'opened'; }
+  if(open) toast(res==='held'?'Finish the edit you have open — the new products load after it.':'Made — find them in the queue “'+(done.batch||'new, made by you')+'”.');
+  return res;
+}
+function nwParseDone(text){
+  var t=String(text||''), m=/\[skus:\s*([^\]]*)\]/.exec(t), b=/\[batch:\s*([^\]]*)\]/.exec(t);
+  return {skus:m?m[1].split(',').map(function(x){ return x.trim(); }).filter(sfSkuOk):[], batch:b?b[1].trim():'',
+          text:t.replace(/\[skus:[^\]]*\]\s*/,'').replace(/\[batch:[^\]]*\]\s*/,'').trim()};
+}
+function nwShowDone(n){
+  var el=$('#nwBtns'); if(!el||!n.done) return;
+  var c=n.done.skus.length;
+  el.innerHTML='<div class="sub" style="margin-bottom:8px">'+esc(n.done.text||'Made.')+'</div>'
+    +'<button class="btn primary" type="button" onclick="nwOpenNew()">'+(c>1?'Open the first of the '+c+' new products':'Open the new product')+(c?' ('+esc(n.done.skus[0])+')':'')+'</button> '
+    +'<button class="btn" type="button" onclick="nwClose()">Close</button>';
+}
 async function nwSubmit(){
   var n=NW; if(!n||n.busy) return {ok:false};
   if(!staffEditUI()){ n.err='This is not available here.'; return {ok:false}; }
@@ -9455,7 +9489,7 @@ function nwStageOf(note, state){
 async function nwPoll(n, w, alive){
   if(!n.req) return;
   var r=await sfReadRequest(n.req); if(!alive()) return;
-  if(r.kind==='applied'){ sfFinish(w,'done',''); n.busy=false; try{ liveRefresh(true); }catch(_){} return; }
+  if(r.kind==='applied'){ n.busy=false; n.done=nwParseDone(r.text); sfFinish(w,'done',''); nwShowDone(n); return; }
   if(r.kind==='refused'){ n.busy=false; sfFinish(w,'failed', r.text||'The Mac mini refused it.'); return; }
   if(r.kind==='jobfail'){ n.busy=false; sfFinish(w,'failed', r.text); return; }
   var s=nwStageOf(r.text, r.state); if(s>w.stage){ w.stage=s; w.stageT0=_sfNow(); }
@@ -9468,7 +9502,7 @@ function sfSimilarOpen(p){
   return cloneSheet();                                                /* a vendor's product keeps the consignment clone flow */
 }
 window.nwSetLike=nwSetLike; window.nwOpen=nwOpen; window.nwSet=nwSet; window.nwSetKind=nwSetKind; window.nwAddRow=nwAddRow; window.nwRemoveRow=nwRemoveRow; window.nwSubmit=nwSubmit;
-window.nwClose=nwClose; window.nwRender=nwRender; window.nwProblems=nwProblems; window.nwKey=nwKey; window.nwWarnings=nwWarnings; window.nwSubmitText=nwSubmitText;
+window.nwClose=nwClose; window.nwOpenNew=nwOpenNew; window.nwParseDone=nwParseDone; window.nwRender=nwRender; window.nwProblems=nwProblems; window.nwKey=nwKey; window.nwWarnings=nwWarnings; window.nwSubmitText=nwSubmitText;
 window.sfSimilarOpen=sfSimilarOpen; window.getNW=function(){ return NW; }; window.nwRowOut=nwRowOut;
 
 window.__sf={EDITABLE:function(){ return EDITABLE_FIELDS; },FIND:FIND,OPEN:OPEN,UNDO:UNDO,SFW:SFW,REG:STAFF_FIELD_REGISTRY,LIM:STUDIO_LIMITS,sfLiveFields:sfLiveFields,sfHistoryHtml:sfHistoryHtml,sfNormIndex:sfNormIndex,sfPriceNoteHtml:sfPriceNoteHtml,sfOwnerProblem:sfOwnerProblem,sfSuggest:nwSuggestSku,sfHash:sfHash,resetFind:function(){FIND.st='idle';FIND.rows=null;FIND.bySku={};FIND.gen++;FIND.recentSt='idle';FIND.recent=[];FIND.sel=[];TRAY.items=[];TRAY.open=false;_SF_REFRESH={p:null,at:0,res:'',n:0};SF_CARD={sku:'',seq:-1};},
@@ -9480,6 +9514,16 @@ window.__sf={EDITABLE:function(){ return EDITABLE_FIELDS; },FIND:FIND,OPEN:OPEN,
     q.oninput=function(){ findOnInput(q.value); };
     q.onfocus=function(){ FIND.open=true; findLoad(false); findRecentLoad(); findPaint(); };
     q.onkeydown=function(e){ if(!e) return; if(e.key==='Escape'){ findClose(); } else if(e.key==='Enter'){ findEnter(); e.preventDefault&&e.preventDefault(); } };
+  }
+  /* ⭐ 2026-10-28 (Jack: "this recently opened pop-up just stays in my way and I can't view the product"): a click anywhere
+     outside the find box closes its list (Esc still does too) */
+  if(typeof document!=='undefined' && document.addEventListener){
+    document.addEventListener('mousedown', function(e){
+      if(!FIND.open) return;
+      var w=document.querySelector('#findWrap'), t=e&&e.target;
+      if(w && t && w.contains && w.contains(t)) return;
+      findClose();
+    }, true);
   }
   var nb=document.querySelector('#btnNewProd'); if(nb) nb.onclick=function(){ nwOpen(''); };
 })();
