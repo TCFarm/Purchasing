@@ -614,6 +614,7 @@
           <li><b>The next case of the same item</b> shows the last case's date already typed (unless its lot is different). Check it against the case and press <b>Enter</b>, or type the right one.</li>
           <li><b>Lot numbers that hold the date</b> are learned per supplier from the dates you type. After one, the date is shown already typed for one Enter; once three different lots agree, it is filled in by itself and the quantity screen says so, with <b>Not the date on the case? Type it</b>.</li>
           <li>The date and quantity screens show how much of that item the order expects and how much has been received so far.</li>
+          <li><b>Scan lot code</b>: when a case only has the big case barcode and a lot barcode, tap <b>Scan lot code</b> on the date screen and scan the lot. The page asks <b>Is the best-by &hellip;? Yes / No</b>. If it doesn't know that supplier's lot code yet, type the date once and it learns it.</li>
         </ul>
       </details>
       <details>
@@ -629,6 +630,10 @@
           <li><b>We never got it.</b> If something on the PO did not arrive (or fewer came), open the line in the PO view and tap <b>We never got this</b> or <b>We got fewer</b>. Check carts, the dock and the HOLD shelf first. The card shows what we ordered, what KeHE shipped and what Finale has; confirm the units and it is recorded with your name &mdash; nothing else to do. If the case turns up later, scan it as usual and the line offers one tap to correct the short. Lines KeHE never shipped are not asked about.</li>
           <li>The page reloads itself when a new version is published, as soon as nobody is mid-scan.</li>
           <li><b>A product we carry with a NEW barcode?</b> Tap <b>"Product we carry, new barcode? Learn it"</b>: open the case, find the product by name or SKU, and tick that the product, size and flavour are identical. Every tablet then knows the new code within a minute, and Finale learns it too. If it isn't identical, it's a new product: set it aside.</li>
+          <li><b>Scanned the right box but the screen shows the wrong product?</b> Tap <b>Different product in the box? Correct it</b>: open the case, find the right product, and tick that the product, size and flavour are identical. (If only the date is wrong, change the date instead; if the product isn't in our catalog, it offers to set the case aside.) The case carries on as the right product, and every tablet uses the correction within a minute. Made a mistake? Correct it again, back to the first product.</li>
+          <li><b>One barcode, two products?</b> If a barcode belongs to more than one product, the one on the order is picked for you; otherwise the screen asks which is in the box. Tick <b>Always this product for this barcode</b> to settle it for everyone (it fixes the barcode in BigCommerce and Finale too).</li>
+          <li><b>Corrected the wrong thing?</b> Menu &rarr; <b>Barcode corrections</b> &rarr; <b>Undo</b> puts a barcode back. A scan saved as the wrong product: tap its &times; in the history and scan it again.</li>
+          <li><b>Something not working?</b> Tap <b>Feedback</b> at the bottom right of any screen. Type or tap <b>Talk instead of typing</b>; a picture of the screen and the item you're on go with it, and it reaches the team on Teams. With no connection it waits on the tablet and sends itself &mdash; a voice note too.</li>
           <li><b>"We know this product — it's still being set up":</b> a new product still in the Listing Studio. The card says who is working on it — ask them to finish it. Meanwhile enter the date and put the case in the holding area; the date attaches once the product exists.</li>
           <li><b>Photograph each side of the box</b> when a code won't scan or isn't found &mdash; one photo per side, every label. Those photos are how the long barcodes get fixed.</li>
           <li>There's also an <b>audit mode</b> for stock already on the floor. It's kept separate from receiving on purpose: the day someone walked the cooler isn't the day the item arrived.</li>
@@ -638,7 +643,8 @@
         <summary>put it away in the same scan: this receives it in Finale</summary>
         <ul>
           <li><b>One scanning flow.</b> After the date and count, scan the <b>shelf tag</b> where the case goes, and that receives it on the KeHE purchase order in Finale. There's no second pass in the Finale app.</li>
-          <li><b>Put away here</b> (you're at the shelf): scan the shelf tag once, then scan as many cases as you like into it. Scan a different tag to switch shelves, or press Done.</li>
+          <li><b>Put away here</b> (you're at the shelf): scan the shelf tag once, then scan as many cases as you like into it. Each case asks <b>Put all on this shelf?</b>: press Enter, or <b>Only some go here</b> for a part case. Scanning a different tag puts the case there and switches shelves; press Done to stop.</li>
+          <li><b>The item's brand and SKU</b> show under its name on every screen, so two products with the same name (two brands of 16 oz powdered sugar) can be told apart.</li>
           <li><b>Sort first</b> (at the pallet): it tells you which area each case goes to; later, at the shelf, scan the items, then the tag. Nothing is received until it has a shelf.</li>
           <li><b>Best-by only</b> is still there: the dates are saved and the case waits under "not put away yet" until someone puts it away.</li>
           <li>It suggests where each case should go: where it lived before, what's on the shelf, and older dates in backstock.</li>
