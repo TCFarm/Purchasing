@@ -332,6 +332,30 @@ body[data-notes="1"] .note{display:block}
    rows entirely in a vendor view (vrow/vh), so the words never reach the DOM. */
 body[data-mode="vendor"] [data-vh-on="1"],body[data-mode="as-vendor"] [data-vh-on="1"]{display:none!important}
 body[data-mode="vendor"] .note,body[data-mode="as-vendor"] .note{display:none!important}
+/* ⭐ 2026-10-27 staff editing: find box, hits, waits (tokens only — light and dark) */
+.findwrap{position:relative;flex:1 1 230px;max-width:420px}
+.findwrap .ctl{width:100%}
+.findres{position:absolute;left:0;top:100%;margin-top:4px;width:min(640px,92vw);max-height:70vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);z-index:60}
+.fhit{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line-soft);background:transparent;padding:8px 10px;color:var(--ink)}
+.fhit:hover,.fhit:focus-visible{background:var(--accent-soft)}
+.fhit.sib{padding-left:26px}
+.fhit .fn{font-weight:600}.fhit .fs{color:var(--ink-3);margin-left:6px;font-size:12px}
+.fhit .fm,.fhit .fc{display:block;font-size:12px;color:var(--ink-2)}
+.fchip{display:inline-block;border:1px solid var(--line);border-radius:9px;padding:0 6px;margin:2px 3px 0 0;font-size:11px}
+.fchip.off{color:var(--ink-3);border-style:dashed}
+.sfconf{color:var(--warn)}
+.fstat{padding:8px 10px;font-size:12.5px;color:var(--ink-2)}
+.fmeta{font-size:11.5px;color:var(--ink-3)}
+.wprog{height:6px;border-radius:3px;background:var(--tile);overflow:hidden;margin:6px 0}
+.wprog>i{display:block;height:100%;background:var(--accent)}
+.wclock{font-variant-numeric:tabular-nums}
+.nwrow{border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;margin:8px 0}
+.nwrow label{display:block;margin:6px 0;font-size:12.5px}
+.nwgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.nwkind{border:0;padding:0;margin:8px 0}
+table.sfcard{border-collapse:collapse;margin:6px 0}table.sfcard td,table.sfcard th{padding:2px 12px 2px 0;text-align:left;font-size:12.5px}
+.sfstop{border-left:4px solid var(--stop)}
+@media (max-width:400px){.findres{width:94vw}.findwrap{max-width:none}}
 body[data-ops-hidden="1"] .shell{grid-template-columns:250px minmax(0,1fr)}
 @media (max-width:1240px){body[data-ops-hidden="1"] .shell{grid-template-columns:220px minmax(0,1fr)}}
 .modetag{display:none;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--edit);background:var(--edit-soft);padding:2px 7px;border-radius:99px}
@@ -474,6 +498,13 @@ select.batch{max-width:100%;min-width:0}
        way in to "Edit or enhance a live product" (staff keep #btnLiveEnh). Shown only when the portal announces
        `live_enhance` in hello.features (vLiveEnhAvailable), so the page can deploy before the portal. -->
   <button class="tbtn" id="btnVLiveEnh" hidden title="Ask us to rewrite one of your products that is already on our stores — new copy and photos from your own product page">✨ Enhance a live product</button>
+  <!-- ⭐ 2026-10-27 (staff-editing plan §5.7 A): find ANY product on our stores; `/` focuses it. STAFF ONLY (VENDOR_ALWAYS_HIDE). -->
+  <span class="findwrap" id="findWrap" role="search">
+    <input type="search" id="findQ" class="ctl" placeholder="Find a product — name, SKU, UPC   ( / )" aria-label="Find a product on our stores"
+      aria-controls="findRes" aria-expanded="false" autocomplete="off" spellcheck="false">
+    <div class="findres" id="findRes" hidden></div>
+  </span>
+  <button class="tbtn" id="btnNewProd" type="button" title="Make a new kitchen, meat or other house item — it goes to review first">+ New product</button>
   <span id="refreshNote" class="note" style="font-size:12px"></span>
   <select class="batch" id="batchSel"><!-- ⛔ POPULATED AT RUNTIME by populateBatchSel() from the payloads that actually exist, newest first. This placeholder is deliberately NOT a real batch: two invented options shipped here for months and made every real batch unreachable from the UI. --><option value="">Queue · (sign in to load)</option></select>
   <button class="tbtn" id="btnNotes">Show design notes</button>
@@ -807,7 +838,8 @@ async function graph(path,opts={}){
   const r=await fetch(GRAPH+path,{...opts,headers:{...(opts.headers||{}),
     Authorization:"Bearer "+t,"Content-Type":"application/json"}});
   const txt=await r.text();let j=null;try{j=txt?JSON.parse(txt):null}catch(_){}
-  if(!r.ok)throw new Error((j&&(j.error?.message||j.error_description))||`${r.status} on ${path}`);
+  /* ⭐ 2026-10-27: the HTTP status rides on the error, so a caller can tell a 412 (someone saved first) from a fault */
+  if(!r.ok){const e=new Error((j&&(j.error?.message||j.error_description))||`${r.status} on ${path}`);e.status=r.status;throw e;}
   return j;
 }
 
@@ -1179,7 +1211,9 @@ var VENDOR_POLICY_FALLBACK={
              'warranty','weight_g'],
   item_shapes:{images:['file','url','caption','w','h','source','broken'],live_suggestions:['field'],
                live_before:['name','prose_html','warranty','page_title','meta_desc','keywords']},
-  flag_message_chars:500
+  flag_message_chars:500,
+  /* ⭐ 2026-10-27: payload keys that exist for STAFF only (config vendor_field_policy.json staff_only_item_keys; this lists the ones added with the staff-editing build) */
+  staff_only_item_keys:['staff_history','fresh_kitchen','lead_days']
 };
 var VPOLICY=null;          /* payload.vendor_policy, set by applyPayload */
 /* the static elements a hide_ui name refers to (render-template names are
@@ -1190,7 +1224,7 @@ var HIDE_UI_STATIC={ops:'#ops',tabFlags:'#tabFlags',tabLog:'#tabLog',btnConsign:
 /* staff-only chrome that has no policy name: navigation to staff apps, design
    notes, bulk approve (plan §2: "bulk Approve all unblocked hidden"), Defer
    ('deferred' is not an allowed vendor `overall`), the wireframe tags. */
-var VENDOR_ALWAYS_HIDE=['#btnCancel','#btnRemoved','#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
+var VENDOR_ALWAYS_HIDE=['#findWrap','#btnNewProd','#btnCancel','#btnRemoved','#btnLiveEnh','#appNav','#btnNotes','#btnBulk','#btnDefer','#qFoot','#mockTag','#btnKeys','#srcFilters'];   /* ⭐ 2026-09-30: New items / Enhance / Clone are staff words */
 
 function _qp(search, name){
   var s=String(search||'').replace(/^\?/,''); if(!s) return null;
@@ -1412,6 +1446,8 @@ function vrow(key, ui, html){
   if(ui) html=_markVh(ui, html);
   /* ⭐ 2026-10-20: a REMOVED product is read-only in both views (restore it first) */
   var _rm=(typeof P!=='undefined')&&removedLock(cur);
+  /* ⭐ 2026-10-27: a LIVE staff record draws a box only where the registry says a writer exists (the sale price stays, read-only) */
+  if(key && key!=='salePrice' && typeof P!=='undefined' && staffLiveRec(P[cur]) && staffFieldMode(key)==='hide') return '';
   if(!isVendorView()) return _rm?'<fieldset disabled class="vro">'+html+'</fieldset>':html;
   if(ui && vpHides(ui)) return '';
   var acc=key?vpAccess(key):'hide';
@@ -2021,6 +2057,13 @@ function fromPayload(it){
     wasBadge:it.was_badge||'', wasCat:it.was_cat||'',
     wasPrice:it.was_price==null?null:+it.was_price,
     cloneOf:it.clone_of||'', optionName:it.option_name||'',
+    /* ⭐ 2026-10-27 (contract §2c): the change history — staff only (staff_only_item_keys; a vendor payload never carries it) */
+    staffHistory:Array.isArray(it.staff_history)?it.staff_history:[],
+    /* ⭐ 2026-10-27: the payload carries fresh_kitchen / lead_days ONLY when the backend switch store_fields_v2 is on — the KEY being
+       present (even null) is the signal that made-fresh, lead days and per-store visibility can be written. Absent → none of the three boxes. */
+    v2:('fresh_kitchen' in it),
+    freshKitchen:(it.fresh_kitchen==null)?undefined:!!it.fresh_kitchen,
+    leadDays:(it.lead_days===''||it.lead_days==null)?undefined:+it.lead_days,
     /* ⭐ 2026-10-21 (Jack): a "similar version" says what it copied from its source — {field:{from_sku,value,still_copied}} —
        and which custom fields came across (both views) / were deliberately NOT copied (staff only; the bridge drops it) */
     cloneCopied:(it.clone_copied&&typeof it.clone_copied==='object')?it.clone_copied:{},
@@ -2985,7 +3028,7 @@ function renderShop(){
     <div class="inline">
       <div class="fld"><span class="lbl">Price</span><input class="ctl w-sm mono" id="edPrice" type="number" step="0.01" min="0" value="${p.price}"></div>
       <div class="fld"><span class="lbl">Sale price <span style="text-transform:none;letter-spacing:0">(0 = none)</span></span>
-        <input class="ctl w-sm mono" id="edSale" type="number" step="0.01" min="0" value="${p.salePrice}"></div>
+        <input class="ctl w-sm mono" id="edSale" type="number" step="0.01" min="0" value="${p.salePrice}"${staffLiveRec(p)?' disabled title="Set by the sale flow"':''}></div>
       <div class="fld"><span class="lbl">Cost</span><input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled></div>
       <div class="fld"><span class="lbl">Target margin</span>
         <input class="ctl w-sm mono" id="edTgt" type="number" step="1" min="0" max="95" value="${Math.round(targetMargin(p)*100)}"></div>
@@ -3052,14 +3095,15 @@ function renderShop(){
      here as a switch. ⛔ Only where the policy lets this viewer edit it; otherwise the state is shown, not offered. */
   if($('#visBar')) $('#visBar').innerHTML='';
   /* ⭐ 2026-10-01 parity: staff get the same switch (staff may always edit visibility) */
-  if((!isVendorView() || vpAccess('visible')!=='hide') && $('#visBar')){
+  if(staffLiveRec(p) && p.v2 && $('#visBar')){ $('#visBar').innerHTML=sfVisBar(p); }
+  else if((!isVendorView() || vpAccess('visible')!=='hide') && $('#visBar')){
     const canV=!isVendorView() || vpAccess('visible')==='edit';
     $('#visBar').innerHTML = `<div class="vistog${p.visible?'':' off'}">
       <label><input type="checkbox" role="switch" id="lgVis" ${p.visible?'checked':''} ${canV?'':'disabled'}>
       <span class="knob" aria-hidden="true"></span>
       <span class="vtxt"><b>${p.visible?'Offered on our stores':'Not offered — hidden on our stores'}</b>
       <span class="hint" style="display:block">${p.visible?'Turn off to stop selling this item.':'Shoppers cannot buy it or find it in search. Turn on to sell it again.'}
-      ${p.kind==='update'?' Takes effect when you approve.':''}</span></span></label></div>`;
+      ${p.kind==='update'?' Takes effect when you approve.':''}</span></span></label>${sfVisNotes(p)}</div>`;
     const t=$('#lgVis');
     if(t&&canV) t.onchange=()=>{ p.visible=!!t.checked;
       markEdited('identity', p.visible?'Will be offered on our stores':'Will be hidden on our stores'); };
@@ -3151,7 +3195,9 @@ function readCqFromDom(){
 function commitEdit(k){
   const p=P[cur];
   if(k==='identity'){p.name=$('#edName').value.trim();p.badge=$('#edBadge').value.replace(/[®™©]/g,'').trim();p.brand=$('#edBrand').value;}
-  if(k==='price'){p.price=+$('#edPrice').value||0;p.salePrice=+$('#edSale').value||0;
+  if(k==='price'){
+    if(staffLiveRec(p)){ var _pv=sfParseMoney($('#edPrice').value); if(_pv>0) p.price=_pv; else toast('⛔ That price could not be read — it stays '+money(p.price)+'.'); }   /* ⭐ the sale price is the sale flow\'s */
+    else { p.price=+$('#edPrice').value||0;p.salePrice=+$('#edSale').value||0; }
     /* ⛔ a vendor view renders no target-margin control, so there is nothing to read */
     const tg=$('#edTgt');
     if(tg && !isVendorView()){
@@ -3426,7 +3472,7 @@ function renderFields(){
     return `<div class="fgroup" id="vFlags"><h3>Please check</h3><div class="body">${fl.map(f=>
       `<div class="cascade" style="margin-bottom:6px"><b>${esc(vFlagLabel(f.k))}</b> ${esc(_plain(f.t))}</div>`).join('')}</div></div>`;
   })();
-  $('#fields').innerHTML=notesHtml+vendorTopHtml+vgrp(`
+  const _fieldsHtml=notesHtml+vendorTopHtml+vgrp(`
   <div class="fgroup"><h3>Identity</h3><div class="body">
     ${vrow('name',null,frow('Product name','the shelf identity',`<input class="ctl" id="fName" value="${esc(p.name)}">`,
       (function(){const q=nameProblems(p.name,p.brand);
@@ -3481,7 +3527,7 @@ function renderFields(){
       (p.salePrice>0&&!p.saleEnds)
         ? '<span class="bad">⛔ A sale needs its end date — it becomes the badge ("for delivery by M/D") and the automatic takedown. Without it the sale is not applied — you will see why on this product.</span>'
         : '<span class="derived">Shown to shoppers as "for delivery by M/D"; the sale comes down automatically after this date.</span>'))}
-    ${vrow(null,'costRow',frow('Cost','read-only',`<input class="ctl w-sm mono" value="${p.cost.toFixed(2)}" disabled>`,'<span class="derived">KeHE regular cost / Finale average cost</span>'))}
+    ${vrow(null,'costRow',sfCostFrow(p))}
     ${vrow(null,'marginRow',frow('Target margin','from category, overridable',`<input class="ctl w-sm mono" id="fTgt" type="number" step="1" value="${Math.round(targetMargin(p)*100)}">`))}
     ${vrow(null,'marginRow',frow('Live maths','derived',`<div class="calc" id="fCalc"></div>`))}
     ${vrow('tiers',null,frow(isVendorView()?'Bulk discounts':'Bulk discount tiers',isVendorView()?'money off for buying more':'__bulk_pricing',tiersHtml))}
@@ -3576,16 +3622,18 @@ function renderFields(){
         ? 'Included on the batch free-fill email to our KeHE rep.'
         : '⚠ Excluded — this item will NOT be on the free-fill request email.')):''}
     ${vrow(null,'itemTypeRow',frow('Item type',null,`<select class="ctl w-lg" id="fIT">${selOpts(ITEM_TYPES,p.itemType)}</select>`))}
+    ${staffLiveRec(p)?sfExtraRows(p):''}
     ${vrow(null,'finaleRows',frow('Safety stock days','from category',`<input class="ctl w-sm mono" value="14" disabled>`))}
     ${vrow(null,'finaleRows',frow('Stores to add','derived','<input class="ctl" value="Bigcommerce, BC - MNFoodClub, Bigcommerce - NGF" disabled>',
       '<span class="derived">every enabled store in <span class="mono">config/bc_stores.json</span>, TC Feeds excluded</span>'))}
   </div></div>`)+vgrp(`
   <div class="fgroup"><h3>Visibility &amp; channels</h3><div class="body">
-    ${vrow(null,'visibleRow',frow('Visible on storefront',null,`<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Visible</option><option value="0" ${!p.visible?'selected':''}>Hidden</option></select>`,
+    ${vrow(staffLiveRec(p)&&p.v2?'visibleByStore':null,'visibleRow',frow('Visible on storefront',null,`<select class="ctl w-md" id="fVis"><option value="1" ${p.visible?'selected':''}>Visible</option><option value="0" ${!p.visible?'selected':''}>Hidden</option></select>`,
       '⚠ Hidden products never appear in storefront search and their stock is unsellable.'))}
     ${vrow(null,'visibleRow',frow('Channels','compliance gate','<input class="ctl" value="TC Farm · MNFood.Club · NelsonGrassFarm" disabled>',
       '<span class="derived">⛔ assigned at create and READ BACK — a 2xx on the channel PUT is not proof</span>'))}
   </div></div>`);
+  $('#fields').innerHTML=sfLiveFields(p,_fieldsHtml);
 
   /* wire */
   const recalc=()=>{
@@ -3787,6 +3835,7 @@ function renderFields(){
   {const e=$('#fV');if(e)e.onchange=()=>{
     const v=Math.round(+e.value||0); p.volume=v>0?v:0; e.value=v>0?v:'';
     markEdited('identity',v>0?'Volume saved':'Volume cleared — it follows the dimensions'); };}
+  sfWireLive(p);
   if(_fSel){
     const back=document.querySelector(_fSel);
     if(back){ back.focus();
@@ -4544,8 +4593,9 @@ function productBlocked(i){
   /* ⭐ 2026-10-01: staff SEE the same missing fields (decision bar) but they do not block staff — the pipeline fills
      some of them itself (a KeHE case size). For a vendor they are theirs to fix, so they block. */
   const V=isVendorView(), vAct=V?act:0, vWait=V?wait:0;
-  return {rw,blk:blk+vAct,act,wait,noImgs,nameBad,skuBad,
-          ok:!rw&&!blk&&!vAct&&!vWait&&!noImgs&&!nameBad&&!skuBad};
+  const priceBad=sfPriceBad(P[i]);   /* ⭐ 2026-10-27: a live price at/below cost, or below the floor with no reason */
+  return {rw,blk:blk+vAct,act,wait,noImgs,nameBad,skuBad,priceBad,
+          ok:!rw&&!blk&&!vAct&&!vWait&&!noImgs&&!nameBad&&!skuBad&&!priceBad};
 }
 /* ⭐ Phase C: on a LIVE listing the photo controls do nothing (the live gallery is changed by our team) — hide them */
 function applyLiveImageChrome(){
@@ -4564,7 +4614,7 @@ function renderDecide(){
   applyLiveImageChrome();
   const s=st[cur].sec;
   const ed=SEC.filter(k=>s[k]==='edited').length;
-  const {rw,blk,noImgs,nameBad,skuBad,ok}=productBlocked(cur);
+  const {rw,blk,noImgs,nameBad,skuBad,priceBad,ok}=productBlocked(cur);
   $('#decStatus').innerHTML=(st[cur].cancelled?cxRemovedWords().status:'')
     +(st[cur].cancelRefused&&cxRemovedWords().refused?' '+cxRemovedWords().refused+esc(_cxNotePlain(st[cur].cancelRefused.note, P[cur].sku))+' It is still in the queue. · ':'')+(st[cur].cancelled?'':pubState(cur)==='published'?(IS_TEST?'<b style="color:var(--ok)">✓ Published</b> — on the Dev store only (test item)':'<b style="color:var(--ok)">✓ Published</b> — live on the stores')
       :st[cur].approved?(isVendorView()?'<b style="color:var(--ok)">✓ Approved</b> — '+(IS_TEST?'it will be published to the TEST store within a few minutes (never our real stores)':P[cur].kind==='update'?'the change goes live on our stores within a few minutes':'it will be published to our stores within a few minutes')
@@ -4599,6 +4649,7 @@ function renderDecide(){
     e.disabled=!!st[cur].cancelled; e.title=st[cur].cancelled?cxRemovedWords().lock:''; });
   b.textContent=st[cur].cancelled?cxRemovedWords().btn:st[cur].approved?'Approved':!vendorCanApprove()?(VIEW&&VIEW.viewOnly?'View only':'Your admin approves listings')
     :skuBad?'SKU is not final'
+    :priceBad?'Fix the price first'
     :blk?'Blocked by a flag':rw?'Rework is queued'
     :noImgs?'No images chosen':nameBad?'Name breaks a rule'
     :isVendorView()?(IS_TEST?'Approve — publish to the TEST store':P[cur].kind==='update'?'Approve — update the live listing':'Approve — publish to our stores'):'Approve product';
@@ -4916,7 +4967,7 @@ $('#btnNone').onclick=()=>{st[cur].sec.gallery='rework';
   renderAll();toast(isVendorView()?'Noted — this product needs new photos. Upload your own, or we will find some; it will not publish without them.'
     :'Flagged: this product needs new images — it will not publish until someone adds them (Open Flags)');
   scheduleAutosave(cur,'Image request saved');};
-$('#btnApprove').onclick=()=>isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
+$('#btnApprove').onclick=()=>staffLiveRec(P[cur])?staffApproveOpen():isVendorView()?openSheet(`<h2>Approve ${esc(P[cur].name)}</h2>
   <div class="sub">${esc(vendorApprovedMsg(cur))}
   ${P[cur].kind==='update'?'<br>Only the fields you changed are updated; the item code, UPC, category and tax are never touched.'
     :(P[cur].published?'It is already live, so the live listing is updated with your changes.':'')}</div>
@@ -5654,6 +5705,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&editing!==null){editing=null;renderAll();toast('Edit cancelled');e.preventDefault();return;}
   if((e.metaKey||e.ctrlKey)&&e.key==='Enter'&&editing!==null){commitEdit(editing);e.preventDefault();return;}
   if(typing)return;
+  if(e.key==='/' && staffEditUI()){ findFocus(); e.preventDefault(); return; }   /* ⭐ 2026-10-27: / finds a product */
 
   const vis=visible(), at=vis.indexOf(cur);
   if(e.key==='j'||e.key==='ArrowDown'){ if(at<vis.length-1){cur=vis[at+1];editing=null;renderAll();} e.preventDefault(); }
@@ -5666,7 +5718,8 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='f'){ selectTab('fields'); e.preventDefault(); }
   else if(e.key==='l'){ selectTab('listing'); e.preventDefault(); }
   else if(e.key==='?'){ openSheet(`<h2>Keyboard</h2><div class="sub">Shortcuts are ignored while you are typing.</div>
-    <div class="rwitem"><p><b>j</b> / <b>k</b> or <b>↑</b>/<b>↓</b> — previous / next product<br>
+    <div class="rwitem"><p><b>/</b> — find any product<br>
+    <b>j</b> / <b>k</b> or <b>↑</b>/<b>↓</b> — previous / next product<br>
     <b>l</b> / <b>f</b> / <b>g</b> — Listing · All BC fields · Images<br>
     <b>1</b>–<b>9</b> — toggle that image in the gallery<br>
     <b>⌘↵</b> — approve the product, or save the section you are editing<br>
@@ -6205,6 +6258,7 @@ function liveEnhOpen(){
     <div id="leStatus" class="sub"></div>
     <button class="btn primary" id="leGo">Start</button> <button class="btn" onclick="closeSheet()">Close</button>`);
   var q=$('#leQ'), res=$('#leRes'), pick=$('#lePick'), chosen={sku:''};
+  if(LE_PREFILL){ chosen.sku=LE_PREFILL; pick.textContent='Chosen: '+LE_PREFILL; q.value=LE_PREFILL; LE_PREFILL=''; }
   function draw(){
     var v=q.value||'', hits=liveCatSearch(v);
     var exact=/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v.trim());
@@ -6777,10 +6831,10 @@ async function _findRow(batch, sku){
       var f=it.fields||{};
       return String(f.batch||'')===String(batch) && String(f.sku||'')===String(sku);
     });
-    if(hit) return {listId:l.id, id:hit.id, fields:hit.fields||{}};
+    if(hit) return {listId:l.id, id:hit.id, fields:hit.fields||{}, etag:hit['@odata.etag']||hit.eTag||''};
     url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
   }
-  return {listId:l.id, id:null, fields:{}};
+  return {listId:l.id, id:null, fields:{}, etag:''};
 }
 
 /* `patch` may carry: overall, sections, edits, comments, image_order,
@@ -6797,6 +6851,7 @@ function _flatIdx(arr, col, max){
   var cut=out.slice(0,max+1), i=cut.lastIndexOf(',');
   return i<0 ? '' : cut.slice(0,i);
 }
+var SAVE_IF_MATCH=true;   /* ⭐ 2026-10-27: send the row's version with every save (see saveDecision) */
 async function saveDecision(batch, sku, patch){
   patch=patch||{};
   var row=await _findRow(batch, sku);
@@ -6851,8 +6906,20 @@ async function saveDecision(batch, sku, patch){
   });
 
   if(row.id){
-    await graph(`/sites/${CFG.siteId}/lists/${row.listId}/items/${row.id}/fields`,
-                {method:'PATCH', body:JSON.stringify(body)});
+    /* ⛔⛔ 2026-10-27 (plans/2026-10-27-staff-edit-any-product-PLAN.md §5.7 B, misuse pass): the revision check above
+       reads, then PATCHes — two people saving inside that gap BOTH passed it, and the second save replaced the first
+       person's whole edit set without a word. ⭐ If-Match carries the row's version as READ; SharePoint refuses the
+       PATCH (412) when anyone saved since, and the person is told to reload instead of losing someone's work.
+       ⚠️ SAVE_IF_MATCH is verified on the test lane before the page is deployed (plan A19). */
+    var opts={method:'PATCH', body:JSON.stringify(body)};
+    if(SAVE_IF_MATCH && row.etag) opts.headers={'If-Match':row.etag};
+    try{
+      await graph(`/sites/${CFG.siteId}/lists/${row.listId}/items/${row.id}/fields`, opts);
+    }catch(e){
+      if(e && e.status===412) return {ok:false, reason:'stale', their_revision:curRev,
+        message:'Someone else saved this product a moment ago, so your change was not saved. Reload to see theirs, then make your change again.'};
+      throw e;
+    }
     return {ok:true, sp_id:row.id, revision:curRev+1, created:false};
   }
   var made=await graph(`/sites/${CFG.siteId}/lists/${row.listId}/items`,
@@ -6874,7 +6941,7 @@ async function saveDecision(batch, sku, patch){
 var EDITABLE_FIELDS=['name','badge','brand','upc','vendorCode','price','salePrice','saleEnds','weightG',
   'casepack','reorder','cat','cat2','itemType','owner','storage','visible',
   'optionName','marginOverride','taxOverride','dims','volume','variants','prose',
-  'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier','requestFreeFill'];
+  'warranty','kws','pageTitle','metaDesc','tiers','cq','supplier','requestFreeFill','freshKitchen','leadDays','visibleByStore','cost'];
 
 function _snapshot(p){
   var o={};
@@ -6913,6 +6980,10 @@ function decisionPatch(i){
      revision guard + stale-conflict handling this needs for free. Only
      included when non-empty so a product with no flag actions writes exactly
      what it always did. */
+  /* ⭐ 2026-10-27 (staff editing): on a LIVE product the sale price is the sale flow's, never typed here — it is not sent;
+     a typed reason for a price below the floor rides as a reserved key */
+  if(staffLiveRec(p) && !p.v2){ delete edits.freshKitchen; delete edits.leadDays; delete edits.visibleByStore; delete edits.cost; }   /* backend switch off: these keys are refused */
+  if(staffLiveRec(p)){ delete edits.salePrice; if(p._priceReason && sfPriceCheck(p).reason) edits._priceReason=String(p._priceReason).trim().slice(0,300); }
   if(s.flagAct && Object.keys(s.flagAct).length) edits._flagActions=s.flagAct;
   /* ⭐ P-1483: reserved keys like _flagActions — listing_drain pops them; listing_publish reads _keepCurrent */
   if(s.keepCur && s.keepCur.length) edits._keepCurrent=s.keepCur.slice();
@@ -7588,6 +7659,8 @@ window.cloneRecDrop=function(n){ if(!CLN) return; CLN.parts=CLN.parts.filter(fun
 /* ── the dialog ── */
 function cloneSheet(){
   var p=P[cur], batch=_itemBatch(cur), el=cloneEligible(p, batch);
+  /* ⭐ 2026-10-27 (P-2299): staff making a version of TC Farm's OWN item use the new-product sheet — no more "ask the team" */
+  if(staffEditUI() && p && CLN_NOT_OWNERS.indexOf(String(p.owner||''))>=0) return nwOpen(p.sku);
   if(!el.ok){
     openSheet('<h2>Make a similar version</h2><div class="sub">'+esc(el.reason)+'</div><button class="btn" onclick="closeSheet()">Close</button>');
     $('#sheet').classList.remove('wide'); return;
@@ -8183,6 +8256,1007 @@ async function vpSubmitDirect(owner, email, action, role){
 }
 window.vdOpen=vdOpen; window.vdNewForm=vdNewForm; window.vdEditForm=vdEditForm;
 if(document.querySelector('#btnPortal')){ $('#btnPortal').onclick=function(){ vdOpen(); }; }
+
+/* ═══ STAFF EDITING — find · open · edit notices · history · Undo · new product (builder B5) ═══════════════════════════
+   Plan: plans/2026-10-27-staff-edit-any-product-PLAN.md §5.7 (merged design) + §6 answers; shapes: plans/2026-10-27-staff-edit-
+   CONTRACTS.md §2a (the search index), §2b (request rows + jobs), §2c (staff_history), §2d (fields). Jack, 2026-10-27: "we
+   should be able to search quickly for all items and get it loaded quickly once selected."
+   ⛔ STAFF ONLY. Every entry point starts with staffEditUI(), which is the page's existing staff-only branch (_ownerUI) AND
+     the Graph host — a vendor view, or a view whose host is the vendor portal, gets none of it. Nothing here posts to the
+     portal, and the search index is read ONLY through GraphHost's own token (it holds every owner's prices).
+   ⛔ The page writes ROWS and JOB POINTERS only (the `enh:` pattern); the mini re-checks everything and decides. These checks
+     only say why not, up front.
+   ⛔ Every wait: a named step, a progress bar, a live clock, a limit that ends in words plus Try again / Check again, and a
+     late answer changes nothing (APP-PROGRESS-STATUS.md). Limits live in STUDIO_LIMITS, not in the code. */
+var STUDIO_LIMITS={indexMs:45000, requestMs:10*60*1000, recordMs:15*60*1000, undoMs:10*60*1000, newMs:20*60*1000,
+  pollMs:5000, recordPollMs:10000, pollTimeoutMs:20000, clockMs:1000, minChars:2, maxHits:30, recentMax:20, editingMs:2*3600*1000, bigLb:20};
+var STUDIO_INDEX_PATH='ListingReview/studio/catalog_index.json';
+var STUDIO_STORES=[['tcfarm','TC Farm'],['mnfc','MN Food Club'],['ngf','Nelson Grass Farm']];
+function sfStoreName(k){ for(var i=0;i<STUDIO_STORES.length;i++) if(STUDIO_STORES[i][0]===k) return STUDIO_STORES[i][1]; return String(k||''); }
+/* ⛔ the ONE gate: the page's staff-only branch + the Graph host. (Not a second view test — it reuses _ownerUI.) */
+function staffEditUI(){ return _ownerUI() && HOST===GraphHost; }
+function _sfNow(){ return _cxNow(); }
+function sfClock(ms){ var s=Math.max(0,Math.floor(ms/1000)); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+function sfMins(ms){ var m=Math.round(ms/60000); return m<=1?'a minute':m+' minutes'; }
+function sfSkuOk(s){ return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(String(s||'')); }
+/* ⛔ 2026-10-27 (adversary): NO data inside inline JS. A button carries its action and arguments as data-* attributes (esc() makes
+   them inert inside the double quotes) and one constant handler, sfAct(this), reads them back as plain strings. */
+function sfBtnAttrs(act, a, b){ return ' data-sfact="'+esc(act)+'" data-sfarg="'+esc(a==null?'':a)+'" data-sfarg2="'+esc(b==null?'':b)+'" onclick="sfAct(this)"'; }
+function sfAct(el){
+  var g=function(k){ return (el&&el.getAttribute&&el.getAttribute(k))||''; }, a=g('data-sfact'), x=g('data-sfarg'), y=g('data-sfarg2');
+  if(a==='pick') return findPick(x);
+  if(a==='wait-again') return sfWaitAgain(x);
+  if(a==='wait-retry') return sfWaitRetry(x);
+  if(a==='undo-ask') return sfUndoAsk(x);
+  if(a==='card') return sfCardDo(x, y);
+}
+window.sfAct=sfAct;
+function sfRootOf(sku){ return String(sku||'').split('-')[0].toLowerCase(); }
+
+/* ── the field registry, mirrored (config/product_fields.json). A box is drawn ONLY for a row whose live_writes is
+   non-empty ("no box without a writer"); a row the registry does not name is left exactly as it was. The suite compares
+   this copy to the file, so a field B2 adds there turns the suite red until it is added here — and its box then appears.
+   t = live_target (edit · locked · never · alias · new_only), w = what a staff edit of a LIVE product writes. */
+var STAFF_FIELD_REGISTRY={
+  badge:{t:'edit',w:['store']}, brand:{t:'edit',w:['store','finale']}, casepack:{t:'edit',w:['finale']},
+  cat:{t:'edit',w:['store','finale']}, cat2:{t:'edit',w:['store','finale']}, cost:{t:'edit',w:['finale']},
+  cq:{t:'edit',w:['store']}, dims:{t:'edit',w:['store']}, images:{t:'edit',w:['gallery']},
+  inventory:{t:'never',w:[]}, itemType:{t:'edit',w:['finale']}, keywords:{t:'alias',w:[]},
+  kws:{t:'edit',w:['store']}, marginOverride:{t:'edit',w:['finale']}, metaDesc:{t:'edit',w:['store']},
+  name:{t:'edit',w:['store','finale']}, optionName:{t:'edit',w:[]}, owner:{t:'edit',w:['store','finale']},
+  pageTitle:{t:'edit',w:['store']}, price:{t:'edit',w:['store','finale']}, prose:{t:'edit',w:['store']},
+  reorder:{t:'edit',w:['finale']}, requestFreeFill:{t:'new_only',w:[]}, saleEnds:{t:'edit',w:['store']},
+  salePrice:{t:'edit',w:['store']}, sku:{t:'locked',w:[]}, storage:{t:'edit',w:['store']},
+  supplier:{t:'edit',w:['finale']}, taxOverride:{t:'edit',w:['store']}, tiers:{t:'edit',w:['store']},
+  upc:{t:'edit',w:['store','finale']}, variants:{t:'never',w:[]}, vendorCode:{t:'edit',w:['finale']},
+  visible:{t:'edit',w:['store']}, volume:{t:'edit',w:['store']}, warranty:{t:'edit',w:['store']},
+  weightG:{t:'edit',w:['store','finale']},
+  freshKitchen:{t:'edit',w:['store']}, leadDays:{t:'edit',w:['finale']}, visibleByStore:{t:'alias',w:['store']}
+};
+/* how a registry key that the page has no box for yet is drawn once the registry says it has a writer (B2, contract §2d) */
+var STAFF_EXTRA_BOXES={
+  freshKitchen:{label:'Made fresh in our kitchen', kind:'yesno', id:'fFresh', note:'Sets the kitchen “made fresh” tag (__FreshKitchenItem).'},
+  leadDays:{label:'Supplier lead days', kind:'int', id:'fLead', note:'How many days the supplier takes to deliver (Finale).'}
+};
+/* ⭐ 'edit' = draw it · 'hide' = no writer (no box) · 'locked' = shown, never edited · 'unknown' = not in the registry */
+function staffFieldMode(key){
+  var r=STAFF_FIELD_REGISTRY[key]; if(!r) return 'unknown';
+  if(r.t==='locked') return 'locked';
+  return (r.t==='edit' && r.w && r.w.length)?'edit':'hide';
+}
+/* a LIVE product on the staff page — the only place the editor's extras apply */
+function staffLiveRec(p){ return !!p && staffEditUI() && (p.kind==='update' || !!p.liveEnhance); }
+
+/* ── the search index ────────────────────────────────────────────────────────────────────────────────────────────── */
+var FIND={st:'idle', rows:null, bySku:{}, builtAt:'', stores:{}, err:'', gen:0, q:'', open:false,
+          recent:[], recentSt:'idle', recentErr:'', others:{}};
+function sfNormIndex(d){
+  if(!d || typeof d!=='object' || !Array.isArray(d.rows)) throw new Error('the list is not in the shape the page expects');
+  var rows=[], by={};
+  d.rows.forEach(function(r){
+    if(!r || r.sku==null || r.sku==='') return;
+    var o={sku:String(r.sku), name:String(r.name||''), brand:String(r.brand||''), upc:String(r.upc||''), owner:String(r.owner||''),
+           stores:(r.stores&&typeof r.stores==='object')?r.stores:{},
+           variants:Array.isArray(r.variant_skus)?r.variant_skus.map(String):[], conflicts:(r.conflicts&&typeof r.conflicts==='object')?r.conflicts:{},
+           stale:!!r.stale, ownerBasis:String(r.owner_basis||'')};
+    o._sku=o.sku.toLowerCase();
+    o._k=(String(r.s||'')+' '+o.variants.join(' ')+' '+o.name+' '+o.brand+' '+o.upc+' '+o.owner+' '+o.sku).toLowerCase();
+    rows.push(o); by[o._sku]=o;
+    o.variants.forEach(function(v){ var k=v.toLowerCase(); if(!by[k]) by[k]=o; });   /* a variant SKU (170-1) finds its parent row */
+  });
+  return {rows:rows, by:by, builtAt:String(d.upserted_at||d.built_at||''), stores:(d.stores&&typeof d.stores==='object')?d.stores:{}};
+}
+function sfIndexRow(sku){ return FIND.bySku[String(sku||'').toLowerCase()]||null; }
+function findLoad(force){
+  if(!staffEditUI() || typeof graph!=='function') return;
+  if(FIND.st==='loading') return;
+  if((FIND.st==='ready'||FIND.st==='failed') && !force) return;   /* a failed load is retried by the person (Try again), not on every keystroke */
+  FIND.st='loading'; FIND.err=''; var gen=++FIND.gen;
+  sfWait('index',{names:['Reading the product list'], limits:[STUDIO_LIMITS.indexMs], paint:function(){ findPaint(); },
+    onLimit:function(){ if(gen!==FIND.gen) return; FIND.gen++; FIND.st='failed';
+      FIND.err='The product list took longer than '+sfMins(STUDIO_LIMITS.indexMs)+' to load.'; findPaint(); }});
+  var path=encodeURIComponent('/'+STUDIO_INDEX_PATH).replace(/%2F/g,'/');
+  Promise.resolve().then(function(){ return graph('/sites/'+CFG.siteId+'/drive/root:'+path+':/content'); })
+    .then(function(d){
+      if(gen!==FIND.gen) return;                      /* ⛔ a late answer after the limit changes nothing */
+      var n=sfNormIndex(d); FIND.rows=n.rows; FIND.bySku=n.by; FIND.builtAt=n.builtAt; FIND.stores=n.stores;
+      FIND.st='ready'; sfFinish(SFW.index,'done',''); findPaint();
+    })
+    .catch(function(e){
+      if(gen!==FIND.gen) return;
+      FIND.st='failed'; FIND.gen++; sfFinish(SFW.index,'failed','');
+      FIND.err=(e&&e.status===404)?'The product list has not been built yet.'
+        :'The product list did not load ('+String(e&&e.message||e).slice(0,160)+').';
+      findPaint();
+    });
+}
+/* the hits for a query: [{r, sibling}] plus the exact-SKU fallback. Pure, so a test can drive it. */
+function findSearch(q){
+  var raw=String(q||'').trim(), s=raw.toLowerCase(), out={hits:[], exact:'', short:s.length<STUDIO_LIMITS.minChars, more:0};
+  if(out.short || !FIND.rows) return out;
+  var toks=s.split(/\s+/).filter(Boolean), z=s.replace(/^0+/,''), scored=[];
+  FIND.rows.forEach(function(r){
+    var ok=toks.every(function(t){ return r._k.indexOf(t)>=0; });
+    if(!ok && /^\d{5,}$/.test(s) && r.upc && r.upc.replace(/^0+/,'').indexOf(z)>=0) ok=true;
+    if(!ok) return;
+    var rank=(r._sku===s||(r.upc&&r.upc===s))?0:(r._sku.indexOf(s)===0?1:2);
+    scored.push({r:r, rank:rank});
+  });
+  scored.sort(function(a,b){ return a.rank-b.rank || (a.r.name<b.r.name?-1:a.r.name>b.r.name?1:0); });
+  var total=scored.length; scored=scored.slice(0, STUDIO_LIMITS.maxHits); out.more=Math.max(0,total-scored.length);
+  var order=[], groups={};            /* siblings sit together: 305, 305-5… under their root */
+  scored.forEach(function(x){ var k=sfRootOf(x.r.sku); if(!groups[k]){ groups[k]=[]; order.push(k); } groups[k].push(x.r); });
+  order.forEach(function(k){ groups[k].sort(function(a,b){ return a.sku<b.sku?-1:a.sku>b.sku?1:0; });
+    groups[k].forEach(function(r,i){ out.hits.push({r:r, sibling:i>0}); }); });
+  if(toks.length===1 && sfSkuOk(raw) && !FIND.bySku[s]) out.exact=raw;
+  return out;
+}
+function sfTimeText(built){ var m=/T(\d\d:\d\d)/.exec(String(built||'')); return m?m[1]:''; }
+function sfStoreStale(r, k){ var s=(r.stores||{})[k]||{}, g=FIND.stores[k]||{}; return g.read_ok===false || !!s.stale || !!s.error || !!r.stale; }
+function sfConflictNote(r){
+  var c=r.conflicts||{}, ks=Object.keys(c); if(!ks.length) return '';
+  return '<span class="fm sfconf">⚠ The stores disagree about the '+ks.map(esc).join(' and ')+' — open it to see which store differs.</span>';
+}
+function sfStoreChips(r){
+  var parts=[];
+  STUDIO_STORES.concat(Object.keys(r.stores||{}).filter(function(k){ return !STUDIO_STORES.some(function(s){return s[0]===k;}); }).map(function(k){ return [k,k]; }))
+    .forEach(function(sn){ var s=(r.stores||{})[sn[0]]; if(!s) return;
+      var stale=sfStoreStale(r, sn[0]);
+      parts.push('<span class="fchip'+(s.visible===false?' off':'')+'">'+esc(sn[1])+' · '+(s.visible===false?'hidden':'shown')+' · '+(s.price==null?'no price':money(s.price))
+        +(stale?' · data may be old':'')+'</span>'); });
+  return parts.join(' ') || '<span class="fchip off">not on any store</span>';
+}
+function sfHitHtml(h){
+  var r=h.r, ok=sfSkuOk(r.sku);
+  var body='<span class="fn">'+esc(r.name||r.sku)+'</span> <span class="fs mono">'+esc(r.sku)+'</span>'
+    +'<span class="fm">'+esc([r.brand, r.upc?'UPC '+r.upc:'no UPC', ownerLabel(r.owner)].filter(Boolean).join(' · '))+'</span>'
+    +'<span class="fc">'+sfStoreChips(r)+'</span>'+sfConflictNote(r);
+  return ok?'<button type="button" class="fhit'+(h.sibling?' sib':'')+'" role="option"'+sfBtnAttrs('pick', r.sku)+'>'+body+'</button>'
+          :'<div class="fhit sib" role="option" aria-disabled="true">'+body+'<span class="fm">This SKU has characters the Studio cannot open.</span></div>';
+}
+function findPaint(){
+  var box=document.querySelector('#findRes'); if(!box) return;
+  var q=document.querySelector('#findQ');
+  if(q) q.setAttribute('aria-expanded', FIND.open?'true':'false');
+  if(!FIND.open){ box.hidden=true; return; }
+  box.hidden=false;
+  var h='';
+  if(FIND.st==='loading'){
+    var w=SFW.index; h+='<div class="fstat" role="status" aria-live="polite">'+(w?sfWaitHtml(w):'Loading the product list…')+'</div>';
+  } else if(FIND.st==='failed'){
+    h+='<div class="fstat" role="alert"><b>⛔ '+esc(FIND.err||'The product list did not load.')+'</b> Nothing is wrong with the products — only this list. '
+      +'You can still type an exact SKU below. <button type="button" class="btn sm" onclick="findLoad(true)">Try again</button></div>';
+  }
+  var s=String(FIND.q||'').trim();
+  if(FIND.st==='ready'){
+    var r=findSearch(s);
+    if(r.short){
+      h+=s.length?'<div class="fstat">Keep typing — at least '+STUDIO_LIMITS.minChars+' characters.</div>':'';
+      h+=sfRecentHtml();
+    } else {
+      h+=r.hits.map(sfHitHtml).join('');
+      if(!r.hits.length && !r.exact) h+='<div class="fstat">No product matches “'+esc(s)+'”. Try fewer words, or the SKU.</div>';
+      if(r.more) h+='<div class="fstat">'+r.more+' more match — type more to narrow it.</div>';
+    }
+    var ex=r.exact;
+    if(ex) h+='<button type="button" class="fhit" role="option"'+sfBtnAttrs('pick', ex)+'><span class="fn">Open SKU <span class="mono">'+esc(ex)
+      +'</span></span><span class="fm">Not in the list yet — the Mac mini will check the stores for it.</span></button>';
+    h+='<div class="fstat fmeta">List updated '+esc(sfTimeText(FIND.builtAt)||'(time unknown)')
+      +Object.keys(FIND.stores).filter(function(k){ return FIND.stores[k]&&FIND.stores[k].read_ok===false; }).map(function(k){
+        return ' · ⚠ '+esc(sfStoreName(k))+' could not be read — its prices are the last good ones'; }).join('')
+      +' · <button type="button" class="btn sm" onclick="findLoad(true)">Refresh the list</button></div>';
+  } else if(FIND.st==='failed'){
+    var raw=s, exact=sfSkuOk(raw)&&raw.length>=STUDIO_LIMITS.minChars;
+    if(exact) h+='<button type="button" class="fhit" role="option"'+sfBtnAttrs('pick', raw)+'><span class="fn">Open SKU <span class="mono">'+esc(raw)
+      +'</span></span><span class="fm">The Mac mini will check the stores for it.</span></button>';
+  }
+  box.innerHTML=h;
+}
+function sfRecentHtml(){
+  var rows=FIND.recent||[];
+  if(FIND.recentSt==='failed') return '<div class="fstat">Recently opened could not be read ('+esc(FIND.recentErr)+').</div>';
+  if(!rows.length) return FIND.recentSt==='loading'?'<div class="fstat">Reading what you opened recently…</div>':'';
+  return '<div class="fstat fmeta"><b>Recently opened</b></div>'+rows.map(function(x){
+    var r=sfIndexRow(x.sku);
+    return '<button type="button" class="fhit" role="option"'+sfBtnAttrs('pick', x.sku)+'><span class="fn">'+esc(r?r.name:x.sku)
+      +'</span> <span class="fs mono">'+esc(x.sku)+'</span><span class="fm">'+esc(fmtWhen(x.at))+'</span></button>'; }).join('');
+}
+function findOnInput(v){ FIND.q=String(v==null?'':v); FIND.open=true; findLoad(false); findRecentLoad(); findPaint(); }
+function findFocus(){ var q=document.querySelector('#findQ'); if(!q) return; try{ q.focus(); }catch(_){} FIND.open=true; findLoad(false); findRecentLoad(); findPaint(); }
+function findClose(){ FIND.open=false; findPaint(); }
+function findEnter(){
+  var r=findSearch(FIND.q), first=r.hits[0]; if(first) return findPick(first.r.sku);
+  if(r.exact) return findPick(r.exact);
+}
+function findPick(sku){ FIND.open=false; findPaint(); var q=document.querySelector('#findQ'); if(q) q.value=''; FIND.q=''; return findOpen(sku, sfIndexRow(sku)); }
+window.findLoad=findLoad; window.findSearch=findSearch; window.findPick=findPick; window.findOnInput=findOnInput; window.findFocus=findFocus;
+window.findClose=findClose; window.findEnter=findEnter; window.findPaint=findPaint;
+
+/* ── requests: the person's own recent `enh:` rows (Recently opened — no new list) ──────────────────────────────────── */
+var _SF_LIST='';
+async function _rowListId(){
+  if(_SF_LIST) return _SF_LIST;
+  var lists=await graph('/sites/'+CFG.siteId+'/lists?$select=displayName,id');
+  var l=(lists.value||[]).find(function(x){ return x.displayName===CFG.listName; });
+  if(!l) throw new Error('the '+CFG.listName+' list is missing');
+  _SF_LIST=l.id; return _SF_LIST;
+}
+async function sfScanRequests(){
+  var lid=await _rowListId(), url='/sites/'+CFG.siteId+'/lists/'+lid+'/items?expand=fields&$top=500', out=[];
+  while(url){
+    var b=await graph(url);
+    (b.value||[]).forEach(function(it){
+      var f=it.fields||{}; if(String(f.batch||'')!=='__requests__') return;
+      var e={}; try{ e=JSON.parse(f.edits_json||'{}')||{}; }catch(_){}
+      out.push({spId:String(it.id), listId:lid, sku:String(f.sku||''), by:String(f.decided_by||''), at:String(f.decided_at||''),
+                ds:String(f.drain_state||''), note:String(f.drain_note||''), edits:e});
+    });
+    url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
+  }
+  return out;
+}
+function sfMine(r){ return !!ACCOUNT && r.by.toLowerCase()===String(ACCOUNT).toLowerCase(); }
+function sfApplyRecent(rows){
+  var mine=[], seen={}, others={}, now=_sfNow();
+  rows.filter(function(r){ return /^enh:/.test(r.sku) && r.ds.indexOf('refused@')!==0; })
+      .sort(function(a,b){ return a.at<b.at?1:a.at>b.at?-1:0; })
+      .forEach(function(r){
+        var sku=r.sku.split(':')[1]||''; if(!sfSkuOk(sku)) return;
+        if(sfMine(r)){ if(!seen[sku.toLowerCase()] && mine.length<STUDIO_LIMITS.recentMax){ seen[sku.toLowerCase()]=1; mine.push({sku:sku, at:r.at}); } }
+        else { var t=_whenMs(r.at);   /* "editing this": a staff EDIT request, not yet applied, from the last 2 hours */
+          if(t && now-t<STUDIO_LIMITS.editingMs && r.edits && r.edits.mode==='edit' && r.ds.indexOf('applied@')!==0 && !others[sku.toLowerCase()]) others[sku.toLowerCase()]={who:r.by, at:r.at}; }
+      });
+  FIND.recent=mine; FIND.others=others;
+}
+function findRecentLoad(force){
+  if(!staffEditUI() || FIND.recentSt==='loading') return;
+  if(FIND.recentSt==='ready' && !force) return;
+  FIND.recentSt='loading'; FIND.recentErr='';
+  sfScanRequests().then(function(rows){ sfApplyRecent(rows); FIND.recentSt='ready'; findPaint(); sfHdrRefresh(); })
+    .catch(function(e){ FIND.recentSt='failed'; FIND.recentErr=String(e&&e.message||e).slice(0,120); findPaint(); });
+}
+
+/* ── one wait, everywhere ────────────────────────────────────────────────────────────────────────────────────────── */
+var SFW={};
+function sfWait(key, spec){
+  var old=SFW[key]; if(old && old.timer && typeof clearTimeout==='function') clearTimeout(old.timer);
+  var w=Object.assign({key:key, gen:old?old.gen+1:1, t0:_sfNow(), stageT0:_sfNow(), stage:0, state:'run', note:'', lastPoll:0, polling:false}, spec);
+  SFW[key]=w; sfSchedule(w); sfPaint(w); return w;
+}
+function sfSchedule(w){
+  if(typeof setTimeout!=='function') return;
+  var g=w.gen; if(w.timer && typeof clearTimeout==='function') clearTimeout(w.timer);
+  w.timer=setTimeout(function(){ if(SFW[w.key]===w && w.gen===g) sfTick(w.key); }, STUDIO_LIMITS.clockMs);
+}
+function sfLimitOf(w){ return (w.limits&&w.limits[Math.min(w.stage,w.limits.length-1)])||STUDIO_LIMITS.requestMs; }
+async function sfTick(key){
+  var w=SFW[key]; if(!w || w.state!=='run') return;
+  var gen=w.gen, now=_sfNow(), lim=sfLimitOf(w);
+  if(now-w.stageT0>lim){ w.state='limit'; sfPaint(w); if(w.onLimit) w.onLimit(w); return; }
+  /* ⛔ a poll that never answers (graph() has no timeout) is ABANDONED after pollTimeoutMs; its late answer is ignored */
+  if(w.polling && now-w.pollStart>STUDIO_LIMITS.pollTimeoutMs){ w.polling=false; w.pollGen=(w.pollGen||0)+1; w.note='The check is taking too long — still trying.'; }
+  sfPaint(w);
+  sfSchedule(w);                                         /* ⭐ the NEXT tick is booked BEFORE any await: the clock always moves, the limit always fires */
+  var every=(w.pollEvery&&w.pollEvery[Math.min(w.stage,w.pollEvery.length-1)])||STUDIO_LIMITS.pollMs;
+  if(w.poll && !w.polling && now-w.lastPoll>=every){
+    var pg=w.pollGen=(w.pollGen||0)+1; w.polling=true; w.lastPoll=now; w.pollStart=now;
+    var alive=function(){ return SFW[key]===w && w.gen===gen && w.state==='run' && w.pollGen===pg; };
+    try{ await w.poll(w, alive); }catch(e){ if(alive()) w.note='Could not check just now ('+String(e&&e.message||e).slice(0,120)+') — still trying.'; }
+    if(w.pollGen===pg) w.polling=false;
+    if(alive()) sfPaint(w);                              /* ⛔ a late answer changes nothing */
+  }
+}
+function sfStage(w, n){ w.stage=n; w.stageT0=_sfNow(); w.lastPoll=0; w.note=''; sfPaint(w); }
+function sfFinish(w, state, note){
+  if(!w) return; w.state=state; w.note=note||''; if(w.timer && typeof clearTimeout==='function') clearTimeout(w.timer);
+  sfPaint(w); if(w.onEnd) w.onEnd(w);
+}
+function sfPaint(w){
+  if(w.paint) return w.paint(w);
+  var el=w.sel?document.querySelector(w.sel):null; if(el) el.innerHTML=sfWaitHtml(w);
+}
+function sfWaitHtml(w){
+  var n=w.names.length, st=Math.min(w.stage,n-1), lim=sfLimitOf(w), now=_sfNow();
+  var pct=Math.min(100, Math.round(100*(w.state==='done'?1:(st+Math.min(0.9,(now-w.stageT0)/lim))/n)));
+  var bar='<div class="wprog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+pct+'"><i style="width:'+pct+'%"></i></div>';
+  var note=w.note?'<div class="sub">'+esc(w.note)+'</div>':'';
+  if(w.state==='done') return '<div class="wlabel"><b>✓ '+esc(w.doneText||'Done')+'</b></div>'+bar;
+  if(w.state==='failed') return '<div class="wlabel" role="alert"><b>⛔ '+esc(w.note||'It did not finish.')+'</b></div>'
+    +'<div class="sub">Your work is safe.'+(w.retryKey?' <button type="button" class="btn sm"'+sfBtnAttrs('wait-retry', w.key)+'>Try again</button>':'')+'</div>';
+  if(w.state==='limit') return '<div class="wlabel" role="alert"><b>⛔ '+esc(w.limitText||('Still not finished after '+sfMins(lim)+'.'))+'</b></div>'
+    +'<div class="sub">'+esc(w.safeText||'Your request is saved — it may still finish on its own.')
+    +' <button type="button" class="btn sm"'+sfBtnAttrs('wait-again', w.key)+'>Check again</button>'
+    +(w.retryKey?' <button type="button" class="btn sm"'+sfBtnAttrs('wait-retry', w.key)+'>Try again</button>':'')+'</div>';
+  return '<div class="wlabel" role="status" aria-live="polite"><b>Step '+(st+1)+' of '+n+' · '+esc(w.names[st])+'</b></div>'+bar
+    +'<div class="sub wclock">⏱ '+sfClock(now-w.t0)+' · stops waiting after '+sfMins(lim)+'</div>'+note;
+}
+function sfWaitAgain(key){ var w=SFW[key]; if(!w||w.state!=='limit') return; w.state='run'; w.stageT0=_sfNow(); w.lastPoll=0; w.note=''; sfSchedule(w); sfPaint(w); }
+function sfWaitRetry(key){ var w=SFW[key]; if(w && typeof w.retry==='function') w.retry(w); }
+window.sfWaitHtmlFor=function(k){ return sfWaitHtml(SFW[k]); }; window.sfWaitAgain=sfWaitAgain; window.sfWaitRetry=sfWaitRetry; window._sfTick=sfTick; window.sfWaits=function(){ return SFW; };
+
+/* ── a request row + its job pointer (the `enh:` pattern) and reading the answer back ───────────────────────────────── */
+async function sfSubmit(rowTitle, overall, edits, jobKind){
+  var res=await saveDecision('__requests__', rowTitle, {overall:overall, edits:edits});
+  if(!res || !res.ok || !res.sp_id) throw new Error((res&&res.message)||'the request could not be saved');
+  var jobs=await _agentJobsListId(), now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  var jobRow=await graph('/sites/'+CFG.siteId+'/lists/'+jobs+'/items',{method:'POST',body:JSON.stringify({fields:{
+    Title:jobKind+':'+res.sp_id, Kind:jobKind, Subject:String(res.sp_id), Params:'{}', State:'queued', Attempts:0,
+    RequestedUtc:now, RequestedBy:ACCOUNT||'listing-studio'}})});
+  return {spId:String(res.sp_id), jobId:(jobRow&&jobRow.id)?String(jobRow.id):'', jobs:jobs, title:rowTitle};
+}
+/* -> {kind:'wait'|'applied'|'refused'|'jobfail', text, ds, state} — the server's words, never rewritten */
+async function sfReadRequest(req){
+  var lid=req.listId||await _rowListId();
+  var f=((await graph('/sites/'+CFG.siteId+'/lists/'+lid+'/items/'+req.spId+'?$expand=fields'))||{}).fields||{};
+  var ds=String(f.drain_state||''), note=String(f.drain_note||'');
+  if(ds.indexOf('applied@')===0) return {kind:'applied', text:note, ds:ds};
+  if(ds.indexOf('refused@')===0) return {kind:'refused', text:note, ds:ds};
+  var state='';
+  if(req.jobId && req.jobs){
+    var jf=((await graph('/sites/'+CFG.siteId+'/lists/'+req.jobs+'/items/'+req.jobId+'?$expand=fields'))||{}).fields||{};
+    state=String(jf.State||'');
+    if(state==='refused'||state==='needs_human'||state==='failed')
+      return {kind:'jobfail', text:'The Mac mini could not start this ('+state.replace('_',' ')+'): '+String(jf.Message||'no reason given').slice(0,300)
+        +'. Please tell Jack — this is a setup problem on the mini, not your request.', ds:ds, state:state};
+  }
+  return {kind:'wait', text:note, ds:ds, state:state};
+}
+
+/* ── OPEN: the live card at once from the index row, then the existing `enh:` edit request, with its progress ───────── */
+var OPEN={};
+var OPEN_STAGES=['Sending the request to the Mac mini','Waiting for the Mac mini to pick it up','Building the editable record (copy, photos, prices)'];
+/* the record to EDIT: ⛔ never one that is approved or already published (its _base is stale and Approve would say "already approved") —
+   those need a fresh request. `any` = find it whatever its state (history, Undo, a copy source). */
+function sfRecordIndex(sku, any){
+  var s=String(sku||'').toLowerCase();
+  for(var i=0;i<P.length;i++){
+    if(String(P[i].sku||'').toLowerCase()!==s || !inQueue(i)) continue;
+    if(any) return i;
+    if((st[i]&&st[i].approved) || pubState(i)==='published' || pubState(i)==='waiting') continue;
+    return i;
+  }
+  return -1;
+}
+function sfHdrRefresh(){ var p=P[cur], el=document.querySelector('#sfHdr'); if(el && staffLiveRec(p)) el.innerHTML=sfHeaderInner(p); }
+function sfGoRecord(i){
+  cur=+i; editing=null; FILTER_EMPTY=false; closeSheet(); renderAll();
+  findRecentLoad(true);                                  /* who else is editing it: re-read each time a record opens */
+  if(staffLiveRec(P[cur])) selectTab('fields');
+  return true;
+}
+function findOpen(sku, row){
+  sku=String(sku||'').trim();
+  if(!staffEditUI() || !sfSkuOk(sku)) return '';
+  var i=sfRecordIndex(sku);
+  if(i>=0){ sfGoRecord(i); return 'record'; }           /* an already-open record opens instead — never a second one */
+  var o=OPEN[sku.toLowerCase()];
+  if(!o){ o=OPEN[sku.toLowerCase()]={sku:sku, row:row||sfIndexRow(sku), sending:false, req:null}; }
+  else if(row) o.row=row;
+  sfCardOpen(o);
+  var w=SFW['open:'+o.sku.toLowerCase()];
+  if(o.sending || (w && w.state==='run')) return 'watching';   /* a second click joins the first request */
+  if(w && w.state==='done') return 'ready';
+  sfOpenStart(o);
+  return 'started';
+}
+function sfCardHtml(o){
+  var r=o.row, name=r?r.name:o.sku;
+  var rows=r?STUDIO_STORES.concat(Object.keys(r.stores||{}).filter(function(k){ return !STUDIO_STORES.some(function(s){return s[0]===k;}); }).map(function(k){return [k,k];}))
+      .filter(function(sn){ return (r.stores||{})[sn[0]]; }).map(function(sn){ var s=r.stores[sn[0]], stale=sfStoreStale(r, sn[0]);
+        return '<tr><td>'+esc(sn[1])+'</td><td>'+(s.visible===false?'hidden':'shown')+'</td><td class="mono">'+(s.price==null?'no price known':money(s.price))+(stale?' <i>(data may be old)</i>':'')+'</td></tr>'; }).join('')
+    :'';
+  var key=o.sku.toLowerCase();
+  return '<h2>'+esc(name)+'</h2><div class="sub"><span class="mono">'+esc(o.sku)+'</span>'
+    +(r?' · '+esc([r.brand, r.upc?'UPC '+r.upc:'no UPC', ownerLabel(r.owner)].filter(Boolean).join(' · ')):' · looked up by SKU — the Mac mini will check the stores')+'</div>'
+    +(rows?'<table class="sfcard"><tr><th>Store</th><th>On the store</th><th>Price</th></tr>'+rows+'</table>'
+      +(r?sfConflictNote(r):'')+(r&&r.ownerBasis==='unknown'?'<div class="sub">The owner is not known for certain.</div>':'')
+      +'<div class="sub">Read-only, from the list updated '+esc(sfTimeText(FIND.builtAt)||'earlier')+'.</div>':'')
+    +'<div id="openProg" class="rwitem"></div>'
+    +'<div id="opBtns" style="margin:8px 0">'
+    +[['Edit','edit'],['Approve','approve'],['Enhance','enhance'],['Similar version','similar'],['Undo','undo']]
+      .map(function(b){ return '<button type="button" class="btn" data-op="'+b[0]+'" disabled title="ready when the record finishes"'+sfBtnAttrs('card', o.sku, b[1])+'>'+b[0]+'</button> '; }).join('')
+    +'</div><div class="sub" id="opWhy">Edit, Approve, Enhance, Similar version and Undo are ready when the record finishes.</div>'
+    +'<button class="btn" type="button" onclick="closeSheet()">Close</button>';
+}
+function sfCardOpen(o){ openSheet(sfCardHtml(o)); sfCardBtns(o); var w=SFW['open:'+o.sku.toLowerCase()]; if(w) sfPaint(w); }
+function sfCardBtns(o){
+  var ready=sfRecordIndex(o.sku)>=0, why=document.querySelector('#opWhy');
+  if(why) why.textContent=ready?'The record is ready.':'Edit, Approve, Enhance, Similar version and Undo are ready when the record finishes.';
+  o.ready=ready;
+}
+function sfCardDo(sku, what){
+  var i=sfRecordIndex(sku); if(i<0){ toast('Not ready yet — the record is still being built.'); return false; }
+  sfGoRecord(i);
+  if(what==='enhance'){ LE_PREFILL=String(sku); liveEnhOpen(); }
+  else if(what==='similar'){ sfSimilarOpen(P[cur]); }
+  else if(what==='undo'){ var h=document.querySelector('#sfHist'); if(h&&h.scrollIntoView) try{ h.scrollIntoView(); }catch(_){} }
+  return true;
+}
+var LE_PREFILL='';
+window.sfCardDo=sfCardDo;
+function sfOpenStart(o){
+  var key=o.sku.toLowerCase(), wk='open:'+key;
+  var w=sfWait(wk,{sel:'#openProg', names:OPEN_STAGES, limits:[STUDIO_LIMITS.requestMs, STUDIO_LIMITS.requestMs, STUDIO_LIMITS.recordMs],
+    pollEvery:[STUDIO_LIMITS.pollMs, STUDIO_LIMITS.pollMs, STUDIO_LIMITS.recordPollMs], doneText:'The record is ready.',
+    limitText:'The record is not ready yet.', safeText:'Your request is saved — the Mac mini will still build it. Nothing has changed on the stores.',
+    retryKey:true, retry:function(){ delete OPEN[key]; findOpen(o.sku, o.row); },
+    poll:function(w, alive){ return sfOpenPoll(o, w, alive); },
+    onEnd:function(w){ if(w.state==='done'){ sfCardBtns(o); var d=document.querySelector('#drawer'); var i=sfRecordIndex(o.sku);
+        if(i>=0 && d && d.dataset && d.dataset.open==='1' && o.showing!==false) sfGoRecord(i); } }});
+  o.sending=true;
+  if(!IS_BROWSER){ o.sending=false; sfFinish(w,'failed','This needs the live page (sign in).'); return; }
+  Promise.resolve().then(async function(){
+    /* a request of mine for this SKU that is still alive is joined, never repeated (even from another tab) */
+    var reuse=null;
+    try{ reuse=(await sfScanRequests()).filter(function(r){ return sfMine(r) && r.sku.toLowerCase().indexOf('enh:'+key+':')===0 && r.ds.indexOf('refused@')!==0 && r.ds.indexOf('applied@')!==0
+        && _sfNow()-_whenMs(r.at)<24*3600*1000 && r.edits && r.edits.mode==='edit'; }).sort(function(a,b){ return a.at<b.at?1:-1; })[0]||null; }catch(_){ reuse=null; }
+    if(SFW[wk]!==w || w.state!=='run') return;
+    if(reuse){ o.req={spId:reuse.spId, listId:reuse.listId, jobId:'', jobs:'', title:reuse.sku}; }
+    else { o.req=await sfSubmit('enh:'+o.sku+':'+_photoId(), 'enhance_request', {mode:'edit', urls:[]}, 'productpipeline.live_enhance_request'); }
+    if(SFW[wk]!==w || w.state!=='run') return;
+    o.sending=false; sfStage(w,1);
+  }).catch(function(e){ o.sending=false; if(SFW[wk]===w && w.state==='run') sfFinish(w,'failed','Not sent — '+String(e&&e.message||e).slice(0,200)); });
+}
+async function sfOpenPoll(o, w, alive){
+  if(!o.req) return;
+  if(w.stage===1){
+    var r=await sfReadRequest(o.req); if(!alive()) return;
+    if(r.kind==='applied') sfStage(w,2);
+    else if(r.kind==='refused') sfFinish(w,'failed', r.text||'The Mac mini did not start it.');
+    else if(r.kind==='jobfail') sfFinish(w,'failed', r.text);
+    else if(r.text) w.note=r.text;
+    return;
+  }
+  if(w.stage===2){
+    var res=await liveRefresh(true); if(!alive()) return;
+    if(sfRecordIndex(o.sku)>=0){ sfFinish(w,'done',''); return; }
+    w.note=(res==='held')?'Finish or cancel the edit you have open so the new record can load.':'The record is being built — it appears here by itself.';
+  }
+}
+window.findOpen=findOpen; window.sfOpenState=function(){ return OPEN; };
+
+/* ── the editor on a LIVE record (staff): header bar, notices, the money guards, the registry-driven boxes ──────────── */
+function sfIncomeAcct(owner, p){ var c=catOf(p.cat)||[]; return owner==='TCFarm'?('the departmental account'+(c[6]?' ('+c[6]+')':'')):'RFS Sales Clearing Account (consignment clearing)'; }
+function sfBase(p){ return p._base||{}; }
+function sfChanged(p, f){ var b=sfBase(p); if(b[f]===undefined) return false; return JSON.stringify(p[f]===undefined?null:p[f])!==JSON.stringify(b[f]===undefined?null:b[f]); }
+/* the money guards. stop = never publishes; reason = a typed reason is required (below the floor, above cost) */
+function sfPriceCheck(p){
+  var out={stop:'', reason:false, floor:0, warn:[]};
+  if(!staffLiveRec(p)) return out;
+  var price=+p.price||0, cost=+p.cost||0;
+  if(sfChanged(p,'price') && !(price>0)) out.stop='A price must be more than $0.00.';
+  else if(sfChanged(p,'price') && cost>0){
+    out.floor=floorOf(p);
+    if(price<=cost) out.stop='This price ('+money(price)+') is at or below what the product costs ('+money(cost)+'). The Studio will not publish it — raise the price above its cost.';
+    else if(price<out.floor) out.reason=true;
+  }
+  if(sfChanged(p,'cost') && price>0 && +p.cost>=price)
+    out.stop=out.stop||'The cost ('+money(p.cost)+') is at or above the price ('+money(price)+'). The Studio will not save a cost that leaves no margin.';
+  if(sfChanged(p,'cost') && +p.casepack>1 && sfBase(p).cost>0 && Math.abs(+p.cost-sfBase(p).cost*(+p.casepack))<0.02*(+p.cost))
+    out.warn.push('This cost looks like a CASE cost (the case holds '+p.casepack+'). Finale expects the cost of one each.');
+  return out;
+}
+/* what a person typed → a number, or NaN. Reads $12.49 and 12,49; refuses 0, empty and anything else (a number input hands back '' for $12.49) */
+function sfParseMoney(raw){
+  var s=String(raw==null?'':raw).trim().replace(/^\$\s*/,'');
+  if(/^\d+,\d{1,2}$/.test(s)) s=s.replace(',','.');
+  if(!/^\d+(\.\d{1,2})?$/.test(s)) return NaN;
+  var v=+s; return v>0?v:NaN;
+}
+window.sfParseMoney=sfParseMoney;
+function sfPerLb(p){
+  var lb=(+p.weightG||0)/453.592; if(!(lb>0)) return '';
+  if(!/\b(avg|lbs?)\b/i.test(String(p.name||''))) return '';
+  var per=(+p.price||0)/lb, cper=(+p.cost||0)/lb;
+  return 'For information: '+lb.toFixed(2)+' lb · price '+money(per)+'/lb'+(cper>0?' · cost '+money(cper)+'/lb':'')+'. Neither is checked — the price is yours to set.';
+}
+function sfPriceNoteHtml(p){
+  var c=sfPriceCheck(p), h='';
+  if(c.stop) h+='<div class="cascade sfstop" role="alert">⛔ '+esc(c.stop)+'</div>';
+  if(c.reason) h+='<div class="cascade" role="note">⚠ This price is below the floor ('+money(c.floor)+', the price that gives the target margin). Say why — it is saved with the change.'
+    +'<textarea class="ctl" id="sfReason" rows="2" maxlength="300" style="width:100%" placeholder="Why is it below the floor?">'+esc(p._priceReason||'')+'</textarea>'
+    +((String(p._priceReason||'').trim().length<5)?'<div class="bad">⛔ A reason is needed before this can be approved.</div>':'')+'</div>';
+  c.warn.forEach(function(w){ h+='<div class="cascade">⚠ '+esc(w)+'</div>'; });
+  var pl=sfPerLb(p); if(pl) h+='<div class="hint" id="sfPerLb">'+esc(pl)+'</div>';
+  return h;
+}
+function sfPriceUpdate(p){
+  var el=document.querySelector('#sfPriceNote'); if(el) el.innerHTML=sfPriceNoteHtml(p);
+  var r=document.querySelector('#sfReason'); if(r) r.oninput=function(){ p._priceReason=r.value; refreshStatusOnly(); };
+  refreshStatusOnly();
+}
+/* ⛔ blocks Approve: a stop, or a below-floor price with no typed reason */
+function sfPriceBad(p){ var c=sfPriceCheck(p); return !!c.stop || (c.reason && String(p._priceReason||'').trim().length<5); }
+function sfVisBaseline(p, k){ var r=sfIndexRow(p.sku), s=r&&r.stores&&r.stores[k]; return s?s.visible!==false:null; }
+function sfVisBar(p){
+  var r=sfIndexRow(p.sku);
+  if(!r) return '<div class="hint" id="sfVisNote">Which stores show this product is not known yet — the product list has not loaded. <button type="button" class="btn sm" onclick="findLoad(true)">Try again</button></div>';
+  var m=p.visibleByStore||{};
+  return '<div class="vistog" id="sfVisBoxes" role="group" aria-label="Shown on each store">'+STUDIO_STORES.filter(function(s){ return r.stores&&r.stores[s[0]]; }).map(function(s){
+    var k=s[0], base=sfVisBaseline(p,k), locked=(k==='ngf' && base===false), on=(k in m)?m[k]:base;
+    return '<label style="display:block"><input type="checkbox" data-vis="'+k+'"'+(on?' checked':'')+(locked?' disabled':'')+'> <b>'+esc(s[1])+'</b> — '+(locked?'Hidden there by Nelson\'s store; the Studio does not change it':(on?'shown':'hidden'))+'</label>'; }).join('')
+    +'</div><div class="hint" id="sfVisNote"><div>The Monday ordering run may change this.</div><div>A product hidden on the Nelson Grass Farm store stays hidden there — the Studio never unhides it on that store.</div></div>';
+}
+function sfVisToggle(k, on){
+  var p=P[cur]; if(!staffLiveRec(p) || !p.v2 || STUDIO_STORES.every(function(s){ return s[0]!==k; })) return false;
+  var base=sfVisBaseline(p,k); if(base===null) return false;
+  if(k==='ngf' && base===false){ toast('Hidden there by Nelson\'s store; the Studio does not change it.'); return false; }
+  var m=Object.assign({}, p.visibleByStore||{});
+  if(on===base) delete m[k]; else m[k]=!!on;                 /* ⭐ only the stores the person CHANGED are sent */
+  p.visibleByStore=Object.keys(m).length?m:null;
+  markEdited('identity', on?'Will be shown on '+sfStoreName(k):'Will be hidden on '+sfStoreName(k));
+  return true;
+}
+window.sfVisToggle=sfVisToggle;
+function sfVisNotes(p){
+  if(!staffLiveRec(p)) return '';
+  var r=sfIndexRow(p.sku), lines=[];
+  if(r){ lines.push(STUDIO_STORES.filter(function(s){ return (r.stores||{})[s[0]]; }).map(function(s){ return esc(s[1])+': '+((r.stores[s[0]].visible===false)?'hidden':'shown'); }).join(' · ')); }
+  lines.push('The Monday ordering run may change this.');
+  var ngf=r&&r.stores&&r.stores.ngf;
+  lines.push(ngf&&ngf.visible===false?'Hidden on the Nelson Grass Farm store — it stays hidden there, whatever you set for the others.'
+    :'A product hidden on the Nelson Grass Farm store stays hidden there — the Studio never unhides it on that store.');
+  return '<div class="hint" id="sfVisNote">'+lines.map(function(l){ return '<div>'+l+'</div>'; }).join('')+'</div>';
+}
+function sfHeaderHtml(p){ return '<div class="fgroup" id="sfHdr">'+sfHeaderInner(p)+'</div>'; }
+function sfHeaderInner(p){
+  var r=sfIndexRow(p.sku), n=r?Object.keys(r.stores||{}).length:null, total=Object.keys(FIND.stores||{}).length||STUDIO_STORES.length;
+  var last=Array.isArray(p.staffHistory)&&p.staffHistory[0], other=FIND.others[String(p.sku).toLowerCase()];
+  return '<div class="body"><b class="mono">'+esc(p.sku)+'</b> · '+esc(ownerLabel(p.owner))+' · '
+    +(n==null?'store count not known':'on '+n+' of '+total+' stores')+' · '
+    +(last?'last change by '+esc(last.who||'someone')+', '+esc(fmtWhen(last.at)):'no change made in the Studio yet')
+    +(other?' · <b>'+esc(other.who)+' is editing this</b>':'')+'</div>';
+}
+function sfNoticesHtml(p){
+  var sale=(+p.salePrice>0)?('On sale at '+money(p.salePrice)+(p.saleEnds?' until '+esc(p.saleEnds):'')+'. '):'';
+  var nocost=(p.v2 && /no cost on the record/i.test(String((p._decision||{}).drain_note||'')))
+    ?'<div class="cascade sfstop" id="sfNoCost" role="alert">⛔ This price is held because there is <b>no cost on the record</b>. Enter what we pay for one each in the <a href="#" onclick="selectTab(\'fields\');var e=document.getElementById(\'fCost\');if(e)e.focus();return false">Cost box under Finale &amp; ordering</a>, then approve again.</div>':'';
+  return '<div class="fgroup" id="sfNotes"><h3>Before you change anything</h3><div class="body">'+nocost
+    +'<div class="hint">'+sale+'The sale price is set by the sale flow and cannot be typed here. You can change <b>when the sale ends</b> — it is written through the sale flow. A sale end earlier than a delivery already promised at the sale price is refused.</div>'
+    +'<div class="hint">Price and weight are published together or not at all.</div>'
+    +'<div id="sfPriceNote">'+sfPriceNoteHtml(p)+'</div></div></div>';
+}
+function sfExtraRows(p){
+  if(!p.v2) return '';
+  return Object.keys(STAFF_EXTRA_BOXES).filter(function(k){ return staffFieldMode(k)==='edit'; }).map(function(k){
+    var b=STAFF_EXTRA_BOXES[k], v=p[k];
+    var ctl=b.kind==='yesno'
+      ?'<select class="ctl w-md" id="'+b.id+'"><option value="">— not changed —</option><option value="1"'+(v===true?' selected':'')+'>Yes</option><option value="0"'+(v===false?' selected':'')+'>No</option></select>'
+      :'<input class="ctl w-sm mono" id="'+b.id+'" type="number" min="0" step="1" value="'+(v==null?'':esc(v))+'">';
+    return frow(b.label, k, ctl, '<span class="derived">'+esc(b.note)+'</span>'); }).join('');
+}
+/* ── weight: a unit picker (lb for a meat cut), grams on save, and a RETYPE for a swing of more than 3× ── */
+var SF_WUNIT={lb:453.592, oz:28.3495, g:1};
+function sfWeightUnit(p){ if(p._wunit) return p._wunit; return (/^\d/.test(String(p.sku||'')) || /\b(avg|lbs?)\b/i.test(String(p.name||'')))?'lb':'g'; }
+function sfWeightShow(g, unit){ g=+g||0; if(!g) return ''; var v=g/SF_WUNIT[unit||'g']; return unit==='g'?String(Math.round(v)):String(Math.round(v*100)/100); }
+function sfWeightBox(p){
+  var u=sfWeightUnit(p);
+  return '<input class="ctl w-sm mono" id="fW" type="text" inputmode="decimal" value="'+esc(sfWeightShow(p.weightG,u))+'" aria-label="weight">'
+    +' <select class="ctl w-sm" id="fWU" aria-label="weight unit">'+['lb','oz','g'].map(function(x){ return '<option value="'+x+'"'+(x===u?' selected':'')+'>'+x+'</option>'; }).join('')+'</select>';
+}
+function sfWeightGrams(raw, unit){ var s=String(raw==null?'':raw).trim().replace(',','.'); if(!/^\d+(\.\d+)?$/.test(s)) return NaN; var g=Math.round(+s*(SF_WUNIT[unit]||NaN)); return g>0?g:NaN; }
+var SFWT=null;
+function sfWeightApply(p, g){ p.weightG=g; markEdited('price','Weight changed — published together with the price'); sfPriceUpdate(p); return {ok:true}; }
+function sfWeightSet(raw, unit){
+  var p=P[cur]; if(!staffLiveRec(p)) return {ok:false};
+  var g=sfWeightGrams(raw, unit);
+  if(!(g>0)){ toast('⛔ That weight could not be read — type a number like 0.9 and pick lb, oz or g.'); return {ok:false}; }
+  var base=+sfBase(p).weightG||0;
+  if(base>0 && (g>base*3 || g<base/3)){
+    SFWT={raw:String(raw).trim(), unit:unit, g:g};
+    openSheet('<h2>That is a big change in weight</h2><div class="sub">The weight would go from '+esc(sfWeightShow(base,unit))+' '+esc(unit)+' to '+esc(String(raw).trim())+' '+esc(unit)
+      +' (more than 3× different). A wrong weight becomes a wrong price. <b>Type the new weight again</b> to confirm it.</div>'
+      +'<input class="ctl mono" id="sfWRe" inputmode="decimal" aria-label="type the new weight again"><div class="bad" id="sfWReWhy" role="alert"></div>'
+      +'<button class="btn primary" type="button" id="sfWReGo">Use this weight</button> <button class="btn" type="button" onclick="closeSheet()">Cancel</button>');
+    var go=$('#sfWReGo'); if(go) go.onclick=function(){ var e=$('#sfWRe'); sfWeightRetype(e?e.value:''); };
+    return {ok:false, needsRetype:true};
+  }
+  return sfWeightApply(p, g);
+}
+function sfWeightRetype(typed){
+  var p=P[cur], w=SFWT; if(!w||!staffLiveRec(p)) return {ok:false};
+  if(sfWeightGrams(typed, w.unit)!==w.g){ var el=$('#sfWReWhy'); if(el) el.textContent='That is not the same value — type '+w.raw+' exactly, or cancel.'; return {ok:false}; }
+  SFWT=null; closeSheet(); return sfWeightApply(p, w.g);
+}
+window.sfWeightSet=sfWeightSet; window.sfWeightRetype=sfWeightRetype;
+function sfCostFrow(p){
+  if(!staffLiveRec(p) || !p.v2 || staffFieldMode('cost')!=='edit')
+    return frow('Cost','read-only','<input class="ctl w-sm mono" value="'+p.cost.toFixed(2)+'" disabled>','<span class="derived">KeHE regular cost / Finale average cost</span>');
+  var cp=+p.casepack>1;
+  return frow('Cost (what we pay, per unit)','per each'+(cp?' · the case holds '+p.casepack:''),'<input class="ctl w-sm mono" id="fCost" type="number" min="0" step="0.01" value="'+(+p.cost>0?p.cost.toFixed(2):'')+'" placeholder="no cost yet">',
+    '<span class="derived">What we pay for ONE each'+(cp?' — not the case price (the case holds '+p.casepack+')':'')+'. Saved to Finale; the old value is kept so Undo can put it back. Refused if it is at or above the price.</span>');
+}
+/* the fields tab for a LIVE staff record: headings in the plan's words, the header bar and notices on top, the sale price
+   read-only, the history underneath. ⛔ Any other record gets the html back untouched. */
+var SF_HEADINGS=[['Identity','What it is'],['Classification — ⚠ this cascades','Where it shows — categories'],['Pricing','Price &amp; sale'],
+  ['SEO &amp; search','Words'],['Physical &amp; shipping','Shipping &amp; storage'],['Ordering &amp; Finale','Finale &amp; ordering'],['Visibility &amp; channels','Where it shows — visibility']];
+function sfLiveFields(p, html){
+  if(!staffLiveRec(p)) return html;
+  SF_HEADINGS.forEach(function(h){ html=html.split('<h3>'+h[0]+'</h3>').join('<h3>'+h[1]+'</h3>'); });
+  html=html.split('id="fPrice" type="number"').join('id="fPrice" type="text" inputmode="decimal"');
+  html=html.replace(/<input class="ctl w-sm mono" id="fW" type="number" value="[^"]*">/, function(){ return sfWeightBox(p); });
+  html=html.split('id="fSale" type="number"').join('id="fSale" disabled title="Set by the sale flow" type="number"');
+  return sfHeaderHtml(p)+sfNoticesHtml(p)+html+sfHistoryHtml(p);
+}
+function sfWireLive(p){
+  if(!staffLiveRec(p)) return;
+  var fpE=$('#fPrice'); if(fpE){ var good=+p.price;
+    fpE.oninput=function(){ var v=sfParseMoney(fpE.value); if(v>0){ p.price=v; good=v; } sfPriceUpdate(p); };
+    fpE.onchange=function(){ var v=sfParseMoney(fpE.value);
+      if(!(v>0)){ p.price=good; fpE.value=good; toast('⛔ That price could not be read — type it like 12.49 (more than 0). The price stays '+money(good)+'.'); sfPriceUpdate(p); return; }
+      p.price=v; good=v; markEdited('price'); sfPriceUpdate(p); }; }
+  var wE=$('#fW'), wU=$('#fWU');
+  if(wE && wU){ wU.onchange=function(){ p._wunit=wU.value; wE.value=sfWeightShow(p.weightG, p._wunit); };
+    wE.onchange=function(){ var r=sfWeightSet(wE.value, wU.value); if(r&&!r.ok&&!r.needsRetype) wE.value=sfWeightShow(p.weightG, wU.value); }; }
+  var vis=document.querySelectorAll('input[data-vis]')||[]; Array.prototype.forEach.call(vis, function(c){ c.onchange=function(){ sfVisToggle(c.getAttribute('data-vis'), !!c.checked); }; });
+  var o=$('#fOwner'); if(o) o.onchange=function(){ sfOwnerChange(p, o.value, o); };
+  var c=$('#fCost'); if(c) c.onchange=function(){ p.cost=+c.value||0; markEdited('price','Cost changed — saved to Finale when you approve'); sfPriceUpdate(p); };
+  ['fW'].forEach(function(id){ var e=$('#'+id); if(!e||wU) return;
+    var a=e.oninput, b=e.onchange;
+    e.oninput=function(){ if(a) a(); sfPriceUpdate(p); };
+    e.onchange=function(){ if(b) b(); sfPriceUpdate(p); }; });
+  var f=$('#fFresh'); if(f) f.onchange=function(){ p.freshKitchen=f.value===''?null:f.value==='1'; markEdited('identity','Kitchen tag changed'); };
+  var l=$('#fLead'); if(l) l.onchange=function(){ var v=Math.round(+l.value||0); p.leadDays=v>0?v:null; markEdited('identity','Lead days changed'); };
+  sfPriceUpdate(p); sfWireHistory(p);
+}
+/* the owner: refused targets, then a confirm that says where income moves. ⛔ The mini decides again (Vendor Master). */
+var SF_OWNER_REFUSED=['TCFeeds','MNFC'];
+function sfOwnerProblem(owner){
+  if(SF_OWNER_REFUSED.indexOf(owner)>=0) return owner+' cannot be an owner here — '+(owner==='TCFeeds'?'TC Feeds donations never post as income, so their account is a deliberate check':'MNFC is our own membership income, booked by journal entry')+'.';
+  var v=(VDIR&&VDIR.vendors)||{};
+  if(owner!=='TCFarm' && Object.keys(v).length && !(owner in v)) return owner+' is not in Vendor Master — add the vendor there first.';
+  return '';
+}
+function sfOwnerChange(p, owner, sel){
+  var bad=sfOwnerProblem(owner);
+  if(bad){ toast('⛔ '+bad); if(sel) sel.value=p.owner; return false; }
+  if(owner===p.owner) return true;
+  var from=p.owner;
+  askConfirm({title:'Change the owner to '+owner+'?',
+    body:'This moves where the product\'s income is booked:\n  now: '+sfIncomeAcct(from,p)+'\n  after: '+sfIncomeAcct(owner,p)
+      +'\n\nFinale is changed first, then the stores. Nothing changes until you approve.',
+    yes:'Change the owner', no:'Keep '+from,
+    onYes:function(){ p.owner=owner; markEdited('identity','Owner changed — income moves to '+sfIncomeAcct(owner,p)); },
+    onNo:function(){ if(sel) sel.value=p.owner; }});
+  return true;
+}
+
+/* ── the approval sheet for a LIVE staff record: only what changed, before and after, warnings first ────────────────── */
+var SF_LABELS={name:'Name',badge:'Badge',brand:'Brand',upc:'UPC',vendorCode:'Supplier item number',price:'Regular price',salePrice:'Sale price',saleEnds:'Sale ends',
+  weightG:'Weight (g)',casepack:'Case pack',reorder:'Reorder quantity',cat:'Category',cat2:'Second category',itemType:'Finale item type',owner:'Owner',
+  storage:'Storage',visible:'Shown on the stores',optionName:'Option name',marginOverride:'Target margin',taxOverride:'Tax class',dims:'Dimensions',
+  volume:'Volume',prose:'Description',warranty:'Highlights',kws:'Search keywords',pageTitle:'Page title',metaDesc:'Meta description',tiers:'Bulk discount tiers',
+  cq:'Common questions',supplier:'Supplier',cost:'Cost',freshKitchen:'Made fresh in our kitchen',leadDays:'Supplier lead days',visibleByStore:'Shown on each store'};
+function sfShow(v){ if(v&&typeof v==='object'&&!Array.isArray(v)&&Object.keys(v).every(function(k){ return typeof v[k]==='boolean'; })) return Object.keys(v).map(function(k){ return sfStoreName(k)+': '+(v[k]?'shown':'hidden'); }).join(', ') || '—';
+  if(v===null||v===undefined||v==='') return '—'; if(typeof v==='boolean') return v?'yes':'no'; if(typeof v==='object') return JSON.stringify(v).slice(0,160); return String(v).replace(/<[^>]*>/g,'').slice(0,160); }
+function sfChanges(p){
+  var b=sfBase(p), out=[], keys=EDITABLE_FIELDS.concat(['cost']);
+  keys.forEach(function(f){
+    if(f==='salePrice' || b[f]===undefined) return;
+    if(staffFieldMode(f)==='hide' && f!=='cost') return;
+    if(JSON.stringify(p[f]===undefined?null:p[f])!==JSON.stringify(b[f]===undefined?null:b[f])) out.push({f:f, label:SF_LABELS[f]||f, was:b[f], now:p[f]});
+  });
+  return out;
+}
+function sfApproveWarnings(p, ch){
+  var w=[], pc=sfPriceCheck(p), by={}; ch.forEach(function(x){ by[x.f]=x; });
+  if(by.owner) w.push('The owner moves income: '+sfIncomeAcct(by.owner.was,p)+' → '+sfIncomeAcct(by.owner.now,p)+'.');
+  if(pc.stop) w.push('⛔ '+pc.stop);
+  if(pc.reason) w.push('Below the floor ('+money(pc.floor)+')'+(p._priceReason?' — reason: “'+String(p._priceReason).trim()+'”':' — a reason is needed')+'.');
+  if(by.price && sfPerLb(p)) w.push('Price per pound moved. '+sfPerLb(p));
+  if(by.saleEnds) w.push('The sale end changes ('+sfShow(by.saleEnds.was)+' → '+sfShow(by.saleEnds.now)+') — it is written through the sale flow.');
+  if(by.visibleByStore) w.push('Visibility changes only on the stores shown above; the Nelson Grass Farm store keeps its own hide.');
+  return w;
+}
+function staffApproveOpen(){
+  var p=P[cur]; if(!p) return;
+  if(st[cur].approved){ toast('This product is already approved.'); return; }
+  var ch=sfChanges(p), warn=sfApproveWarnings(p, ch), bad=sfPriceBad(p);
+  openSheet('<h2>Approve '+esc(p.name)+'</h2>'
+    +(warn.length?'<div class="rwitem" style="border-left:4px solid var(--stop)" role="alert"><b>Check these first</b>'+warn.map(function(x){ return '<p>'+esc(x)+'</p>'; }).join('')+'</div>':'')
+    +'<div class="rwitem"><b>What changes ('+ch.length+')</b>'+(ch.length?ch.map(function(x){ return '<p><b>'+esc(x.label)+'</b>: <s>'+esc(sfShow(x.was))+'</s> → <b>'+esc(sfShow(x.now))+'</b></p>'; }).join('')
+      :'<p>Nothing differs from what is on the stores — only the fields you change are written.</p>')+'</div>'
+    +'<div class="sub">Approving publishes only these fields to the stores — MN Food Club first — and to Finale, snapshot-first. Every change can be undone from the history.</div>'
+    +'<div class="rwitem"><b>Recorded against you</b><p>'+esc(ACCOUNT||'the signed-in reviewer')+'</p></div>'
+    +(bad?'<div class="bad" role="alert">⛔ This cannot be approved yet — fix the price first.</div>':'')
+    +'<button class="btn primary" id="sfApproveGo" type="button"'+(bad?' disabled':'')+'>Approve — change the live product</button> <button class="btn" type="button" onclick="closeSheet()">Cancel</button>');
+  var g=$('#sfApproveGo'); if(g) g.onclick=function(){ g.disabled=true; staffApproveGo(); };
+}
+function staffApproveGo(){
+  if(!staffLiveRec(P[cur])) return;
+  if(sfPriceBad(P[cur])){ toast('⛔ Fix the price first.'); return; }
+  if(st[cur].approved){ toast('This product is already approved.'); return; }
+  return window.approveProduct();
+}
+window.staffApproveOpen=staffApproveOpen; window.staffApproveGo=staffApproveGo; window.sfPriceCheck=sfPriceCheck; window.sfChanges=sfChanges;
+
+/* ── history + Undo ──────────────────────────────────────────────────────────────────────────────────────────────── */
+var UNDO={};
+function sfHistoryHtml(p){
+  if(!staffLiveRec(p)) return '';
+  var h=Array.isArray(p.staffHistory)?p.staffHistory:[];
+  var body=!h.length?'<div class="hint">No change has been made in the Studio yet.</div>':h.map(function(e,i){
+    var n=h.length-i, u=UNDO[e.session]||{}, un=e.undo||{};
+    var f=Object.keys(e.fields||{}).map(function(k){ var v=e.fields[k]||[]; return '<div>'+esc(SF_LABELS[k]||k)+': <s>'+esc(sfShow(v[0]))+'</s> → <b>'+esc(sfShow(v[1]))+'</b></div>'; }).join('');
+    var stores=Object.keys(e.stores||{}).map(function(k){ return esc(sfStoreName(k))+' '+esc(String(e.stores[k])); }).join(' · ');
+    var fin={ok:'saved',deferred:'waiting',failed:'failed',skipped:'not changed'}[e.finale]||String(e.finale||'');
+    var undoCtl=u.st==='done'?'<b>↩ Undone</b>'
+      :(un.available===false?'<span class="sub">Undo is not available: '+esc(un.why_not||'it cannot be undone')+'</span>'
+        :'<span class="sub">Checked when you press Undo.</span> <button type="button" class="btn sm" data-undo="'+esc(e.session)+'"'+sfBtnAttrs('undo-ask', e.session)+(u.st==='run'?' disabled':'')+'>Undo this change</button>');
+    return '<div class="rwitem" data-hist="'+esc(e.session)+'"><b>Change '+n+'</b> · '+esc(fmtWhen(e.at))+' · '+esc(e.who||'someone')+f
+      +'<div class="sub">Stores: '+(stores||'—')+' · Finale: '+esc(fin||'—')+'</div><div>'+undoCtl+'</div>'
+      +'<div id="undoProg_'+esc(String(e.session).replace(/[^A-Za-z0-9_-]/g,'_'))+'"></div></div>'; }).join('');
+  return '<div class="fgroup" id="sfHist"><h3>Change history</h3><div class="body">'+body+'</div></div>';
+}
+function sfWireHistory(){ /* the buttons carry their own onclick — nothing to wire */ }
+function sfUndoEntry(sku, session){
+  var i=sfRecordIndex(sku,true), p=i>=0?P[i]:null; if(!p||!Array.isArray(p.staffHistory)) return null;
+  return p.staffHistory.filter(function(e){ return e.session===session; })[0]||null;
+}
+function sfUndoAsk(session){
+  var p=P[cur]; if(!staffLiveRec(p)) return;
+  var e=sfUndoEntry(p.sku, session); if(!e){ toast('That change is not in the history any more — press ↻ Refresh.'); return; }
+  if((e.undo||{}).available===false){ toast('⛔ '+((e.undo||{}).why_not||'This change cannot be undone.')); return; }
+  var u=UNDO[session]; if(u && (u.st==='run'||u.st==='done')){ toast(u.st==='done'?'Already undone.':'The undo is already running.'); return; }
+  var inc=!!(e.undo||{}).needs_confirm;   /* the server sends "owner_income" (studio_undo.CONFIRM_OWNER) — any truthy value needs the confirm */   /* an owner change: income moves back — a confirm nobody clicks by reflex */
+  if(inc){ askConfirm({title:'Undo moves this product\'s income back',
+    body:'Undo moves this product\'s income back to '+sfIncomeAcct(((e.fields||{}).owner||[])[0]||p.owner,p)+'. The accounts in Finale are changed first, then the stores. If sales were booked since, tell accounting.\n\nType nothing — press the red button only if that is what you want.',
+    yes:'Yes, move the income back', no:'Keep the owner', onYes:function(){ sfUndoRun(p.sku, session, true); }}); return; }
+  askConfirm({title:'Undo this change?',
+    body:'Puts back the values this change replaced, on the stores it wrote and in Finale. If any of its fields has been changed again since — by anyone, or by the sale flow — the whole undo is refused and says who changed what.\n\nUndoing is itself a change, and it is in the history.',
+    yes:'Undo it', no:'Keep it', onYes:function(){ sfUndoRun(p.sku, session); }});
+}
+async function sfUndoRun(sku, session, confirmIncome){
+  if(!staffEditUI()) return {ok:false};
+  var e=sfUndoEntry(sku, session); if(!e) return {ok:false};
+  var u=UNDO[session];
+  if(u && (u.st==='run'||u.st==='done')){ return {ok:false, why:u.st==='done'?'already undone':'running'}; }   /* one request per change */
+  u=UNDO[session]={st:'run', sku:sku, answer:'', req:null};
+  var wk='undo:'+session, pid='undoProg_'+String(session).replace(/[^A-Za-z0-9_-]/g,'_');
+  var w=sfWait(wk,{sel:'#'+pid, names:['Sending the undo to the Mac mini','Waiting for the Mac mini to put it back'], limits:[STUDIO_LIMITS.undoMs, STUDIO_LIMITS.undoMs],
+    doneText:'Undone.', limitText:'The undo has not finished yet.', safeText:'Your request is saved — it may still finish. Nothing is lost.', retryKey:false,
+    poll:function(w, alive){ return sfUndoPoll(u, w, alive, sku, session); }});
+  try{
+    var stores=Object.keys(e.stores||{}).filter(function(k){ return String(e.stores[k])==='written'; });
+    u.req=await sfSubmit('undo:'+sku+':'+_photoId(), 'undo_request', (confirmIncome?{session:session, stores:stores, confirm:'owner_income'}:{session:session, stores:stores}), 'productpipeline.studio_undo');
+    if(SFW[wk]!==w||w.state!=='run') return {ok:false};
+    sfStage(w,1);
+    return {ok:true};
+  }catch(err){ u.st='failed'; sfFinish(w,'failed','Not sent — '+String(err&&err.message||err).slice(0,200)); delete UNDO[session]; return {ok:false}; }
+}
+async function sfUndoPoll(u, w, alive, sku, session){
+  if(!u.req || w.stage<1) return;
+  var r=await sfReadRequest(u.req); if(!alive()) return;
+  if(r.kind==='applied'){ u.st='done'; u.answer=r.text; sfFinish(w,'done',''); sfShowAnswer(session, r.text, true); try{ liveRefresh(true); }catch(_){} }
+  else if(r.kind==='refused'){ u.st='refused'; u.answer=r.text; sfFinish(w,'failed', r.text||'The Mac mini refused the undo.'); delete UNDO[session]; }
+  else if(r.kind==='jobfail'){ sfFinish(w,'failed', r.text); delete UNDO[session]; }
+  else if(r.text) w.note=r.text;
+}
+function sfShowAnswer(session, text, ok){
+  var el=document.querySelector('#undoProg_'+String(session).replace(/[^A-Za-z0-9_-]/g,'_'));
+  if(el&&text) el.innerHTML+='<div class="sub" role="status">'+(ok?'✅ ':'⛔ ')+esc(text)+'</div>';
+}
+window.sfUndoAsk=sfUndoAsk; window.sfUndoRun=sfUndoRun; window.sfUndoState=function(){ return UNDO; };
+
+/* ── NEW PRODUCT / MAKE A SIMILAR VERSION (staff): copy everything but SKU + UPC, adjust, several at once ───────────── */
+var NW=null;
+var NW_KINDS=[['kitchen','A kitchen item'],['meat','A meat cut'],['other','Another house item']];
+var NW_UNITS=['oz','lb','g','kg','fl oz','pt','qt','gal','ml','L','ct'];
+var NW_STAGES=['Waiting for the Mac mini','Checking the SKUs','Categorising','Writing the copy','Setting the price','Preparing the photos','Ready to review'];
+var NW_STORAGES=['','Frozen','Refrigerated','Dry'];
+function nwFresh(){ return {name:'', size:'', unit:'oz', weight:'', price:'', sku:'', storage:'', ingredients:'', cost:'', fresh:null, bigOk:false, copied:{}}; }
+function nwOpen(fromSku){
+  if(!staffEditUI()) return false;
+  fromSku=String(fromSku||'').trim();
+  var kind='', row=nwFresh(), fromName='';
+  if(fromSku){
+    var i=sfRecordIndex(fromSku,true), p=i>=0?P[i]:null, r=sfIndexRow(fromSku);
+    fromName=(p&&p.name)||(r&&r.name)||fromSku;
+    row.name=(p&&p.name)||(r&&r.name)||''; row.copied.name=true;
+    var pr=p?p.price:(r&&r.stores&&Object.keys(r.stores).map(function(k){return r.stores[k].price;}).filter(function(x){return x!=null;})[0]);
+    if(pr!=null){ row.price=String(pr); row.copied.price=true; }
+    if(p&&p.storage){ row.storage=p.storage; row.copied.storage=true; }
+    if(p&&p.ingredients){ row.ingredients=p.ingredients; row.copied.ingredients=true; }
+    var m=/-\s*([\d.]+)\s*(fl\s*oz|oz|lb|lbs|g|kg|ml|l|ct|pt|qt|gal)\s*$/i.exec(row.name);
+    if(m){ row.size=m[1]; row.unit=m[2].toLowerCase().replace(/\s+/g,' ').replace('lbs','lb'); row.copied.size=true; }
+    var wl=p&&+p.weightG>0?(+p.weightG/453.592):0, am=/avg\s*([\d.]+)\s*lbs?/i.exec(row.name);
+    var wv=am?+am[1]:(wl?Math.round(wl*100)/100:0);
+    if(wv>0){ row.weight=String(wv); row.copied.weight=true; }
+    kind=/^\d/.test(fromSku)?'meat':(p&&/^F?Kitchen/i.test(String(p.cat||''))?'kitchen':'');
+  }
+  NW={from:fromSku, fromName:fromName, like:'', category:'', kind:kind, rows:[row], err:'', busy:false, sent:null, big:false};
+  nwRender(); return true;
+}
+function nwRowOut(r, kind){
+  var size=String(r.size||'').trim();
+  return {name:String(r.name||'').trim(), size:size?(size+' '+r.unit):'', weight_avg_lb:r.weight===''?null:+r.weight, price:+r.price,
+          sku:String(r.sku||'').trim(), storage:String(r.storage||''), ingredients:String(r.ingredients||'').trim(),
+          kitchen_cost:(kind==='kitchen'&&String(r.cost).trim()!=='')?+r.cost:null, fresh_kitchen:kind==='kitchen'?(r.fresh===true):false};
+}
+/* a small deterministic 64-bit hash (two FNV-1a passes) — the same request always gets the same key */
+function sfHash(s){
+  s=String(s); var h1=0x811c9dc5, h2=0x1b873593;
+  for(var i=0;i<s.length;i++){ var c=s.charCodeAt(i);
+    h1^=c; h1=Math.imul(h1,0x01000193)>>>0; h2^=c+i; h2=Math.imul(h2,0x85ebca6b)>>>0; }
+  return ('00000000'+h1.toString(16)).slice(-8)+('00000000'+h2.toString(16)).slice(-8);
+}
+function nwKey(n){ n=n||NW; return sfHash(JSON.stringify({from:n.from||'', like:n.like||'', kind:n.kind, rows:n.rows.map(function(r){ return nwRowOut(r,n.kind); }), who:String(ACCOUNT||'').toLowerCase()})); }
+function nwProblems(n){
+  n=n||NW; var out=[], taken={};
+  if(NW_KINDS.every(function(k){ return k[0]!==n.kind; })) out.push({row:-1, msg:'Choose what kind of item it is.'});
+  if(!n.rows.length) out.push({row:-1, msg:'Add at least one product.'});
+  if(!n.from){   /* a request with no source says what it is LIKE (the server needs one) */
+    var lk=String(n.like||'').trim();
+    if(!lk) out.push({row:-1, msg:'Say which existing product it is like (its SKU) — the new one takes its category and settings from it.'});
+    else if(!sfSkuOk(lk)) out.push({row:-1, msg:'“Like this product” is a SKU: letters, digits, dots and dashes.'});
+    else if(FIND.rows && !sfIndexRow(lk)) out.push({row:-1, msg:'SKU '+lk+' is not on our stores — check it.'});
+  }
+  if(n.rows.length>20) out.push({row:-1, msg:'At most 20 products at once.'});
+  n.rows.forEach(function(r,i){
+    var P_=function(m){ out.push({row:i, msg:m}); };
+    var name=String(r.name||'').trim();
+    if(!name) P_('Give it a name.'); else if(name.length>120) P_('The name is too long (120 characters at most).');
+    var pr=String(r.price).trim();
+    if(!pr) P_('Give the price for one package.'); else if(!(+pr>0) || +pr>9999 || !/^\d+(\.\d{1,2})?$/.test(pr)) P_('The price is a dollar amount like 11.99.');
+    var sz=String(r.size||'').trim(), w=String(r.weight||'').trim();
+    if(n.kind!=='meat' && !sz) P_('Give the size (a number and a unit) — every name ends with its size.');
+    if(sz && !(+sz>0 && /^\d+(\.\d+)?$/.test(sz))) P_('The size is a number like 12 — pick the unit beside it.');
+    if(n.kind==='meat' && !w) P_('A meat cut needs its average weight in pounds, like 0.85.');
+    if(w){
+      if(/^\./.test(w)) P_('Write the weight as 0.85, not '+w+'.');
+      else if(!/^\d+(\.\d+)?$/.test(w) || !(+w>0)) P_('The weight is pounds as a number like 0.85.');
+      else if(+w>STUDIO_LIMITS.bigLb && !r.bigOk) P_('That is over '+STUDIO_LIMITS.bigLb+' lb — did you mean '+(+w/10)+' or '+(+w/100)+'? Tick “yes, it is that heavy” if it is right.');
+    }
+    var sk=String(r.sku||'').trim();
+    if(sk){
+      if(!sfSkuOk(sk)) P_('A SKU is letters, digits, dots and dashes.');
+      else { var hit=sfIndexRow(sk);
+        if(hit) P_('SKU '+sk+' is already used by '+(hit.name||sk)+' (on '+Object.keys(hit.stores||{}).map(sfStoreName).join(', ')+').');
+        else if(taken[sk.toLowerCase()]!==undefined) P_('SKU '+sk+' is used twice in this list.');
+        taken[sk.toLowerCase()]=i; }
+    }
+    if(String(r.ingredients||'').length>2000) P_('The ingredients are too long.');
+    var kc=String(r.cost||'').trim();
+    if(n.kind==='kitchen' && r.fresh!==true && r.fresh!==false) P_('Say whether it is made fresh in our kitchen — yes or no.');
+    if(n.kind==='kitchen' && kc!==''){ if(!/^\d+(\.\d{1,4})?$/.test(kc)) P_('The kitchen cost is a dollar amount like 2.40.'); else if(+pr>0 && +kc>=+pr) P_('The kitchen cost is at or above the price — that leaves no margin.'); }
+  });
+  return out;
+}
+function nwWarnings(n){
+  n=n||NW; var out=[];
+  n.rows.forEach(function(r,i){ var sk=String(r.sku||'').trim();
+    if(/-\d{1,2}$/.test(sk)) out.push({row:i, msg:'A SKU ending in '+sk.match(/-\d{1,2}$/)[0]+' reads like a pack count or a variant. It is allowed — check it is what you mean.'}); });
+  return out;
+}
+function nwSuggestSku(from){
+  /* the next free number in the parent's number range, taken from the list — only a suggestion, the person may type any SKU */
+  var m=/^(\d+)/.exec(String(from||'')); if(!m||!FIND.rows) return '';
+  var base=+m[1], used={}; FIND.rows.forEach(function(r){ var x=/^(\d+)/.exec(r.sku); if(x) used[+x[1]]=1; });
+  for(var k=base+1;k<base+500;k++) if(!used[k]) return String(k);
+  return '';
+}
+function nwSubmitText(n){ n=n||NW; var c=n.rows.length; return 'Create '+c+' product'+(c===1?'':'s')+' — goes to review, nothing is live yet'; }
+function nwRowHtml(n, r, i){
+  var c=r.copied||{}, from=n.from, cp=function(k){ return c[k]?'<span class="sub" data-copied="'+k+'">copied from '+esc(from)+' — check</span>':''; };
+  var perLb=(+r.price>0 && +r.weight>0)?'<span class="sub" id="nwLb_'+i+'">'+money(+r.price/+r.weight)+'/lb</span>':'<span class="sub" id="nwLb_'+i+'"></span>';
+  var sug=!r.sku?nwSuggestSku(from):'';
+  var K=n.kind;
+  return '<fieldset class="nwrow" id="nwRow_'+i+'"><legend class="lbl">Product '+(i+1)+'</legend>'
+    +'<label>Name<input class="ctl" value="'+esc(r.name)+'" maxlength="120" oninput="nwSet('+i+',\'name\',this.value)">'+cp('name')+'</label>'
+    +'<div class="nwgrid"><label>Size<input class="ctl mono" inputmode="decimal" value="'+esc(r.size)+'" oninput="nwSet('+i+',\'size\',this.value)">'+cp('size')+'</label>'
+    +'<label>Unit<select class="ctl" onchange="nwSet('+i+',\'unit\',this.value)">'+NW_UNITS.map(function(u){ return '<option'+(u===r.unit?' selected':'')+'>'+esc(u)+'</option>'; }).join('')+'</select></label>'
+    +'<label>Average weight (lb)<input class="ctl mono" inputmode="decimal" placeholder="0.85" value="'+esc(r.weight)+'" oninput="nwSet('+i+',\'weight\',this.value)">'+cp('weight')+'</label></div>'
+    +(+r.weight>STUDIO_LIMITS.bigLb?'<label><input type="checkbox"'+(r.bigOk?' checked':'')+' onchange="nwSet('+i+',\'bigOk\',this.checked)"> Yes, it is that heavy</label>':'')
+    +'<div class="nwgrid"><label>Price for one package<input class="ctl mono" inputmode="decimal" value="'+esc(r.price)+'" oninput="nwSet('+i+',\'price\',this.value)">'+cp('price')+'</label>'+perLb
+    +'<label>Storage<select class="ctl" onchange="nwSet('+i+',\'storage\',this.value)">'+NW_STORAGES.map(function(s){ return '<option value="'+esc(s)+'"'+(s===r.storage?' selected':'')+'>'+esc(s||'— choose —')+'</option>'; }).join('')+'</select>'+cp('storage')+'</label></div>'
+    +'<label>SKU <span class="sub">(optional — what you type wins)</span><input class="ctl mono" value="'+esc(r.sku)+'" oninput="nwSet('+i+',\'sku\',this.value)" placeholder="'+esc(sug||'we pick one if you leave it empty')+'"></label>'
+    +(sug?'<div class="sub" id="nwSug_'+i+'">Suggestion: '+esc(sug)+' — the next free number after '+esc(from)+' in the list. <button type="button" class="btn sm" onclick="nwSet('+i+',\'sku\',\''+esc(sug)+'\');nwRender()">Use it</button></div>':'')
+    +'<label>Ingredients<textarea class="ctl" rows="2" oninput="nwSet('+i+',\'ingredients\',this.value)">'+esc(r.ingredients)+'</textarea>'+cp('ingredients')+'</label>'
+    +(K==='kitchen'?'<label>Kitchen cost for one package<input class="ctl mono" inputmode="decimal" value="'+esc(r.cost)+'" oninput="nwSet('+i+',\'cost\',this.value)">'
+      +(String(r.cost).trim()===''?'<span class="sub">no cost yet</span>':'')+'</label>'
+      +'<label>Made fresh in our kitchen?<select class="ctl" onchange="nwSet('+i+',\'fresh\',this.value===\'yes\'?true:this.value===\'no\'?false:null)"><option value="">— choose —</option><option value="yes"'+(r.fresh===true?' selected':'')+'>Yes</option><option value="no"'+(r.fresh===false?' selected':'')+'>No</option></select></label>':'')
+    +(n.from&&n.kind==='meat'?'<div class="sub" data-photos="1">Photos: Add new photos (a different cut looks different from '+esc(n.from)+').</div>':'')
+    +'<div class="bad" id="nwErr_'+i+'" role="alert"></div>'
+    +(n.rows.length>1?'<button type="button" class="btn sm" onclick="nwRemoveRow('+i+')">Remove this product</button>':'')+'</fieldset>';
+}
+function nwRender(){
+  var n=NW; if(!n) return;
+  openSheet('<h2>'+(n.from?'Make a similar version of '+esc(n.fromName):'New product')+'</h2>'
+    +'<div class="sub">'+(n.from?'Copies everything from <b>'+esc(n.fromName)+'</b> <span class="mono">'+esc(n.from)+'</span> except the SKU and UPC — every copied value says where it came from until you change it. ':'')
+    +'Add as many products as you need. The new products go to review in the Studio; <b>nothing is live yet</b>.</div>'
+    +'<fieldset class="nwkind"><legend class="lbl">What kind of item?</legend>'+NW_KINDS.map(function(k){ return '<label><input type="radio" name="nwKind" value="'+k[0]+'"'+(n.kind===k[0]?' checked':'')+' onchange="nwSetKind(\''+k[0]+'\')"> '+esc(k[1])+'</label> '; }).join('')+'</fieldset>'
+    +(n.from?'':'<label>Like this existing product (SKU)<input class="ctl mono" id="nwLike" value="'+esc(n.like)+'" oninput="nwSetLike(this.value)"><span class="sub">It gives the new product its category and settings.</span></label>')
+    +n.rows.map(function(r,i){ return nwRowHtml(n,r,i); }).join('')
+    +'<div style="margin:8px 0"><button type="button" class="btn" id="nwAdd" onclick="nwAddRow()">+ Add another product</button></div>'
+    +'<div id="nwWarn" class="hint"></div><div id="nwProg" class="rwitem" role="status" hidden></div>'
+    +'<div style="margin-top:10px"><button class="btn primary" id="nwGo" type="button" onclick="nwSubmit()">'+esc(nwSubmitText(n))+'</button> <button class="btn" type="button" onclick="nwClose()">Cancel</button>'
+    +' <span class="note" id="nwWhy"></span></div>');
+  var g=$('#nwGo'); if(g) g.onclick=function(){ nwSubmit(); };
+  nwRefresh();
+}
+function nwRefresh(){
+  var n=NW; if(!n) return;
+  var pr=nwProblems(n), go=$('#nwGo'), why=$('#nwWhy');
+  if(go){ go.disabled=!!pr.length||n.busy; go.textContent=n.busy?'Sending…':nwSubmitText(n); }
+  if(why) why.textContent=pr.length?pr[0].msg:'';
+  n.rows.forEach(function(r,i){ var e=document.querySelector('#nwErr_'+i), lb=document.querySelector('#nwLb_'+i);
+    if(e) e.textContent=(pr.filter(function(x){return x.row===i;})[0]||{}).msg||'';
+    if(lb) lb.textContent=(+r.price>0&&+r.weight>0)?money(+r.price/+r.weight)+'/lb':''; });
+  var wn=$('#nwWarn'); if(wn) wn.textContent=nwWarnings(n).map(function(x){ return x.msg; }).join(' ');
+  return pr;
+}
+function nwSet(i, f, v){
+  var n=NW; if(!n||!n.rows[i]) return;
+  n.rows[i][f]=v; if(n.rows[i].copied && n.rows[i].copied[f]) delete n.rows[i].copied[f];   /* typing over a copied value clears its label */
+  if(f==='weight') n.rows[i].bigOk=false;
+  nwRefresh();
+}
+function nwSetLike(v){ if(NW){ NW.like=String(v||''); nwRefresh(); } }
+function nwSetKind(k){ if(!NW) return; NW.kind=k; nwRender(); }
+function nwAddRow(){ if(!NW||NW.rows.length>=20) return; var r=nwFresh(), s=NW.rows[0];
+  if(NW.from && s){ r.storage=s.storage; r.unit=s.unit; r.ingredients=s.ingredients; r.name=s.name; r.copied={name:true,storage:!!s.storage,ingredients:!!s.ingredients}; }
+  NW.rows.push(r); nwRender(); }
+function nwRemoveRow(i){ if(!NW||NW.rows.length<2) return; NW.rows.splice(i,1); nwRender(); }
+function nwClose(){ var w=SFW['new:'+(NW&&NW.key||'')]; NW=null; closeSheet(); }
+async function nwSubmit(){
+  var n=NW; if(!n||n.busy) return {ok:false};
+  if(!staffEditUI()){ n.err='This is not available here.'; return {ok:false}; }
+  var pr=nwProblems(n); if(pr.length){ toast('⛔ '+pr[0].msg); nwRefresh(); return {ok:false, problems:pr}; }
+  if(!IS_BROWSER){ toast('This needs the live page (sign in).'); return {ok:false}; }
+  n.busy=true; nwRefresh();
+  var key=nwKey(n), pg=$('#nwProg'); if(pg) pg.hidden=false;
+  var wk='new:'+key; n.key=key;
+  var w=sfWait(wk,{sel:'#nwProg', names:NW_STAGES, limits:[STUDIO_LIMITS.newMs], doneText:'Ready to review — the products are in the queue as “new, made by you”.',
+    limitText:'It has not finished yet.', safeText:'Your request is saved — the Mac mini will still make the products. Nothing is live.', retryKey:true,
+    retry:function(){ if(NW){ NW.busy=false; nwSubmit(); } },
+    poll:function(w, alive){ return nwPoll(n, w, alive); }});
+  try{
+    var again=null;
+    try{ again=(await sfScanRequests()).filter(function(r){ return sfMine(r) && /^new:/.test(r.sku) && r.ds.indexOf('refused@')!==0 && r.edits && r.edits.idempotency_key===key; })[0]||null; }catch(_){ again=null; }
+    if(SFW[wk]!==w) return {ok:false};
+    if(again){ n.req={spId:again.spId, listId:again.listId, jobId:'', jobs:'', title:again.sku}; n.repeat=true;
+      w.note='You already sent exactly this — showing that request, not making a second one.'; }
+    else n.req=await sfSubmit('new:'+_photoId(), 'new_request', Object.assign({kind:n.kind, from_sku:n.from||'', rows:n.rows.map(function(r){ return nwRowOut(r,n.kind); }), idempotency_key:key}, n.from?{}:{like_sku:String(n.like||'').trim()}, IS_TEST?{test:true}:{}), 'productpipeline.house_item_create');
+    n.sent=n.req; if(SFW[wk]===w && w.state==='run') sfStage(w,0), w.sentAt=_sfNow();
+    return {ok:true, repeat:!!again, req:n.req};
+  }catch(e){ n.busy=false; if(SFW[wk]===w) sfFinish(w,'failed','Not sent — '+String(e&&e.message||e).slice(0,200)+'. What you typed is kept.'); return {ok:false, error:String(e&&e.message||e)}; }
+}
+function nwStageOf(note, state){
+  var s=String(note||'').toLowerCase();
+  if(/ready|review/.test(s)) return 6; if(/photo|image/.test(s)) return 5; if(/price|pricing/.test(s)) return 4;
+  if(/copy|words|writing/.test(s)) return 3; if(/categor/.test(s)) return 2; if(/sku/.test(s)) return 1;
+  return (state&&state!=='queued')?1:0;
+}
+async function nwPoll(n, w, alive){
+  if(!n.req) return;
+  var r=await sfReadRequest(n.req); if(!alive()) return;
+  if(r.kind==='applied'){ sfFinish(w,'done',''); n.busy=false; try{ liveRefresh(true); }catch(_){} return; }
+  if(r.kind==='refused'){ n.busy=false; sfFinish(w,'failed', r.text||'The Mac mini refused it.'); return; }
+  if(r.kind==='jobfail'){ n.busy=false; sfFinish(w,'failed', r.text); return; }
+  var s=nwStageOf(r.text, r.state); if(s>w.stage){ w.stage=s; w.stageT0=_sfNow(); }
+  w.note=(w.note&&n.repeat&&!r.text)?w.note:(r.text||'');
+}
+function sfSimilarOpen(p){
+  if(!staffEditUI() || !p) return;
+  var o=String(p.owner||'');
+  if(!o || CLN_NOT_OWNERS.indexOf(o)>=0) return nwOpen(p.sku);       /* TC Farm's own items: the house-item flow (P-2299 — no more "ask the team") */
+  return cloneSheet();                                                /* a vendor's product keeps the consignment clone flow */
+}
+window.nwSetLike=nwSetLike; window.nwOpen=nwOpen; window.nwSet=nwSet; window.nwSetKind=nwSetKind; window.nwAddRow=nwAddRow; window.nwRemoveRow=nwRemoveRow; window.nwSubmit=nwSubmit;
+window.nwClose=nwClose; window.nwRender=nwRender; window.nwProblems=nwProblems; window.nwKey=nwKey; window.nwWarnings=nwWarnings; window.nwSubmitText=nwSubmitText;
+window.sfSimilarOpen=sfSimilarOpen; window.getNW=function(){ return NW; }; window.nwRowOut=nwRowOut;
+
+window.__sf={EDITABLE:function(){ return EDITABLE_FIELDS; },FIND:FIND,OPEN:OPEN,UNDO:UNDO,SFW:SFW,REG:STAFF_FIELD_REGISTRY,LIM:STUDIO_LIMITS,sfLiveFields:sfLiveFields,sfHistoryHtml:sfHistoryHtml,sfNormIndex:sfNormIndex,sfPriceNoteHtml:sfPriceNoteHtml,sfOwnerProblem:sfOwnerProblem,sfSuggest:nwSuggestSku,sfHash:sfHash,resetFind:function(){FIND.st='idle';FIND.rows=null;FIND.bySku={};FIND.gen++;FIND.recentSt='idle';FIND.recent=[];}};
+/* ── wiring (staff only) ─────────────────────────────────────────────────────────────────────────────────────────── */
+(function(){
+  var q=document.querySelector('#findQ');
+  if(q){
+    q.oninput=function(){ findOnInput(q.value); };
+    q.onfocus=function(){ FIND.open=true; findLoad(false); findRecentLoad(); findPaint(); };
+    q.onkeydown=function(e){ if(!e) return; if(e.key==='Escape'){ findClose(); } else if(e.key==='Enter'){ findEnter(); e.preventDefault&&e.preventDefault(); } };
+  }
+  var nb=document.querySelector('#btnNewProd'); if(nb) nb.onclick=function(){ nwOpen(''); };
+})();
 
 window.fromPayload=fromPayload; window.applyPayload=applyPayload;
 window.bootLive=bootLive;
