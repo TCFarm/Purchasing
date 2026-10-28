@@ -4256,20 +4256,26 @@ function renderSeq(){
 }
 
 function renderFlags(){
-  const p=P[cur], open=openFlags(cur);
+  const p=P[cur], all=openFlags(cur);
+  /* ⭐⭐ 2026-10-28 (Jack: "a whole lot of errors that are just basically requiring me to submit and resolve for no real
+     reason … We shouldn't require a bunch of clicking"): only a BLOCKING flag (sev 'stop') asks for an action — and keeps
+     the three (Resolve · Override with reason · Defer, never two). Every other flag is a NOTE: shown, never asked about.
+     ⛔ `idx` indexes into `open` (the rendered blocking flags), never into `p.flags`. */
+  const open=all.filter(f=>f.sev==='stop'), gates=all.filter(f=>f.sev==='gate'), notes=all.filter(f=>f.sev!=='stop'&&f.sev!=='gate');
   $('#tabFlagN').textContent=open.length;
   if(vpHides('tabFlags')){ $('#flags').innerHTML=''; return; }   /* vendor view: flags show read-only on the details tab */
-  /* ⛔ `idx` below indexes into `open` (what's rendered), never into `p.flags`
-     (the full array) — the two only coincide until the first flag is
-     actioned, and diverging silently is exactly how the old bug shipped. */
-  $('#flags').innerHTML=`<div class="note"><b>Three actions, never two</b> — Resolve · Override with
+  $('#flags').innerHTML=(open.length?`<div class="note"><b>Three actions, never two</b> — Resolve · Override with
     reason · Defer. A blocking flag holds the product back even when every section is approved.</div>`
-    +(open.length?open.map((f,i)=>`<div class="flag ${f.sev==='warn'?'warn':''}" data-fi="${i}"><span class="flag-k">${esc(f.k)}</span>
+    +open.map((f,i)=>`<div class="flag" data-fi="${i}"><span class="flag-k">${esc(f.k)}</span>
       <div><p>${esc(f.t)}</p><div class="acts">
         <button class="tbtn go" data-do="resolve">Resolve</button>
         <button class="tbtn" data-do="override">Override with reason</button>
         <button class="tbtn" data-do="defer">Defer from batch</button></div></div></div>`).join('')
-      :`<div class="note">No open flags on this product.</div>`);
+      :`<div class="note">Nothing is blocking this product.</div>`)
+    +(gates.length?`<div class="note" style="margin-top:12px"><b>Waits before it can go live (${gates.length})</b> — you can approve it; it is published once this is settled.</div>`
+      +gates.map(f=>`<div class="flag gate-flag"><span class="flag-k">${esc(f.k)}</span><div><p>${esc(f.t)}</p></div></div>`).join(''):'')
+    +(notes.length?`<div class="note" style="margin-top:12px"><b>Notes (${notes.length})</b> — for your information; nothing to do, and none of them stops publishing.</div>`
+      +notes.map(f=>`<div class="flag warn note-flag"><span class="flag-k">${esc(f.k)}</span><div><p>${esc(f.t)}</p></div></div>`).join(''):'');
   $('#flags').querySelectorAll('[data-do]').forEach(b=>b.onclick=()=>{
     const d=b.dataset.do;
     const idx=+b.closest('.flag').dataset.fi;
