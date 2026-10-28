@@ -4133,7 +4133,10 @@ function _unsaved(){
        /* ⭐ 2026-10-05: the queue search and the queue picker are not edits — a refresh must not wait on them */
        if(a&&(a.id==='qSearch'||a.id==='batchSel')) {} else
        if(t==='input'||t==='textarea'||t==='select'||(a&&a.isContentEditable)) return true; }catch(_){}
-  try{ const d=document.querySelector('#drawer'); if(d&&d.dataset&&d.dataset.open==='1') return true; }catch(_){}
+  /* ⛔ 2026-10-28 (Jack: "why is this part taking FOREVER"): the "open a product" card (#openProg) is a read-only progress
+     panel, not an edit. Counting it as one made its own wait self-deadlock: step 3 needs a reload to see the new record,
+     and the reload refused while the card was showing — so the record only appeared once the card was CLOSED. */
+  try{ const d=document.querySelector('#drawer'); if(d&&d.dataset&&d.dataset.open==='1' && !document.querySelector('#sheet #openProg')) return true; }catch(_){}
   return false;
 }
 async function uploadPollTick(){
