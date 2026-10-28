@@ -918,9 +918,15 @@ const SECTION_OF={name:'identity',badge:'identity',brand:'identity',
 function mergeState(payload, rows){
   /* rows: [{sku, overall, edits_json, comments_json, sections_json,
              image_order, revision, decided_at, decided_by}] */
-  const by={}; (rows||[]).forEach(r=>{ by[r.sku]=r; });
-  /* ⭐ 2026-09-27 (P-1717): answers to "Needs your answer" live on rows keyed `ask:<key>`. */
-  payload._ask={}; (rows||[]).forEach(r=>{ if(String(r.sku||'').indexOf('ask:')===0) payload._ask[String(r.sku).slice(4)]=r; });
+  /* ⭐ 2026-10-28 (P-3278): the FIRST (lowest-id) row per product wins — the same row a save finds (_findRow) and the mini
+     reads (listing_review.read_decisions); a retired (superseded) row is never shown. It used to be the LAST row here. */
+  /* ⛔ (review) ordered by id EXPLICITLY — never trust the list's own order */
+  const _rows=_sfByIdAsc(rows);
+  const by={}; _rows.forEach(r=>{ if(_sfSuperseded(r)) return; if(!by[r.sku]) by[r.sku]=r; });
+  /* ⭐ 2026-09-27 (P-1717): answers to "Needs your answer" live on rows keyed `ask:<key>`. ⛔ 2026-10-28 (review): the same
+     rule — the EARLIEST live row, never a retired one (it used to keep the last row, which could be a retired race loser) */
+  payload._ask={}; _rows.forEach(r=>{ var k=String(r.sku||''); if(k.indexOf('ask:')!==0 || _sfSuperseded(r)) return;
+    if(!payload._ask[k.slice(4)]) payload._ask[k.slice(4)]=r; });
   /* ⭐ 2026-10-21: a DEFERRED product whose row was saved 'cancelled' (Remove from queue) but not yet drained shows as
      REMOVED at once — like a loaded product (st.cancelled). ⛔ A removal the drain refused (parked) is not shown removed. */
   (payload.deferred||[]).forEach(function(d){
@@ -6891,16 +6897,18 @@ async function _findRow(batch, sku){
   var lists=await graph(`/sites/${CFG.siteId}/lists?$select=displayName,id`);
   var l=(lists.value||[]).find(function(x){return x.displayName===CFG.listName;});
   if(!l) throw new Error(`the ${CFG.listName} list is missing — decisions cannot be saved`);
-  var url=`/sites/${CFG.siteId}/lists/${l.id}/items?expand=fields&$top=500`;
+  var url=`/sites/${CFG.siteId}/lists/${l.id}/items?expand=fields&$top=500`, best=null;
   while(url){
     var b=await graph(url);
-    var hit=(b.value||[]).find(function(it){
+    /* ⛔ (review) the LOWEST id over every page — never the list's first hit (its order is not promised) */
+    (b.value||[]).forEach(function(it){
       var f=it.fields||{};
-      return String(f.batch||'')===String(batch) && String(f.sku||'')===String(sku);
+      if(String(f.batch||'')===String(batch) && String(f.sku||'')===String(sku) && !_sfSuperseded(f)
+         && (!best || +it.id < +best.id)) best=it;
     });
-    if(hit) return {listId:l.id, id:hit.id, fields:hit.fields||{}, etag:hit['@odata.etag']||hit.eTag||''};
     url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
   }
+  if(best) return {listId:l.id, id:best.id, fields:best.fields||{}, etag:best['@odata.etag']||best.eTag||''};
   return {listId:l.id, id:null, fields:{}, etag:''};
 }
 
@@ -6991,7 +6999,37 @@ async function saveDecision(batch, sku, patch){
   }
   var made=await graph(`/sites/${CFG.siteId}/lists/${row.listId}/items`,
                        {method:'POST', body:JSON.stringify({fields:body})});
+  /* ⛔ 2026-10-28 (P-3278): two people making the VERY FIRST save of one product at the same moment both POST, and the
+     product got two rows. The row with the LOWEST id wins (the one every later save finds); a page that made a later one
+     retires its own — nothing of it is applied — and tells its person, exactly as a stale save does. */
+  if(made && made.id){
+    var first=await _firstRowId(row.listId, batch, sku);
+    if(first && String(first)!==String(made.id)){
+      /* ⛔ (review) retried once; a retire that still fails is reported — the readers already ignore the later row */
+      var _ret={drained:'true', drain_state:'superseded@1',
+                drain_note:'Two first saves of this product at the same moment — row '+first+' was kept; this one was retired.'};
+      for(var _t=0;_t<2;_t++){ try{ await graph(`/sites/${CFG.siteId}/lists/${row.listId}/items/${made.id}/fields`,{method:'PATCH',body:JSON.stringify(_ret)}); _ret=null; break; }catch(_){ } }
+      if(_ret){ try{ console.warn('Listing Studio: could not retire race row '+made.id+' (row '+first+' kept) — the readers ignore it'); }catch(_){} }
+      return {ok:false, reason:'stale', their_revision:1,
+        message:'Someone else saved this product at the same moment, so your change was not saved. Reload to see theirs, then make your change again.'};
+    }
+  }
   return {ok:true, sp_id:made&&made.id, revision:1, created:true};
+}
+function _sfSuperseded(f){ return String((f&&f.drain_state)||'').indexOf('superseded@')===0; }
+function _sfByIdAsc(rows){ return (rows||[]).slice().sort(function(a,b){ var x=+(a&&a._sp_id), y=+(b&&b._sp_id);
+  if(isNaN(x)||isNaN(y)) return 0; return x-y; }); }
+/* the lowest id among the live (not retired) rows of one product */
+async function _firstRowId(listId, batch, sku){
+  var url=`/sites/${CFG.siteId}/lists/${listId}/items?expand=fields&$top=500`, best=null;
+  while(url){
+    var b=await graph(url);
+    (b.value||[]).forEach(function(it){ var f=it.fields||{};
+      if(String(f.batch||'')===String(batch) && String(f.sku||'')===String(sku) && !_sfSuperseded(f)){
+        var n=parseInt(it.id,10); if(!isNaN(n) && (best===null || n<best)) best=n; } });
+    url=b['@odata.nextLink']?b['@odata.nextLink'].replace(GRAPH,''):null;
+  }
+  return best;
 }
 
 /* ⭐ Every field the BC-fields tab can change. ⛔ A field missing here is a
@@ -7113,6 +7151,7 @@ function pendingAutosave(){ return Object.keys(_dirty).some(function(k){return _
    so the reviewer saw their own new request vanish. Keep the two identical. */
 function isDrainedRow(row){
   if(String(row.drained||'').toLowerCase()!=='true') return false;
+  if(_sfSuperseded(row)) return true;                    /* ⭐ 2026-10-28: a retired race loser is never pending work */
   var st=String(row.drain_state||''), rev=String(+(row.revision||0));
   if(st.indexOf('applied@')===0) return st==='applied@'+rev;
   if(st.indexOf('held@')===0) return st==='held@'+rev;
