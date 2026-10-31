@@ -2861,10 +2861,10 @@ function _emptyNote(){
 }
 
 /* ⭐ fix 5: ONE wording for a vendor's approval (sheet + toast) and for a queued save. */
-var VENDOR_APPROVED_MSG='Approved — we publish it to our stores automatically, once our system picks it up';
+var VENDOR_APPROVED_MSG='Approved — we publish it to our stores automatically. You can follow it in the Your jobs tray (bottom right)';
 /* ⭐ Phase C (ruling D1): the admin's approval of a change to a product that is ALREADY on our stores IS the go-ahead —
    there is no second review, so the wording says so plainly. Wording only; the mechanism is the existing approve. */
-var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores automatically, once our system picks it up. There is no further review.';
+var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores automatically. There is no further review. You can follow it in the Your jobs tray (bottom right)';
 function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; if(IS_TEST) return 'Approved — it will be published to the TEST store automatically (a test batch never reaches our real stores)'; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
 var SAVED_QUEUED_MSG='Saved — we\'ll apply it within about 2 minutes';
 /* ⭐⭐ 2026-10-15 (P-1566/P-1144): THE ONE PLACE the drain/publish cadence is described. Since 2026-09-18 both the drain
