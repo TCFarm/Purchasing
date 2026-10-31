@@ -533,7 +533,7 @@ select.batch{max-width:100%;min-width:0}
   <div class="bar"><i id="progBar"></i></div>
   <span class="who" id="who">not signed in</span>
   <button class="tbtn" id="btnSignIn">Sign in</button>
-  <div class="pubbar" id="pubBar" role="status" aria-live="polite" title="Approving a product publishes it to all three stores within a few minutes — this bar shows where each product is"></div>
+  <div class="pubbar" id="pubBar" role="status" aria-live="polite" title="Approving a product publishes it to all three stores automatically — this bar shows where each product is"></div>
 </div>
 
 <div class="filters" id="srcFilters">
@@ -2861,17 +2861,17 @@ function _emptyNote(){
 }
 
 /* ⭐ fix 5: ONE wording for a vendor's approval (sheet + toast) and for a queued save. */
-var VENDOR_APPROVED_MSG='Approved — it will be published to our stores within a few minutes (after our system picks it up)';
+var VENDOR_APPROVED_MSG='Approved — we publish it to our stores automatically, once our system picks it up';
 /* ⭐ Phase C (ruling D1): the admin's approval of a change to a product that is ALREADY on our stores IS the go-ahead —
    there is no second review, so the wording says so plainly. Wording only; the mechanism is the existing approve. */
-var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores as soon as our system picks it up (within a few minutes). There is no further review.';
-function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; if(IS_TEST) return 'Approved — it will be published to the TEST store within a few minutes (a test batch never reaches our real stores)'; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
+var VENDOR_LIVE_APPROVED_MSG='Approved — your change goes live on our stores automatically, once our system picks it up. There is no further review.';
+function vendorApprovedMsg(i){ var p=P[i==null?cur:i]; if(IS_TEST) return 'Approved — it will be published to the TEST store automatically (a test batch never reaches our real stores)'; return (p&&p.kind==='update')?VENDOR_LIVE_APPROVED_MSG:VENDOR_APPROVED_MSG; }
 var SAVED_QUEUED_MSG='Saved — we\'ll apply it within about 2 minutes';
 /* ⭐⭐ 2026-10-15 (P-1566/P-1144): THE ONE PLACE the drain/publish cadence is described. Since 2026-09-18 both the drain
    (listing-rework-poller) and the publish step (listing-publish-approved) are supervisor triggers checked about every
    60 s, day and night — not "tonight", not "07:00–21:00 every 2 hours". ⛔ Never hardcode a time elsewhere; say this. */
 var CADENCE_REWORK='Rework queued — picked up within about a minute; the rewritten section appears here as soon as it is done';
-var CADENCE_PUBLISH='Approved — it publishes to our stores automatically, usually within a few minutes';
+var CADENCE_PUBLISH='Approved — it publishes to our stores automatically';
 /* ⭐ fix 3: an in-page confirmation (the sheet), used in a vendor view instead of confirm(). */
 function askConfirm(o){
   openSheet(`<h2>${esc(o.title||'Are you sure?')}</h2>
@@ -3464,15 +3464,27 @@ function renderFields(){
      "⛔ Not published" that already says what to change — so say THAT, not
      "your save was not applied" (the save WAS applied; the product cannot go live). */
   const _notPub = /^⛔ Not published/.test(_hn);
+  /* ⭐ 2026-10-30 (P-3415 WP1, user review): a row parked because it is waiting on US — the drain crashed on it
+     (listing_review.CRASH_MARK) or its photo picker is still being built (PKG_PENDING_MARK) — must NOT tell the reviewer
+     to "change the field it names and save again": there is nothing to change, and an edit drops their approval.
+     The note's machine stamp (UTC, parsed by the drain) is shown in local time. */
+  const _ours = /our system hit a problem while saving this product|the photo picker for this product is still being prepared/.test(_hn);
+  const _noteShown = s => { s = String(s).replace(/retried automatically after (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)/,
+      (_m, iso) => { const d = new Date(iso); return isNaN(d.getTime()) ? 'retried automatically soon'
+        : 'retried automatically after about ' + d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); });
+    return s; };   /* ⛔ a vendor never sees this note or its "(ref …)": vendor_policy.filter_decision_row replaces
+                      drain_note, and 'heldBanner' is in the vendor hide_ui (locked in test_listing_studio.js, P-3415 F2) */
   const heldHtml2 = (_dd.held && _notPub) ? '' : heldHtml;
   const drainHtml = heldHtml2 + (!(_dd.parked || (_dd.held && _notPub)) ? '' : vh('heldBanner',`
   <div class="fgroup" id="drainNote" style="border-left:4px solid var(--bad,#9b2c2c)">
     <h3>${_notPub ? '⛔ Approved, but this product cannot be published yet'
+                  : _ours ? '⏳ Saved — waiting on us, nothing for you to do'
                   : '⛔ Your last save was NOT fully applied'}</h3><div class="body">
     <div class="hint" style="margin-bottom:6px">${_notPub
       ? 'Nothing else in the batch is waiting on this one. Make the change below, Save, and Approve again — the next run publishes it automatically.'
+      : _ours ? 'Your changes are kept and we retry it automatically. There is nothing to change or save.'
       : 'Nothing below reaches the stores until this is fixed. Change the field it names and save again — the next run picks it up automatically.'}</div>
-    <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note||'(no reason recorded)')}</div></div></div>`));
+    <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note ? _noteShown(_dd.drain_note) : '(no reason recorded)')}</div></div></div>`));
   const notesHtml = drainHtml + (!(p.notes||[]).length ? '' : vh('notesBlock',`
   <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
     <div class="hint" style="margin-bottom:8px">
