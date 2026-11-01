@@ -9335,7 +9335,11 @@ window.sfUndoAsk=sfUndoAsk; window.sfUndoRun=sfUndoRun; window.sfUndoState=funct
 var NW=null;
 var NW_KINDS=[['kitchen','A kitchen item'],['meat','A meat cut'],['other','Another house item']];
 var NW_UNITS=['oz','lb','g','kg','fl oz','pt','qt','gal','ml','L','ct'];
-var NW_STAGES=['Waiting for the Mac mini','Checking the SKUs','Categorising','Writing the copy','Setting the price','Preparing the photos','Ready to review'];
+/* ⭐ 2026-11-01 (Eli, 395-6-PB "disappeared when I clicked review"): the mini answers "Created" as soon as the products are
+   STAGED; their listing (copy, price, photos) is built ~5 minutes after that. The last step therefore waits for the new
+   queue to really hold the product — only then is "Open the new product" offered (NW_BUILD). */
+var NW_STAGES=['Waiting for the Mac mini','Checking the SKUs','Categorising','Writing the copy','Setting the price','Preparing the photos','Building the listing'];
+var NW_BUILD=NW_STAGES.length-1;
 var NW_STORAGES=['','Frozen','Refrigerated','Dry'];
 function nwFresh(){ return {name:'', size:'', unit:'oz', weight:'', price:'', sku:'', storage:'', ingredients:'', cost:'', fresh:null, bigOk:false, copied:{}}; }
 function nwOpen(fromSku){
@@ -9497,10 +9501,48 @@ function nwClose(){ var n=NW; NW=null; closeSheet(); if(n&&n.done) nwLoadNew(n.d
 function nwOpenNew(){ var n=NW; NW=null; closeSheet(); if(n&&n.done) return nwLoadNew(n.done, true); }
 async function nwLoadNew(done, open){
   var res; try{ res=await liveRefresh(true, true); }catch(_){ res='failed'; }
-  var i=-1; (done.skus||[]).some(function(k){ i=sfRecordIndex(k, true); return i>=0; });
+  var i=nwFindNew(done);
+  /* ⭐ 2026-11-01: the page shows ONE queue (or All queues). A new product sits in its OWN new queue, so when the queue on
+     screen does not hold it, switch to that queue rather than closing onto a list it is not in. */
+  if(open && i<0 && done.batch && res!=='held' && nwSwitchQueue(done.batch)){
+    /* ⛔ (review #6) through the picker's own path (bootLive: the tag, the first product, the uploads), and with the
+       status chip and search cleared — a filter that hides the new product would make it vanish all over again */
+    CHIP=null; QSEARCH=''; var _qs=document.querySelector('#qSearch'); if(_qs) _qs.value='';
+    try{ await bootLive(); }catch(_){}
+    i=nwFindNew(done);
+  }
   if(open && i>=0){ sfGoRecord(i); return 'opened'; }
   if(open) toast(res==='held'?'Finish the edit you have open — the new products load after it.':'Made — find them in the queue “'+(done.batch||'new, made by you')+'”.');
   return res;
+}
+function nwFindNew(done){ var i=-1; ((done&&done.skus)||[]).some(function(k){ i=sfRecordIndex(k, true); return i>=0; }); return i; }
+/* select `batch` in the queue picker (it must be listed); false when it is not there or a ?batch= link pins the page */
+function nwSwitchQueue(batch){
+  var sel=document.querySelector('#batchSel'); if(!sel) return false;
+  try{ if(new URLSearchParams(location.search).get('batch')) return false; }catch(_){}
+  if(!Array.prototype.some.call(sel.options||[], function(o){ return o.value===batch; })) return false;
+  sel.value=batch; return true;
+}
+/* has the new queue been published with the product in it? (a read only — never a reload under the open panel)
+   ⛔ (review #7) one cheap read per check — the list of queues — and the queue itself is loaded only once it is listed.
+   ⛔ (review #8) a product published as "needs your answer", deferred or removed is published too: the wait ends. */
+function nwPayloadHas(p, want){
+  return ['items','needs_input','deferred','cancelled','skipped'].some(function(k){
+    return ((p&&p[k])||[]).some(function(it){ var s=Array.isArray(it)?it[0]:(it&&it.sku);
+      return want.indexOf(String(s||'').toLowerCase())>=0; }); });
+}
+async function nwBuilt(done){
+  if(!done || !done.batch || !(done.skus||[]).length) return true;    /* an answer without the brackets: nothing to wait on */
+  if(nwFindNew(done)>=0) return true;
+  if(!HOST || typeof HOST.loadBatch!=='function') return true;
+  var want=done.skus.map(function(s){ return String(s).toLowerCase(); });
+  try{
+    if(typeof HOST.listBatches==='function'){
+      var rows=await HOST.listBatches();
+      if(!(rows||[]).some(function(r){ return r && r.batch===done.batch; })) return false;   /* not published yet */
+    }
+    return nwPayloadHas(await HOST.loadBatch(done.batch), want);
+  }catch(_){ return false; }
 }
 function nwParseDone(text){
   var t=String(text||''), m=/\[skus:\s*([^\]]*)\]/.exec(t), b=/\[batch:\s*([^\]]*)\]/.exec(t);
@@ -9522,7 +9564,8 @@ async function nwSubmit(){
   n.busy=true; nwRefresh();
   var key=nwKey(n), pg=$('#nwProg'); if(pg) pg.hidden=false;
   var wk='new:'+key; n.key=key;
-  var w=sfWait(wk,{sel:'#nwProg', names:NW_STAGES, limits:[STUDIO_LIMITS.newMs], doneText:'Ready to review — the products are in the queue as “new, made by you”.',
+  var w=sfWait(wk,{sel:'#nwProg', names:NW_STAGES, limits:[STUDIO_LIMITS.newMs],
+    pollEvery:NW_STAGES.map(function(_,i){ return i<NW_BUILD?STUDIO_LIMITS.pollMs:STUDIO_LIMITS.recordPollMs; }), doneText:'Ready to review — the products are in the queue as “new, made by you”.',
     limitText:'It has not finished yet.', safeText:'Your request is saved — the Mac mini will still make the products. Nothing is live.', retryKey:true,
     retry:function(){ if(NW){ NW.busy=false; nwSubmit(); } },
     poll:function(w, alive){ return nwPoll(n, w, alive); }});
@@ -9546,7 +9589,14 @@ function nwStageOf(note, state){
 async function nwPoll(n, w, alive){
   if(!n.req) return;
   var r=await sfReadRequest(n.req); if(!alive()) return;
-  if(r.kind==='applied'){ n.busy=false; n.done=nwParseDone(r.text); sfFinish(w,'done',''); nwShowDone(n); return; }
+  if(r.kind==='applied'){
+    if(!n.done) n.done=nwParseDone(r.text);
+    if(w.stage<NW_BUILD) sfStage(w, NW_BUILD);
+    var built=await nwBuilt(n.done); if(!alive()) return;
+    if(built){ n.busy=false; sfFinish(w,'done',''); nwShowDone(n); return; }
+    w.note='Made'+(n.done.batch?' (queue “'+n.done.batch+'”)':'')+' — now writing its listing: copy, price and photos. It opens here when it is ready, usually in 5–10 minutes.';
+    return;
+  }
   if(r.kind==='refused'){ n.busy=false; sfFinish(w,'failed', r.text||'The Mac mini refused it.'); return; }
   if(r.kind==='jobfail'){ n.busy=false; sfFinish(w,'failed', r.text); return; }
   var s=nwStageOf(r.text, r.state); if(s>w.stage){ w.stage=s; w.stageT0=_sfNow(); }
