@@ -5833,7 +5833,10 @@ function actionBoxHtml(p){
     if(!a.length && !stops.length) return '';
     return `<div class="rwitem" style="border-left:4px solid var(--stop);margin-bottom:8px"><b>Action needed before this can publish:</b><ul style="margin:4px 0 0 18px">${
       a.map(function(x){ var nav=FIELD_NAV[x.field]||FIELD_NAV._comment;
-        return '<li>Missing: '+esc((nav.where||'').split(' › ').pop())+` <button class="tbtn" style="margin-left:6px" onclick="goToField('${esc(x.field||'')}')">Take me there → ${esc(nav.where)}</button></li>`; }).join('')
+        /* ⭐ 2026-11-05: an item that is THERE but unconfirmed is not "Missing" (Jack read "Missing: Description" on a clone
+           whose description existed and only its ingredients were unconfirmed) */
+        var _lead=x.k==='INGREDIENTS_UNVERIFIED'?'Confirm the ingredients in: ':'Missing: ';
+        return '<li>'+_lead+esc((nav.where||'').split(' › ').pop())+` <button class="tbtn" style="margin-left:6px" onclick="goToField('${esc(x.field||'')}')">Take me there → ${esc(nav.where)}</button></li>`; }).join('')
       +stops.map(function(f){ return '<li><span class="mono">'+esc(f.k)+'</span> — '+esc(String(f.t||'').slice(0,140))
         +` <button class="tbtn" style="margin-left:6px" onclick="selectTab('flags')">Open flags →</button></li>`; }).join('')}</ul></div>`;
   }
@@ -7655,7 +7658,24 @@ function cloneText(s){
   /* ⭐ FIRST, so no truncation anywhere downstream can cut it; the scheme lower-cased so the server's link reader sees it */
   return l ? ('New product page: '+l+(t.trim()?'\n\n'+t:'')) : t;
 }
-function cloneFresh(){ return {files:[], text:'', link:'', kind:'flavour', mode:'separate', count:'', busy:false, err:'', fileErr:'',
+/* ⭐ 2026-11-05 (Jack): "Auto-publish when done" — OFF by default. ⛔ The server decides again who may use it
+   (consignment_jobs.autopub_requester) — the page only offers it. */
+function cloneAutoPubAvailable(){
+  /* ⛔ VIEW_PARITY.md 2026-11-05: staff-only until the portal's clone gate (studioProtocol.ts FIELD_CHECKS.clone) accepts
+     `auto_publish` and the contract lists it — a field the gate does not know makes it DROP the whole clone request */
+  return !isVendorView();
+}
+/* ⭐ review 2026-11-05: the words promise only what the server does (clone_autopublish.py) — and a new SIZE takes its
+   size, price and case pack from what you give, never from the original */
+function cloneAutoPubText(kind){
+  return 'When it is built, the system approves it for you if it passes every check: a photo picked, nothing a person '
+    +'must look at, nothing missing. Anything the original product already knows — '
+    +(kind==='size'?'ordering lead time, tax and category'
+                   :'reorder quantity, lead time, tax, price and category')
+    +' — is filled in from it. '+(kind==='size'?'':'Give the new flavour\'s ingredients (type them or add a label photo), or it waits. ')
+    +'If anything is left, or auto-publish is not switched on yet, it waits in your review queue as usual, with the reason.';
+}
+function cloneFresh(){ return {files:[], text:'', link:'', kind:'flavour', mode:'separate', count:'', busy:false, err:'', fileErr:'', autoPublish:false,
   parts:[], phase:'idle', stream:null, mr:null, t0:0, timer:null, n:1, starting:false, recErr:'', sess:'',
   sub:null, poll:null, iid:''}; }
 /* is the button OFFERED at all — staff on the live page, or a vendor whose portal says it can take it (hello.features) */
@@ -7723,7 +7743,8 @@ function cloneRowFields(p, batch, s, o){
   return {Title:iid, intake_id:iid, owner_key:p.owner, vendor_name:def.display_name, batch_stem:o.stem, state:'uploaded',
     folder:p.owner+'/'+iid, requested_by:o.who||'', requested_utc:now, updated_utc:now,
     vendor_json:JSON.stringify({owner_key:p.owner, display_name:def.display_name, finale_supplier:def.finale_supplier||def.display_name,
-      clone:{batch:batch, sku:p.sku, mode:s.mode==='decide'?'decide':'separate', kind:s.kind}}),
+      clone:Object.assign({batch:batch, sku:p.sku, mode:s.mode==='decide'?'decide':'separate', kind:s.kind},
+                          s.autoPublish===true?{auto_publish:true}:{})}),
     expected_count:String(s.count||'').trim(), notes:'Made by staff with "Make a similar version".'};
 }
 /* what a vendor's request carries — nothing but the source's name, their words, files, recordings */
@@ -7731,6 +7752,10 @@ function cloneVendorArgs(p, batch, s, iid, memoIds){
   return {batch:batch, sku:p.sku, intake_id:iid, name:'Similar to '+String(p.name||p.sku).slice(0,50),
           text:cloneText(s), count:String(s.count||'').trim(), kind:s.kind, mode:s.mode==='decide'?'decide':'separate',
           memos:memoIds||[]};
+}
+/* ⭐ the vendor request carries `auto_publish` ONLY when ticked AND the portal announced it can take it */
+function cloneVendorArgsAuto(args, s){
+  return (s && s.autoPublish===true && cloneAutoPubAvailable()) ? Object.assign({}, args, {auto_publish:true}) : args;
 }
 function cloneAudioSeconds(s){ return (s.parts||[]).reduce(function(n,x){return n+(x.seconds||0);},0); }
 
@@ -7832,6 +7857,8 @@ function cloneRender(){
         <select id="clnMode"><option value="separate" ${c.mode==='separate'?'selected':''}>Separate product</option>
         <option value="decide" ${c.mode==='decide'?'selected':''}>Our team decides if it should be a variant</option></select></label>`}
     </div>
+    ${cloneAutoPubAvailable()?`<label style="display:block;margin:10px 0"><input type="checkbox" id="clnAuto" ${c.autoPublish?'checked':''} ${c.busy?'disabled':''}>
+      <b>Auto-publish when done</b><span class="note" style="display:block" id="clnAutoTxt">${esc(cloneAutoPubText(c.kind))}</span></label>`:''}
     <div class="hint" id="clnEst" role="status">⏱ ${esc(est.text)}</div>
     ${c.err?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.err)}</div>`:''}
     <div style="margin-top:10px"><button class="btn primary" id="clnGo" ${probl||c.busy?'disabled':''} title="${esc(probl)}">${c.busy?'Sending…':'Process now'}</button>
@@ -7849,6 +7876,7 @@ function cloneWire(){
   var t=document.querySelector('#clnText'); if(t) t.oninput=function(){ c.text=t.value; var n=document.querySelector('#clnCount'); if(n) n.textContent=t.value.length.toLocaleString()+' of '+CLN_LIMITS.text.toLocaleString()+' characters'; cloneRefresh(); };
   var cn=document.querySelector('#clnCnt'); if(cn) cn.oninput=function(){ c.count=cn.value; cloneRefresh(); };
   var md=document.querySelector('#clnMode'); if(md) md.onchange=function(){ c.mode=md.value; };
+  var au=document.querySelector('#clnAuto'); if(au) au.onchange=function(){ c.autoPublish=!!au.checked; };
   var ff=document.querySelector('#clnFile'); if(ff) ff.onchange=function(e){ cloneAdd(e.target.files); try{ e.target.value=''; }catch(_){} };
   var dz=document.querySelector('#clnDrop');
   if(dz&&dz.addEventListener){
@@ -7924,7 +7952,7 @@ async function cloneSubmitVendor(c, p){
   }
   var files=[];
   for(var i=0;i<c.files.length;i++){ var f=c.files[i]; files.push({name:f.name, type:f.type||'application/octet-stream', data:await f.arrayBuffer()}); }
-  var args=cloneVendorArgs(p, c.batch, c, iid, ids);
+  var args=cloneVendorArgsAuto(cloneVendorArgs(p, c.batch, c, iid, ids), c);
   var r=await HOST.startClone(args, files);
   if(r && r.ok===false) throw new Error(r.message||r.reason||'the portal refused it');
   return {kind:'vendor', id:iid, iid:iid, at:Date.now()};
@@ -7950,6 +7978,8 @@ function cloneProgress(){
     +(s.kind==='staff'&&s.state?cnTimeline(s.state):'')
     +'<div class="rwitem" role="status"><b>'+esc(stage)+'</b>'+(s.note?'<div class="note">'+esc(s.note)+'</div>':'')
     +'<div class="note">⏱ '+esc(est.text)+'</div></div>'
+    +(c.autoPublish===true?'<div class="note" id="clnAutoNote">Auto-publish is on for this one. To stop it, approve, edit or '
+       +'comment on it in the Listing Studio first — the system never overrides a person\'s save.</div>':'')
     +(s.state==='needs_answers'&&s.kind==='staff'?'<button class="btn primary" onclick="cnDetail(\''+esc(s.id)+'\')">Answer the questions</button> ':'')
     +(isVendorView()?'<div class="note">You can close this: follow it on the portal\'s <b>Status</b> page. It appears in your queue by itself when it is built.</div>'
                     :'<div class="note">You can close this — it keeps going without you. When it is built it appears in the batch list.</div>')
@@ -7957,7 +7987,11 @@ function cloneProgress(){
     +((s.state==='in_review'||s.state==='prepared')&&!isVendorView()&&typeof liveRefresh==='function'?'<button class="btn" onclick="liveRefresh(true)">Refresh the list</button> ':'')
     +'<button class="btn primary" onclick="cloneDone()">Close</button></div>';
   openSheet(body); $('#sheet').classList.remove('wide');
-  if(s.kind==='staff' && !c.poll && ['in_review','done','failed','needs_answers'].indexOf(s.state||'')<0){
+  /* ⭐ 2026-11-05: an AUTO-PUBLISH request keeps being followed after it reaches the queue, until its note says what
+     auto-publish did (approved / waiting / not switched on) — at most 30 minutes */
+  var _apFollow=s.kind==='staff' && c.autoPublish===true && s.state==='in_review'
+                && !/auto-publish/i.test(String(s.note||'')) && (Date.now()-s.at)<30*60000;
+  if(s.kind==='staff' && !c.poll && (_apFollow || ['in_review','done','failed','needs_answers'].indexOf(s.state||'')<0)){
     c.poll=setTimeout(function(){ c.poll=null; cloneFollow(); }, Date.now()-s.at<90000?5000:15000);
   }
 }
