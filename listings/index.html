@@ -4725,13 +4725,31 @@ function closeSheet(){
   /* ⭐ 2026-10-28 (Jack: "it doesn't automatically refresh … the new item doesn't appear until I manually click refresh"): a
      FINISHED New product / Similar version panel closed any way (outside click, Esc) loads the new products too */
   var _nwDone=(typeof NW!=='undefined' && NW && NW.done)?NW.done:null; if(_nwDone) NW=null;
-  $('#drawer').dataset.open='0'; _sheetDialogOff($('#sheet'));
+  $('#drawer').dataset.open='0'; _sheetDialogOff($('#sheet')); _sheetDirty=false;
   if(_nwDone) setTimeout(function(){ nwLoadNew(_nwDone, false); }, 0);
   /* ⭐ focus goes back to what opened the sheet ("Remove from queue…", the Removed chip) */
   var o=_sheetOpener; _sheetOpener=null; if(o&&o.focus){ try{ o.focus(); }catch(_){} }
   /* ⭐ 2026-10-21: a deferred / removed row stops looking selected once its panel closes */
   if(typeof GHOST_OPEN!=='undefined' && GHOST_OPEN){ GHOST_OPEN=null; try{ renderQueue(); }catch(_){} } }
-$('#drawer').onclick=e=>{if(e.target.id==='drawer')closeSheet();};
+/* ⭐⭐ 2026-11-05 (Jack: "If you click ANYWHERE else it disappears and all work is lost"): once a person has TYPED or
+   CHOSEN anything in a sheet, a click outside it (or Esc) no longer closes it — it says how to close instead. A sheet
+   nothing was typed into still closes on an outside click. Only Cancel / Close / a finished action closes a worked-on one. */
+var _sheetDirty=false;
+function sheetMayClose(){
+  if(!_sheetDirty) return true;
+  var n=document.querySelector('#sheetKeepNote');
+  if(!n && $('#sheet').insertAdjacentHTML){
+    $('#sheet').insertAdjacentHTML('afterbegin','<div id="sheetKeepNote" class="note" role="status" style="color:var(--stop);margin-bottom:6px">'
+      +'What you typed is kept — use Cancel (or Close) to close this.</div>');
+  }
+  return false;
+}
+if($('#sheet').addEventListener){
+  $('#sheet').addEventListener('input', function(){ _sheetDirty=true; });
+  $('#sheet').addEventListener('change', function(){ _sheetDirty=true; });
+}
+$('#drawer').onclick=e=>{if(e.target.id==='drawer' && sheetMayClose())closeSheet();};
+window.sheetMayClose=sheetMayClose; window.setSheetDirty=function(v){ _sheetDirty=!!v; };
 window.closeSheet=closeSheet;window.toast=toast;
 /* ⭐ `recordOverride`/`resolveFlag`/`submitResolve`/`deferFlag` are defined
    above, next to `renderFlags` — this used to be a SECOND, later definition
@@ -5785,7 +5803,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='ArrowRight'){lbStep(1);e.preventDefault();return;}
     if(e.key===' '&&lbIdx!=null){togglePick(lbIdx);lbOpen(lbIdx);e.preventDefault();return;}
   }
-  if($('#drawer').dataset.open==='1'&&e.key==='Escape'){closeSheet();e.preventDefault();return;}
+  if($('#drawer').dataset.open==='1'&&e.key==='Escape'){ if(sheetMayClose()) closeSheet(); e.preventDefault();return;}
 
   if(e.key==='Escape'&&editing!==null){editing=null;renderAll();toast('Edit cancelled');e.preventDefault();return;}
   if((e.metaKey||e.ctrlKey)&&e.key==='Enter'&&editing!==null){commitEdit(editing);e.preventDefault();return;}
