@@ -7646,13 +7646,33 @@ var CLN_NOT_OWNERS=['TCFarm','MNFC','TCFeeds','STCroix'];
 var CLN_KINDS=[['flavour','A new flavour or recipe','e.g. salted caramel instead of chocolate'],
                ['size','A new size or pack of the same thing','e.g. the 12 oz is now also a 16 oz'],
                ['other','Something else','tell us in your own words']];
+/* ⭐⭐ 2026-11-05 (Jack: "some common tags to indicate what kind of thing this is … maybe it can just be a free-form text, and
+   … a dictate option"): quick TAGS, the person's own words (typed or dictated) stay the main input. ⛔ The SAME keys and words
+   as clone_template.CHANGE_TAGS (test_clone_one_flow.py checks they agree). The kind of change the server uses follows from
+   them exactly as clone_template.kind_from_tags does — size ONLY when size is the only tag (fail closed). */
+var CLN_TAGS=[['size','A different size or pack of the same thing'],
+              ['cut','A different cut or version (skinless, boneless, sliced…)'],
+              ['flavour','A new flavour or recipe'],
+              ['kitchen','A new kitchen recipe of the same thing'],
+              ['new','A new item (only a little like this one)']];
+function cloneKindFromTags(tags){
+  var t=(tags||[]).filter(function(x){ return CLN_TAGS.some(function(k){ return k[0]===x; }); });
+  if(!t.length) return 'flavour';
+  if(t.length===1 && t[0]==='size') return 'size';
+  if(t.indexOf('flavour')>=0 || t.indexOf('kitchen')>=0) return 'flavour';
+  return 'other';
+}
+/* the tags in CLN_TAGS order, known keys only */
+function cloneTagsClean(tags){ var t=tags||[]; return CLN_TAGS.map(function(k){ return k[0]; }).filter(function(k){ return t.indexOf(k)>=0; }); }
+/* ⭐ staff may start from a TC Farm original too (one dialog for every owner — the Mac mini routes it to the house engine) */
+function cloneIsHouse(p){ return !isVendorView() && !!p && String(p.owner||'')==='TCFarm'; }
 var CLN=null;
 /* ⭐⭐ 2026-10-22 (Jack, plan docs/PLAN_SIMILAR_VERSION_KEEP_REPLACE_2026-10-22.md): what a similar version KEEPS and what it
    takes FRESH depends on the kind of change. ⛔ The SAME words as clone_template.keep_text (test_clone_keep_replace.py
    checks they agree); an unknown kind reads as a new flavour, like the server (fail closed). */
 function cloneKeepText(kind){
   if(kind==='size') return 'We keep: brand, storage, category, ingredients, allergens, the description, badge and your other settings. We take fresh from what you give us: the size, price, case pack, volume, weight, dimensions and photos.';
-  return 'We keep: brand, storage, category, price, volume, weight, dimensions and your other settings. We take fresh from what you give us: the name, description, ingredients, allergens and photos. A badge like “Local” carries over; a claim like “Nut-Free” or “Organic” only if what you give us shows it is true for the new product.';
+  return 'We keep: brand, storage, category, price, volume, weight, dimensions and your other settings. We take fresh from what you give us: the name, description, ingredients, allergens and photos. A badge like “Local” carries over; a claim like “Nut-Free” or “Organic” only if what you give us shows it is true for the new product. The new description starts from the original’s story (who makes it, where, how) — never its ingredients.';
 }
 /* ⭐ 2026-10-22: the optional link to the NEW product's own page — ONE web address. It travels inside the request text as a
    labelled line ("New product page: …"), so the portal contract is unchanged; our computer reads that page like any
@@ -7673,6 +7693,11 @@ function cloneLinkProblem(link){
 /* what is sent: their words, then the link as its own labelled line */
 function cloneText(s){
   s=s||{}; var t=String(s.text||''), l=String(s.link||'').trim().replace(/^https?:/i,function(x){return x.toLowerCase();});
+  /* ⭐ 2026-11-05: the optional quick boxes travel as labelled lines in the same text (the portal contract is unchanged) */
+  var q=[], qp=String(s.qPrice||'').trim(), qs=String(s.qSize||'').trim();
+  if(qp) q.push('Price for one package: $'+qp.replace(/^\$/,''));
+  if(qs) q.push('Size or average weight: '+qs);
+  if(q.length) t=q.join('\n')+(t.trim()?'\n\n'+t:'');
   /* ⭐ FIRST, so no truncation anywhere downstream can cut it; the scheme lower-cased so the server's link reader sees it */
   return l ? ('New product page: '+l+(t.trim()?'\n\n'+t:'')) : t;
 }
@@ -7695,7 +7720,7 @@ function cloneAutoPubText(kind){
     +' — is filled in from it. '+(kind==='size'?'':'Give the new flavour\'s ingredients (type them or add a label photo), or it waits. ')
     +'If anything is left, or auto-publish is not switched on yet, it waits in your review queue as usual, with the reason.';
 }
-function cloneFresh(){ return {files:[], text:'', link:'', kind:'flavour', mode:'separate', count:'', busy:false, err:'', fileErr:'', autoPublish:false,
+function cloneFresh(){ return {files:[], text:'', link:'', kind:'flavour', tags:[], qPrice:'', qSize:'', mode:'separate', count:'', busy:false, err:'', fileErr:'', autoPublish:false,
   parts:[], phase:'idle', stream:null, mr:null, t0:0, timer:null, n:1, starting:false, recErr:'', sess:'',
   sub:null, poll:null, iid:''}; }
 /* is the button OFFERED at all — staff on the live page, or a vendor whose portal says it can take it (hello.features) */
@@ -7713,6 +7738,7 @@ function cloneEligible(p, batch){
      "yours", never "unknown". The mini re-derives and re-checks the owner from (batch, sku) before any clone is built. */
   if(!o && isVendorView()) return {ok:true, reason:''};
   if(!o) return {ok:false, reason:'This product has no owner recorded yet, so we cannot tell whose it is.'};
+  if(cloneIsHouse(p)) return {ok:true, reason:''};      /* ⭐ 2026-11-05: one dialog for every owner (staff) */
   if(CLN_NOT_OWNERS.indexOf(o)>=0)
     return {ok:false, reason:'This is one of TC Farm\'s own items. Similar versions of those are made with the house-product flow — ask the team. This tool is for vendor products.'};
   return {ok:true, reason:''};
@@ -7733,7 +7759,11 @@ function cloneProblem(s){
   if(s.phase==='recording'||s.phase==='starting') return 'You are still recording — press “I\'m done” (or Pause), then Process now.';
   if(s.sending) return 'A recording is still being prepared — wait a moment.';
   var lp=cloneLinkProblem(s.link); if(lp) return lp;
-  if(!String(s.text||'').trim() && !String(s.link||'').trim() && !(s.files||[]).length && !(s.parts||[]).length)
+  var qp=String(s.qPrice||'').trim();
+  if(qp && !/^\$?\d{1,4}(\.\d{1,2})?$/.test(qp)) return 'The price is a dollar amount like 17.00 — or leave it empty.';
+  if(String(s.qSize||'').length>40) return 'The size is short, like “16 oz” or “avg 0.58 lb”.';
+  if(!String(s.text||'').trim() && !String(s.link||'').trim() && !(s.files||[]).length && !(s.parts||[]).length
+     && !qp && !String(s.qSize||'').trim())
     return 'Say what is different — type it, add a file, give a link, or record it.';
   if(cloneText(s).length>CLN_LIMITS.text) return 'The text is too long ('+CLN_LIMITS.text+' characters at most) — put the rest in a file.';
   var c=String(s.count||'').trim();
@@ -7764,18 +7794,25 @@ function cloneRowFields(p, batch, s, o){
     folder:p.owner+'/'+iid, requested_by:o.who||'', requested_utc:now, updated_utc:now,
     vendor_json:JSON.stringify({owner_key:p.owner, display_name:def.display_name, finale_supplier:def.finale_supplier||def.display_name,
       clone:Object.assign({batch:batch, sku:p.sku, mode:s.mode==='decide'?'decide':'separate', kind:s.kind},
+                          (s.tags||[]).length?{tags:cloneTagsClean(s.tags)}:{},
                           s.autoPublish===true?{auto_publish:true}:{})}),
     expected_count:String(s.count||'').trim(), notes:'Made by staff with "Make a similar version".'};
 }
 /* what a vendor's request carries — nothing but the source's name, their words, files, recordings */
 function cloneVendorArgs(p, batch, s, iid, memoIds){
   return {batch:batch, sku:p.sku, intake_id:iid, name:'Similar to '+String(p.name||p.sku).slice(0,50),
-          text:cloneText(s), count:String(s.count||'').trim(), kind:s.kind, mode:s.mode==='decide'?'decide':'separate',
+          text:(cloneTagLine(s)?cloneTagLine(s)+'\n\n':'')+cloneText(s), count:String(s.count||'').trim(), kind:s.kind, mode:s.mode==='decide'?'decide':'separate',
           memos:memoIds||[]};
 }
 /* ⭐ the vendor request carries `auto_publish` ONLY when ticked AND the portal announced it can take it */
 function cloneVendorArgsAuto(args, s){
   return (s && s.autoPublish===true && cloneAutoPubAvailable()) ? Object.assign({}, args, {auto_publish:true}) : args;
+}
+/* ⭐ 2026-11-05: a vendor's tags travel as a labelled first line of their text (the portal contract is unchanged); the kind
+   they mean also goes as `kind` */
+function cloneTagLine(s){
+  var t=cloneTagsClean((s||{}).tags);
+  return t.length ? 'What kind of change: '+t.map(function(k){ return CLN_TAGS.filter(function(x){ return x[0]===k; })[0][1]; }).join('; ') : '';
 }
 function cloneAudioSeconds(s){ return (s.parts||[]).reduce(function(n,x){return n+(x.seconds||0);},0); }
 
@@ -7823,7 +7860,8 @@ window.cloneRecDrop=function(n){ if(!CLN) return; CLN.parts=CLN.parts.filter(fun
 function cloneSheet(){
   var p=P[cur], batch=_itemBatch(cur), el=cloneEligible(p, batch);
   /* ⭐ 2026-10-27 (P-2299): staff making a version of TC Farm's OWN item use the new-product sheet — no more "ask the team" */
-  if(staffEditUI() && p && CLN_NOT_OWNERS.indexOf(String(p.owner||''))>=0) return nwOpen(p.sku);
+  /* ⭐ 2026-11-05 (plan §9a): a TC Farm original opens THIS dialog too (the Mac mini sends it to the house engine) */
+  if(staffEditUI() && p && String(p.owner||'')!=='TCFarm' && CLN_NOT_OWNERS.indexOf(String(p.owner||''))>=0) return nwOpen(p.sku);
   if(!el.ok){
     openSheet('<h2>Make a similar version</h2><div class="sub">'+esc(el.reason)+'</div><button class="btn" onclick="closeSheet()">Close</button>');
     $('#sheet').classList.remove('wide'); return;
@@ -7836,7 +7874,7 @@ function cloneRender(){
   var c=CLN; if(!c||!P[cur]) return;
   var p=P[cur], V=isVendorView(), us=V?'we':'our team';
   if(c.sub){ return cloneProgress(); }
-  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':(c.starting?'starting':''), count:c.count}),
+  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':(c.starting?'starting':''), count:c.count, qPrice:c.qPrice, qSize:c.qSize}),
       est=cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)});
   var rec=c.phase==='recording'
       ? '<span class="vs-rec" aria-hidden="true"></span><b>Recording · <span id="clnTime">0:00</span></b> <button class="btn" onclick="cloneRecPause()">Pause</button> <button class="btn primary" onclick="cloneRecDone()">I\'m done</button>'
@@ -7848,14 +7886,18 @@ function cloneRender(){
       ${V?'Tell us':'Tell it'} what is <b>different</b>. The new product gets its own barcode and SKU, and you can fix anything
       that is wrong in the listing afterwards. Nothing is published without an approval.</div>
     <div class="hint" id="clnKeep" role="note">${esc(cloneKeepText(c.kind))}</div>
-    <fieldset style="border:0;padding:0;margin:0 0 10px"><legend class="lbl">What kind of change?</legend>
-      ${CLN_KINDS.map(function(k){ return `<label style="display:block;font-size:13px;margin:2px 0"><input type="radio" name="clnKind" value="${k[0]}" ${c.kind===k[0]?'checked':''}> <b>${esc(k[1])}</b> <span class="note">— ${esc(k[2])}</span></label>`; }).join('')}
+    <fieldset style="border:0;padding:0;margin:0 0 10px"><legend class="lbl">What kind of change? <span class="note">(tick any that fit — then say it in your own words below)</span></legend>
+      ${CLN_TAGS.map(function(k){ return `<label class="tbtn" style="display:inline-block;margin:2px 4px 2px 0;font-size:13px"><input type="checkbox" name="clnTag" value="${k[0]}" ${(c.tags||[]).indexOf(k[0])>=0?'checked':''}> ${esc(k[1])}</label>`; }).join('')}
     </fieldset>
     <label style="display:block;margin-bottom:10px"><span class="lbl">What is different?</span>
       <textarea id="clnText" class="ctl" rows="7" maxlength="${CLN_LIMITS.text}" style="width:100%;font:inherit"
         placeholder="${c.kind==='size'?'The 16 oz version of the same thing. Price $24, UPC 0…':'Salted caramel ice cream with a ribbon of caramel. Ingredients: cream, milk, sugar, … Contains: milk. UPC …'}">${esc(c.text)}</textarea>
       <span class="note">${sizeNote}Name it, give its UPC if you have it, its ingredients and anything else new. You can also add files or dictate below.
         <span id="clnCount">${c.text.length.toLocaleString()} of ${CLN_LIMITS.text.toLocaleString()} characters</span></span></label>
+    <div class="cn-grid" style="margin-bottom:10px">
+      <label>Price for one package <span class="note">(optional)</span><input id="clnQP" type="text" inputmode="decimal" maxlength="9" value="${esc(c.qPrice||'')}" placeholder="${cloneIsHouse(p)?'17.00':'keep the same'}"></label>
+      <label>Size or average weight <span class="note">(optional)</span><input id="clnQS" type="text" maxlength="40" value="${esc(c.qSize||'')}" placeholder="16 oz · avg 0.58 lb"></label>
+    </div>
     <label style="display:block;margin-bottom:10px"><span class="lbl">Link to the new product's page or a photo of it <span class="note">(optional)</span></span>
       <input id="clnLink" class="ctl" type="url" inputmode="url" maxlength="${CLN_LINK_MAX}" style="width:100%" value="${esc(c.link||'')}"
         placeholder="https://…/products/the-new-one">
@@ -7873,7 +7915,7 @@ function cloneRender(){
     <div class="cn-grid">
       <label>How many new products? <span class="note">(optional — we double-check we found them all)</span>
         <input id="clnCnt" type="text" inputmode="numeric" maxlength="3" value="${esc(c.count)}" placeholder="1"></label>
-      ${V?'':`<label>A variant of the source, or a separate product?
+      ${(V||cloneIsHouse(p))?'':`<label>A variant of the source, or a separate product?
         <select id="clnMode"><option value="separate" ${c.mode==='separate'?'selected':''}>Separate product</option>
         <option value="decide" ${c.mode==='decide'?'selected':''}>Our team decides if it should be a variant</option></select></label>`}
     </div>
@@ -7891,7 +7933,11 @@ function cloneRender(){
 function cloneWire(){
   var c=CLN; if(!c) return;
   var qa=function(s){ return document.querySelectorAll(s)||[]; };
-  Array.prototype.forEach.call(qa('input[name="clnKind"]'), function(r){ r.onchange=function(){ c.kind=r.value; cloneRender(); }; });
+  Array.prototype.forEach.call(qa('input[name="clnTag"]'), function(r){ r.onchange=function(){
+    var t=(c.tags||[]).filter(function(x){ return x!==r.value; }); if(r.checked) t.push(r.value);
+    c.tags=cloneTagsClean(t); c.kind=cloneKindFromTags(c.tags); cloneRender(); }; });
+  var qp=document.querySelector('#clnQP'); if(qp) qp.oninput=function(){ c.qPrice=qp.value; cloneRefresh(); };
+  var qs=document.querySelector('#clnQS'); if(qs) qs.oninput=function(){ c.qSize=qs.value; cloneRefresh(); };
   var lk=document.querySelector('#clnLink'); if(lk) lk.oninput=function(){ c.link=lk.value; cloneRefresh(); };
   var t=document.querySelector('#clnText'); if(t) t.oninput=function(){ c.text=t.value; var n=document.querySelector('#clnCount'); if(n) n.textContent=t.value.length.toLocaleString()+' of '+CLN_LIMITS.text.toLocaleString()+' characters'; cloneRefresh(); };
   var cn=document.querySelector('#clnCnt'); if(cn) cn.oninput=function(){ c.count=cn.value; cloneRefresh(); };
@@ -7911,7 +7957,7 @@ function cloneWire(){
 /* update just the estimate + button + reason as the user types */
 function cloneRefresh(){
   var c=CLN; if(!c) return;
-  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
+  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count, qPrice:c.qPrice, qSize:c.qSize});
   var go=document.querySelector('#clnGo'); if(go){ go.disabled=!!probl||c.busy; go.title=probl; }
   var est=document.querySelector('#clnEst'); if(est) est.textContent='⏱ '+cloneEstimate({count:c.count, audioSec:cloneAudioSeconds(c)}).text;
   var why=document.querySelector('#clnWhy'); if(why) why.textContent=' '+probl;
@@ -7933,7 +7979,7 @@ window.cloneSheet=cloneSheet; window.cloneClose=cloneClose;
 /* ── Process now ── */
 async function cloneSubmit(){
   var c=CLN, p=P[cur]; if(!c||!p||c.busy) return;
-  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count});
+  var probl=cloneProblem({text:c.text, link:c.link, files:c.files, parts:c.parts, phase:c.phase==='recording'?'recording':'', count:c.count, qPrice:c.qPrice, qSize:c.qSize});
   if(probl){ c.err=probl; cloneRender(); return; }
   if(!cloneAvailable()){ c.err='This is not available here right now.'; cloneRender(); return; }
   c.busy=true; c.err=''; cloneRender();
@@ -9659,7 +9705,7 @@ async function nwPoll(n, w, alive){
 function sfSimilarOpen(p){
   if(!staffEditUI() || !p) return;
   var o=String(p.owner||'');
-  if(!o || CLN_NOT_OWNERS.indexOf(o)>=0) return nwOpen(p.sku);       /* TC Farm's own items: the house-item flow (P-2299 — no more "ask the team") */
+  if(!o || (o!=='TCFarm' && CLN_NOT_OWNERS.indexOf(o)>=0)) return nwOpen(p.sku);   /* MNFC / TCFeeds / STCroix: the house flow refuses them with its reason */
   return cloneSheet();                                                /* a vendor's product keeps the consignment clone flow */
 }
 window.nwSetLike=nwSetLike; window.nwOpen=nwOpen; window.nwSet=nwSet; window.nwSetKind=nwSetKind; window.nwAddRow=nwAddRow; window.nwRemoveRow=nwRemoveRow; window.nwSubmit=nwSubmit;
