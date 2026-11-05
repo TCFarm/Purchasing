@@ -7811,10 +7811,10 @@ function cloneRender(){
         placeholder="${c.kind==='size'?'The 16 oz version of the same thing. Price $24, UPC 0…':'Salted caramel ice cream with a ribbon of caramel. Ingredients: cream, milk, sugar, … Contains: milk. UPC …'}">${esc(c.text)}</textarea>
       <span class="note">${sizeNote}Name it, give its UPC if you have it, its ingredients and anything else new. You can also add files or dictate below.
         <span id="clnCount">${c.text.length.toLocaleString()} of ${CLN_LIMITS.text.toLocaleString()} characters</span></span></label>
-    <label style="display:block;margin-bottom:10px"><span class="lbl">Link to the new product's page <span class="note">(optional)</span></span>
+    <label style="display:block;margin-bottom:10px"><span class="lbl">Link to the new product's page or a photo of it <span class="note">(optional)</span></span>
       <input id="clnLink" class="ctl" type="url" inputmode="url" maxlength="${CLN_LINK_MAX}" style="width:100%" value="${esc(c.link||'')}"
         placeholder="https://…/products/the-new-one">
-      <span class="note">${c.kind==='size'?'We read the size and price from it when it shows them.':'We read the new product\'s name, description, ingredients, allergens and photos from it.'}</span></label>
+      <span class="note">${c.kind==='size'?'We read the size and price from a page when it shows them.':'We read the new product\'s name, description, ingredients, allergens and photos from a page.'} A link straight to a photo (ending .jpg, .png…) becomes the new product's main photo.</span></label>
     <div class="cn-drop" id="clnDrop"><b>Drag files here</b> (price lists, spec sheets, label photos, ingredient PDFs…) or
       <input type="file" id="clnFile" multiple ${c.busy?'disabled':''}></div>
     ${c.fileErr?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.fileErr)}</div>`:''}
