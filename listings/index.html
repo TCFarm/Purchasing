@@ -7679,9 +7679,11 @@ function cloneText(s){
 /* ⭐ 2026-11-05 (Jack): "Auto-publish when done" — OFF by default. ⛔ The server decides again who may use it
    (consignment_jobs.autopub_requester) — the page only offers it. */
 function cloneAutoPubAvailable(){
-  /* ⛔ VIEW_PARITY.md 2026-11-05: staff-only until the portal's clone gate (studioProtocol.ts FIELD_CHECKS.clone) accepts
-     `auto_publish` and the contract lists it — a field the gate does not know makes it DROP the whole clone request */
-  return !isVendorView();
+  /* ⭐ 2026-11-05: a vendor gets it once the portal ANNOUNCES it can carry the field (hello.features 'clone_autopublish',
+     vendor-portal 2920e84) — an older portal's gate would drop the whole clone request. ⛔ The mini still decides who may
+     use it, and vendor requests need their own switch key (consignment_jobs). */
+  if(isVendorView()) return Array.isArray(VIEW.features) && VIEW.features.indexOf('clone_autopublish')>=0;
+  return true;
 }
 /* ⭐ review 2026-11-05: the words promise only what the server does (clone_autopublish.py) — and a new SIZE takes its
    size, price and case pack from what you give, never from the original */
