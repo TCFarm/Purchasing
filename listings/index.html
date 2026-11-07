@@ -979,7 +979,7 @@ function mergeState(payload, rows){
        listing_review.is_parked — keep the two identical (test_merge_parity). */
     const drainState=String(row.drain_state||'');
     item._decision={overall:row.overall||'pending', revision:+(row.revision||0),
-                    decided_by:row.decided_by||'', decided_at:decidedAt, sections:sections,
+                    decided_by:row.decided_by||'', decided_at:decidedAt, modified:String(row.Modified||''), sections:sections,
                     drain_state:drainState, drain_note:String(row.drain_note||''),
                     drained:isDrainedRow(row),
                     parked:!!drainState && drainState==='refused@'+String(+(row.revision||0)),
@@ -3485,7 +3485,7 @@ function renderFields(){
       : _ours ? 'Your changes are kept and we retry it automatically. There is nothing to change or save.'
       : 'Nothing below reaches the stores until this is fixed. Change the field it names and save again — the next run picks it up automatically.'}</div>
     <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note ? _noteShown(_dd.drain_note) : '(no reason recorded)')}</div></div></div>`));
-  const notesHtml = drainHtml + (!(p.notes||[]).length ? '' : vh('notesBlock',`
+  const notesHtml = drainHtml + retryHtml(cur) + (!(p.notes||[]).length ? '' : vh('notesBlock',`
   <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
     <div class="hint" style="margin-bottom:8px">
       These were left <b>blank on purpose</b>. We were not confident enough to fill them in,
@@ -3747,6 +3747,7 @@ function renderFields(){
     p.storage=want; p.skuAfter=next;
     markEdited('identity',`Storage change saved — the SKU becomes ${next} once it is applied`);
   };
+  {const _r=$('#btnRetryPublish'); if(_r) _r.onclick=()=>{ if(_r.disabled) return; _r.disabled=true; retryRun(cur).then(()=>{ try{ renderFields(); }catch(_){} }); };}
   {const _b=$('#btnConfirmOverwrite'); if(_b) _b.onclick=()=>{
     /* ⭐ 2026-09-22 (plan B6): the reviewer's explicit consent to overwrite the
        NAMED fields that were changed in BigCommerce. Travels as a reserved key in
@@ -9430,6 +9431,69 @@ function sfShowAnswer(session, text, ok){
   if(el&&text) el.innerHTML+='<div class="sub" role="status">'+(ok?'✅ ':'⛔ ')+esc(text)+'</div>';
 }
 window.sfUndoAsk=sfUndoAsk; window.sfUndoRun=sfUndoRun; window.sfUndoState=function(){ return UNDO; };
+
+/* ── RETRY PUBLISHING (staff) — plans/2026-11-06-studio-retry-PLAN.md ─────────────────────────────────────────────────
+   A parked product (or an approved one waiting > 30 min) gets a "Retry publishing" button. It writes a request row + a job
+   (productpipeline.studio_retry); the Mac mini re-decides WHO, eligibility and the limits (cooldown 10 min, 3 per 24 h, one
+   queued per product) — the page's own cooldown is only a convenience, never the control. A retry is NOT an approval and skips
+   no gate. ⛔ Only holds that wait on a confirm-overwrite decision ([fields] / [re-publish] / [photos]) are excluded, here and on the server;
+   the publisher's own refusals (held@N, "⛔ Not published…") ARE retryable. */
+var RETRY={}, RETRY_COOLDOWN_MS=10*60*1000, RETRY_WAIT_MS=30*60*1000;
+function retryEligible(i){
+  if(!staffEditUI()) return false;
+  var s=st[i]||{}; if(!s.approved||s.cancelled) return false;
+  var ps=pubState(i), d=(P[i]||{})._decision||{}; if(ps==='parked') return true;
+  /* ⭐ the PUBLISHER's own refusals are held@N (Opus review 2026-11-06, finding 1) — retryable. Only a hold that waits for someone to CONFIRM
+     overwriting a live product ([fields] / [re-publish]) is excluded, exactly as on the server. */
+  if(ps==='held') return !/^\[(fields|re-publish|photos)\]/.test(String(d.drain_note||''));
+  /* "waiting" is measured from SharePoint's Modified (what the server uses), not the page's decided_at (finding 7) */
+  if(ps==='waiting'){ var t=Date.parse(d.modified||d.decided_at||''); return !isNaN(t) && (Date.now()-t)>=RETRY_WAIT_MS; }
+  return false;
+}
+/* the last press survives a reload or a second tab on this browser (finding 3); the SERVER is still the only control */
+function retryLast(sku){ var v=0; try{ v=+localStorage.getItem('studioRetryAt:'+sku)||0; }catch(_){} var r=RETRY[sku]; return Math.max(v, (r&&r.at)||0); }
+function retryRemember(sku, at){ try{ localStorage.setItem('studioRetryAt:'+sku, String(at)); }catch(_){} }
+function retryHtml(i){
+  if(!retryEligible(i)) return '';
+  var sku=P[i].sku, r=RETRY[sku]||{}, last=retryLast(sku), left=last?Math.max(0,RETRY_COOLDOWN_MS-(Date.now()-last)):0;
+  var busy=r.st==='run', dis=busy||left>0;
+  var lab=busy?'Retrying…':left>0?('Retry again in '+Math.ceil(left/60000)+' min'):'Retry publishing';
+  return '<div class="fgroup" id="retryBox"><h3>↻ Try publishing again</h3><div class="body">'
+    +'<div class="hint" style="margin-bottom:6px">Use this after the cause of a stop has been fixed. It is a retry, not an approval: nothing is skipped, '
+    +'and if the cause is still there the product stops again and says why. Limits: once every 10 minutes, 3 times a day.</div>'
+    +'<button class="btn primary" id="btnRetryPublish" type="button"'+(dis?' disabled':'')+'>'+lab+'</button>'
+    +'<div id="retryProg_'+String(sku).replace(/[^A-Za-z0-9_-]/g,'_')+'" role="status">'
+    +(r.answer?(r.st==='done'?'✅ ':'⛔ ')+esc(r.answer):'')+'</div></div></div>';
+}
+async function retryRun(i){
+  var p=P[i]; if(!p||!retryEligible(i)) return {ok:false};
+  var sku=p.sku, r=RETRY[sku];
+  if(r && r.st==='run') return {ok:false, why:'running'};                                   /* one request in flight per product */
+  if(Date.now()-retryLast(sku)<RETRY_COOLDOWN_MS) return {ok:false, why:'cooldown'};         /* convenience only; the server enforces */
+  r=RETRY[sku]={st:'run', answer:'', req:null, at:Date.now()}; retryRemember(sku, r.at);
+  var key='retry:'+sku, pid='retryProg_'+String(sku).replace(/[^A-Za-z0-9_-]/g,'_');
+  var w=sfWait(key,{sel:'#'+pid, names:['Sending the retry to the Mac mini','Waiting for the Mac mini to queue it'],
+    limits:[STUDIO_LIMITS.undoMs, STUDIO_LIMITS.undoMs], doneText:'Retry queued.', limitText:'The retry has not been confirmed yet.',
+    safeText:'Your request is saved — it may still go through. Please do not press again.', retryKey:false,
+    poll:function(w, alive){ return retryPoll(r, w, alive, sku); }});
+  try{
+    r.req=await sfSubmit('retry:'+sku+':'+_photoId(), 'retry_request',
+      {batch:p._batch, sku:sku, revision:+((p._decision||{}).revision||0)}, 'productpipeline.studio_retry');
+    if(SFW[key]!==w||w.state!=='run') return {ok:false};
+    sfStage(w,1);
+    return {ok:true};
+  }catch(err){ r.st='failed'; r.at=Date.now()-RETRY_COOLDOWN_MS+120000; retryRemember(sku, r.at); sfFinish(w,'failed','Not sent — '+String(err&&err.message||err).slice(0,200)); return {ok:false}; }
+}
+async function retryPoll(r, w, alive, sku){
+  if(!r.req || w.stage<1) return;
+  var x=await sfReadRequest(r.req); if(!alive()) return;
+  if(x.kind==='applied'){ r.st='done'; r.answer=x.text; sfFinish(w,'done',''); }
+  else if(x.kind==='refused'){ r.st='refused'; r.answer=x.text; r.at=Date.now()-RETRY_COOLDOWN_MS+120000; retryRemember(sku, r.at); sfFinish(w,'failed', x.text||'The Mac mini refused the retry.'); }
+  else if(x.kind==='jobfail'){ r.st='refused'; r.at=Date.now()-RETRY_COOLDOWN_MS+120000; retryRemember(sku, r.at); sfFinish(w,'failed', x.text); }
+  else if(x.text) w.note=x.text;
+  if(r.st==='done'||r.st==='refused'){ try{ if(P[cur]&&P[cur].sku===sku) renderFields(); }catch(_){} }
+}
+window.retryRun=retryRun; window.retryEligible=retryEligible; window.retryState=function(){ return RETRY; };
 
 /* ── NEW PRODUCT / MAKE A SIMILAR VERSION (staff): copy everything but SKU + UPC, adjust, several at once ───────────── */
 var NW=null;
