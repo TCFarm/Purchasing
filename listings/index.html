@@ -8488,7 +8488,7 @@ if(document.querySelector('#btnPortal')){ $('#btnPortal').onclick=function(){ vd
    ⛔ Every wait: a named step, a progress bar, a live clock, a limit that ends in words plus Try again / Check again, and a
      late answer changes nothing (APP-PROGRESS-STATUS.md). Limits live in STUDIO_LIMITS, not in the code. */
 var STUDIO_LIMITS={indexMs:45000, requestMs:10*60*1000, recordMs:15*60*1000, undoMs:10*60*1000, newMs:20*60*1000,
-  pollMs:5000, recordPollMs:10000, pollTimeoutMs:20000, clockMs:1000, minChars:2, maxHits:30, recentMax:20, editingMs:2*3600*1000, bigLb:20,
+  pollMs:5000, recordPollMs:10000, pollTimeoutMs:20000, clockMs:1000, minChars:2, maxHits:30, recentMax:20, editingMs:2*3600*1000,
   multiMax:20, refreshShareMs:9000, sendStepMs:30000};
 var STUDIO_INDEX_PATH='ListingReview/studio/catalog_index.json';
 var STUDIO_STORES=[['tcfarm','TC Farm'],['mnfc','MN Food Club'],['ngf','Nelson Grass Farm']];
@@ -9505,7 +9505,7 @@ var NW_UNITS=['oz','lb','g','kg','fl oz','pt','qt','gal','ml','L','ct'];
 var NW_STAGES=['Waiting for the Mac mini','Checking the SKUs','Categorising','Writing the copy','Setting the price','Preparing the photos','Building the listing'];
 var NW_BUILD=NW_STAGES.length-1;
 var NW_STORAGES=['','Frozen','Refrigerated','Dry'];
-function nwFresh(){ return {name:'', size:'', unit:'oz', weight:'', price:'', sku:'', storage:'', ingredients:'', cost:'', fresh:null, bigOk:false, copied:{}}; }
+function nwFresh(){ return {name:'', size:'', unit:'oz', weight:'', price:'', sku:'', storage:'', ingredients:'', cost:'', fresh:null, copied:{}}; }
 function nwOpen(fromSku){
   if(!staffEditUI()) return false;
   fromSku=String(fromSku||'').trim();
@@ -9566,7 +9566,7 @@ function nwProblems(n){
     if(w){
       if(/^\./.test(w)) P_('Write the weight as 0.85, not '+w+'.');
       else if(!/^\d+(\.\d+)?$/.test(w) || !(+w>0)) P_('The weight is pounds as a number like 0.85.');
-      else if(+w>STUDIO_LIMITS.bigLb && !r.bigOk) P_('That is over '+STUDIO_LIMITS.bigLb+' lb — did you mean '+(+w/10)+' or '+(+w/100)+'? Tick “yes, it is that heavy” if it is right.');
+      /* ⛔ no upper weight limit (Jack, 2026-11-11): any weight a person types is allowed */
     }
     var sk=String(r.sku||'').trim();
     if(sk){
@@ -9607,7 +9607,6 @@ function nwRowHtml(n, r, i){
     +'<div class="nwgrid"><label>Size<input class="ctl mono" inputmode="decimal" value="'+esc(r.size)+'" oninput="nwSet('+i+',\'size\',this.value)">'+cp('size')+'</label>'
     +'<label>Unit<select class="ctl" onchange="nwSet('+i+',\'unit\',this.value)">'+NW_UNITS.map(function(u){ return '<option'+(u===r.unit?' selected':'')+'>'+esc(u)+'</option>'; }).join('')+'</select></label>'
     +'<label>Average weight (lb)<input class="ctl mono" inputmode="decimal" placeholder="0.85" value="'+esc(r.weight)+'" oninput="nwSet('+i+',\'weight\',this.value)">'+cp('weight')+'</label></div>'
-    +(+r.weight>STUDIO_LIMITS.bigLb?'<label><input type="checkbox"'+(r.bigOk?' checked':'')+' onchange="nwSet('+i+',\'bigOk\',this.checked)"> Yes, it is that heavy</label>':'')
     +'<div class="nwgrid"><label>Price for one package<input class="ctl mono" inputmode="decimal" value="'+esc(r.price)+'" oninput="nwSet('+i+',\'price\',this.value)">'+cp('price')+'</label>'+perLb
     +'<label>Storage<select class="ctl" onchange="nwSet('+i+',\'storage\',this.value)">'+NW_STORAGES.map(function(s){ return '<option value="'+esc(s)+'"'+(s===r.storage?' selected':'')+'>'+esc(s||'— choose —')+'</option>'; }).join('')+'</select>'+cp('storage')+'</label></div>'
     +'<label>SKU <span class="sub">(optional — what you type wins)</span><input class="ctl mono" value="'+esc(r.sku)+'" oninput="nwSet('+i+',\'sku\',this.value)" placeholder="'+esc(sug||'we pick one if you leave it empty')+'"></label>'
@@ -9649,7 +9648,6 @@ function nwRefresh(){
 function nwSet(i, f, v){
   var n=NW; if(!n||!n.rows[i]) return;
   n.rows[i][f]=v; if(n.rows[i].copied && n.rows[i].copied[f]) delete n.rows[i].copied[f];   /* typing over a copied value clears its label */
-  if(f==='weight') n.rows[i].bigOk=false;
   nwRefresh();
 }
 function nwSetLike(v){ if(NW){ NW.like=String(v||''); nwRefresh(); } }
