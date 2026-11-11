@@ -9558,7 +9558,7 @@ function nwProblems(n){
     var name=String(r.name||'').trim();
     if(!name) P_('Give it a name.'); else if(name.length>120) P_('The name is too long (120 characters at most).');
     var pr=String(r.price).trim();
-    if(!pr) P_('Give the price for one package.'); else if(!(+pr>0) || +pr>9999 || !/^\d+(\.\d{1,2})?$/.test(pr)) P_('The price is a dollar amount like 11.99.');
+    if(!pr) P_('Give the price for one package (0 is allowed, for a free item).'); else if(!(+pr>=0) || +pr>9999 || !/^\d+(\.\d{1,2})?$/.test(pr)) P_('The price is a dollar amount like 11.99 (0 is allowed).');   /* ⭐ $0 allowed (Jack, 2026-11-11) */
     var sz=String(r.size||'').trim(), w=String(r.weight||'').trim();
     if(n.kind!=='meat' && !sz) P_('Give the size (a number and a unit) — every name ends with its size.');
     if(sz && !(+sz>0 && /^\d+(\.\d+)?$/.test(sz))) P_('The size is a number like 12 — pick the unit beside it.');
