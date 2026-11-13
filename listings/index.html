@@ -1228,7 +1228,7 @@ var VENDOR_POLICY_FALLBACK={
   item_keys:['action_needed','badge','badge_alts','brand','casepack','cat','cat2','clone_copied','clone_custom_fields','clone_of','cq','dims','dims_meta',
              'direct_vendor','flags','images','keywords','kind','live_before','live_edit','live_enhance','live_enhance_mode',
              'live_gallery_pending','live_suggestions','live_variants','meta_desc','name','owner','page_title','preread',
-             'preread_note','price','prose','published','reorder','sale_ends','sale_price','sku','source','storage','tax',
+             'preread_note','price','prose','published','reorder','sale_ends','sale_price','size_exempt','sku','source','storage','tax',
              'tax_assessment','tax_live','tiers','upc','vendor_code','visible','volume','volume_basis','waiting_on_us',
              'warranty','weight_g'],
   item_shapes:{images:['file','url','caption','w','h','source','broken'],live_suggestions:['field'],
@@ -1953,6 +1953,7 @@ function fromPayload(it){
     liveEnhance:!!it.live_enhance, liveBefore:it.live_before||null, liveEnhMode:it.live_enhance_mode||'',
     liveSuggestions:it.live_suggestions||[], liveAccepted:it.live_accepted||[],
     liveGalleryPending:!!it.live_gallery_pending,
+    sizeExempt:!!it.size_exempt,   /* ⭐ 2026-11-12: a copy of a source with no size needs none (listing_payload.size_exempt) */
     upc:it.upc||'', brand:it.brand||'',
     direct:!!it.direct_vendor, vendorCode:it.vendor_code||'',
     name:it.name||'', badge:it.badge||'', badgeAlts:it.badge_alts||[],
@@ -2970,7 +2971,7 @@ function sec(k,body,extra){
   const reworkedAt=_reworkedAt(s);
   const chip=s==='approved'?'<span class="chip ok">approved</span>':s==='edited'?'<span class="chip ed">edited by you</span>'
     :reworkedAt!==null?`<span class="chip ok">reworked${reworkedAt?' · '+esc(reworkedAt):''}</span>`
-    :s==='rework'?'<span class="chip rw">rework queued</span>':'';
+    :s==='rework'&&!(k==='gallery'&&st[cur].picks.length&&!st[cur].cm[k])?'<span class="chip rw">rework queued</span>':'';   /* ⭐ 2026-11-12: a gallery with a chosen photo and no comment queued has nothing to run */
   const by=st[cur].by[k]?`<span class="byline">${esc(st[cur].by[k])}</span>`:'';
   const note=st[cur].cm[k]?`<div class="cnote"><b>${isVendorView()?(k==='gallery'?'You asked for different photos — our team will find them':k==='price'?'You asked us about the price — our team will reply':'You asked us to rewrite this'):'Queued for the next run'}</b>${esc(st[cur].cm[k])}</div>`:'';
   const isEd=editing===k;
@@ -3141,7 +3142,7 @@ function wireEditors(){
     const nm=$('#edName'),bd=$('#edBadge');
     const check=()=>{
       const v=nm.value;
-      const probs=nameProblems(v,p.brand);            /* ⛔ A6: one shared rule set */
+      const probs=nameProblems(v,p.brand,p.sizeExempt);   /* ⛔ A6: one shared rule set */
       const bits=probs.length?probs.map(x=>`<span class="bad">⛔ ${esc(x)}</span>`)
                              :['<span class="okk">✓ name passes every rule</span>'];
       $('#nameHint').innerHTML=bits.join(' · ');
@@ -3512,9 +3513,9 @@ function renderFields(){
   const _fieldsHtml=notesHtml+vendorTopHtml+vgrp(`
   <div class="fgroup"><h3>Identity</h3><div class="body">
     ${vrow('name',null,frow('Product name','the shelf identity',`<input class="ctl" id="fName" value="${esc(p.name)}">`,
-      (function(){const q=nameProblems(p.name,p.brand);
+      (function(){const q=nameProblems(p.name,p.brand,p.sizeExempt);
         return q.length?q.map(x=>`<span class="bad">⛔ ${esc(x)}</span>`).join('<br>')
-                       :'<span class="okk">✓ no brand, no case quantity, size suffix present</span>';})()))}
+                       :'<span class="okk">✓ no brand, no case quantity, '+(hasSizeSuffix(p.name)?'size suffix present':'no size needed — the original has none')+'</span>';})()))}
     ${vrow('sku',null,frow('SKU',isVendorView()?'our item code':'derived',`<div class="skurow"><input class="ctl mono" value="${esc(p.sku)}" disabled>${skuBarcodeHtml(p.sku)}</div>`
       +((p.skuAfter&&p.skuAfter!==p.sku)?`<div class="hint">⏳ becomes <b class="mono">${esc(p.skuAfter)}</b> once your change is applied</div>`:''),
       isVendorView()?'<span class="derived">set by us from the storage area and the category</span>':`<span class="derived">storage letter <b>${STORAGE_LETTER[p.storage]}</b> + category code <b>${esc(c[2]||'—')}</b> + hash + brand code. Re-letter with <span class="mono">bulk_sku_area</span>, never by typing.</span>`))}
@@ -3935,6 +3936,9 @@ function adoptSizeBare(units){
   catch(e){ return false; }
 }
 function hasSizeSuffix(v){v=String(v||'');return SIZE_RE.test(v)||SIZE_BARE_RE.test(v);}
+/* ⭐ 2026-11-12 (club-6203): the Name's size rule for PRODUCT i — a copy of a source that had no size needs none (Jack,
+   2026-11-11: "a copy never needs MORE than its source"). ⛔ An empty Name still fails. Same predicate as the drain and export. */
+function nameSizeOk(i){var p=P[i]||{};return hasSizeSuffix(p.name)||(!!p.sizeExempt&&!!String(p.name||'').trim());}
 function startsWithBrand(v,brand){
   const tok=String(brand||'').split(/\s+/)[0]||'';
   if(!tok)return false;
@@ -3944,9 +3948,10 @@ function hasBarePackQty(v){
   v=String(v||'');
   return PACKQTY_RE.test(v) && !MULTIUNIT_RE.test(v);
 }
-function nameProblems(v,brand){
+function nameProblems(v,brand,sizeExempt){
   const out=[];
-  if(!hasSizeSuffix(v))out.push('no size suffix — the export gate will refuse this');
+  /* ⭐ 2026-11-12: a copy of a source with no size needs none — but an empty Name is never exempt */
+  if(!hasSizeSuffix(v)&&!(sizeExempt&&String(v||'').trim()))out.push('no size suffix — the export gate will refuse this');
   if(startsWithBrand(v,brand))out.push('starts with the brand — the Brand field carries that');
   if(hasBarePackQty(v))out.push('looks like a case/pack quantity');
   return out;
@@ -4287,7 +4292,8 @@ function renderFlags(){
     reason · Defer. A blocking flag holds the product back even when every section is approved.</div>`
     +open.map((f,i)=>`<div class="flag" data-fi="${i}"><span class="flag-k">${esc(f.k)}</span>
       <div><p>${esc(f.t)}</p><div class="acts">
-        <button class="tbtn go" data-do="resolve">Resolve</button>
+        ${isConfirmFlag(f)?'<button class="tbtn go" data-do="confirm">Confirm this is the right item</button>':''}
+        <button class="tbtn ${isConfirmFlag(f)?'':'go'}" data-do="resolve">Resolve</button>
         <button class="tbtn" data-do="override">Override with reason</button>
         <button class="tbtn" data-do="defer">Defer from batch</button></div></div></div>`).join('')
       :`<div class="note">Nothing is blocking this product.</div>`)
@@ -4299,6 +4305,7 @@ function renderFlags(){
     const d=b.dataset.do;
     const idx=+b.closest('.flag').dataset.fi;
     const f=open[idx]; if(!f)return;
+    if(d==='confirm')return window.confirmItem(f.k);
     if(d==='resolve')return resolveFlag(f);
     if(d==='defer')return deferFlag(f);
     if(d==='override')openSheet(`<h2>Override with a reason</h2>
@@ -4362,6 +4369,21 @@ window.submitResolve=function(k){
 window.deferFlag=function(f){
   _recordFlagAction(f,'defer',{}).then(function(res){
     if(res&&res.ok!==false)toast('Deferred — excluded from this batch, flag stays open for next batch');});
+};
+/* ⭐⭐ 2026-11-12 (Jack: "confirmation instead of blocking"): the three "is it the right item?" questions — a possible duplicate,
+   a disputed cost, "none of these photos" — are not a stop with no way through: the person CONFIRMS it is the right item and it
+   proceeds. It records the SAME override the flags tab always had (the flag stays on the record, with who and why), so the drain and
+   the publish gate need nothing new. ⛔ Only these three; a mandatory gate (tax, ingredients, size, Finale…) has no Confirm.
+   "None of these photos" is confirmable only when there ARE photos to confirm. */
+const CONFIRM_FLAGS=['POSSIBLE_DUPLICATE','COST_DISPUTED','IMAGES_NEED_SOURCING'];
+function isConfirmFlag(f){
+  if(!f||CONFIRM_FLAGS.indexOf(f.k)<0) return false;
+  return f.k!=='IMAGES_NEED_SOURCING' || (((P[cur]&&P[cur].imgs)||[]).length>0);
+}
+window.confirmItem=function(k){
+  const f=(P[cur].flags||[]).find(x=>x.k===k); if(!f||!isConfirmFlag(f))return;
+  return _recordFlagAction(f,'override',{reason:'Confirmed by '+(ACCOUNT||'a reviewer')+': this is the right item'}).then(function(res){
+    if(res&&res.ok!==false)toast('Confirmed — it goes ahead');});
 };
 window.recordOverride=function(k){
   const f=(P[cur].flags||[]).find(x=>x.k===k); if(!f)return;
@@ -4461,7 +4483,12 @@ function openFlags(i){
   /* ⭐ 2026-09-30 (Jack's portal test): a PRICE_UNKNOWN is settled the moment a real price is on the product (the
      vendor typed one) — the drain's apply_price_answer then drops the flag too; until it runs the page must not keep
      the product blocked on a question it has already answered */
-  return (P[i].flags||[]).filter(f=>!acted[f.k] && !(f.k==='PRICE_UNKNOWN' && +P[i].price>0));
+  /* ⭐ 2026-11-12 (NGF Cooper's turkey, Jack: "it says blocked for image, but there IS an image"): the same for "none of these
+     photos" — a chosen photo IS the answer, so it must not stay a stop behind a complete gallery. The drain closes the flag
+     on the server when the pick lands (listing_drain); with NO photo chosen it still blocks. */
+  const _pk=((st[i]&&st[i].picks)||[]).length>0;
+  return (P[i].flags||[]).filter(f=>!acted[f.k] && !(f.k==='PRICE_UNKNOWN' && +P[i].price>0)
+                                     && !(f.k==='IMAGES_NEED_SOURCING' && _pk));
 }
 function productApproved(i){return !!st[i].approved;}
 /* ⭐⭐ 2026-09-27 (P-1716, operator: "a check mark that says published with the quantity … more of a
@@ -4609,7 +4636,7 @@ function localFixed(i,x){
     case 'reorder':  return +p.reorder>0;
     case 'casepack': return +p.casepack>0;
     case 'price':    return +p.price>0;
-    case 'name':     return hasSizeSuffix(p.name);
+    case 'name':     return nameSizeOk(i);
     case 'images':   return ((st[i]&&st[i].picks)||[]).length>0;
     case 'taxOverride': return !!p.taxOverride;
     default: return false;
@@ -4631,7 +4658,7 @@ function productBlocked(i){
      treats as a bare stub. An approval with zero images is not an approval. */
   const noImgs=(st[i].picks||[]).length===0 && !P[i].liveEdit;   /* ⭐ Phase C: a live listing's gallery is not republished */
   /* ⛔ Rule 6 is a hard export gate, not a hint — enforce it here too. */
-  const nameBad=!hasSizeSuffix(P[i].name);
+  const nameBad=!nameSizeOk(i);
   /* ⛔⛔ A PROVISIONAL SKU CANNOT BE APPROVED (ruling: Jack, 2026-09-10 —
      "an item can't be approved in this state"). The '?' in `?????6320RtE`
      marks a storage area or category that was never resolved; it is not a
@@ -4687,7 +4714,9 @@ function renderDecide(){
         +actionsOf(cur).map(function(x){ return `<a href="#" onclick="goToField('${esc(x.field||'')}');return false" style="color:var(--warn)">${esc((FIELD_NAV[x.field]||FIELD_NAV._comment).where)}</a>`; }).join(', ')+'</span>':'')
     +(blk&&!isVendorView()?` · <span style="color:var(--stop)"><b>${blk}</b> blocking: `
         +openFlags(cur).filter(f=>f.sev==='stop').map(f=>esc(f.k)).join(', ')
-        +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a></span>`:'')
+        +` — <a href="#" onclick="selectTab('flags');return false" style="color:var(--stop)">open flags</a>`
+        +openFlags(cur).filter(f=>f.sev==='stop'&&isConfirmFlag(f)).map(f=>` <button class="tbtn go" onclick="confirmItem('${esc(f.k)}')">Confirm: ${esc(f.k)} is the right item</button>`).join('')
+        +`</span>`:'')
     +(!blk&&noImgs?` · <span style="color:var(--warn)">no images chosen — <a href="#" onclick="selectTab('images');return false" style="color:var(--warn)">pick some</a></span>`:'')
     +(!blk&&nameBad?` · <span style="color:var(--warn)">the Name breaks a rule</span>`:'')
     +(skuBad?` · <span style="color:var(--stop)"><b>the SKU is not final</b>
@@ -4887,7 +4916,7 @@ function bulkCandidates(){
                           b.blk?`${b.blk} blocking flag${b.blk>1?'s':''}`:null,
                           b.rw?'a rework request is queued':null,
                           b.noImgs?'no images chosen':null,
-                          b.nameBad?'the Name has no size suffix':null]
+                          b.nameBad?(P[i].sizeExempt?'the Name is empty':'the Name has no size suffix'):null]
                          .filter(Boolean).join(' · ')});
   });
   return {yes, no};
