@@ -199,7 +199,11 @@
   <span class="slot"><b>Mon 07:30</b> new items recommended</span>
   <span class="slot"><b>Mon 11:00</b> sale goes live</span>
   <span class="slot"><b>Mon 23:00</b> sale locks</span>
+  <span class="slot mine"><b>Wed 06:00</b> items to consider dropping appear on Purchasing &rsaquo; This week</span>
   <span class="slot"><b>Thu 09:00</b> last order scored</span>
+  <span class="slot"><b>Thu afternoon</b> the week's results go to the weekly review</span>
+  <span class="slot"><b>Fri</b> proven changes are checked (applied only once Jack turns that on)</span>
+  <span class="slot"><b>daily 08:00</b> add-on orders checked for items that would date out</span>
   <span class="slot"><b>daily 07:30</b> pull list</span>
   <span class="slot"><b>KeHE truck day 07:00</b> early-pull list</span>
   <span class="slot"><b>Wednesday</b> restock from backstock (in the pull list + Dates &amp; pulls → Restock)</span>
@@ -420,7 +424,7 @@
           <li><b>Comment a link</b> if we clearly used the wrong page. We trust a link you typed — we don't second-guess it — and we <em>re-read that page</em> before rewriting, rather than rewording the same bad source.</li>
           <li>Comments are picked up <b>every ten minutes between 7am and 10pm</b>, every day. There's no button. Review thirty products and the first ones are done before you reach the last.</li>
           <li><b>Images:</b> tap in the order you want them — the first tap is the main photo. Tap again to remove. Use the magnifier before choosing between two near-identical packs; that's the only way to tell a 12oz from a 16oz on the shelf shot.</li>
-          <li><b>None of the images is right?</b> Press <b>None of these</b>. The product is flagged as needing new images and <b>won't publish until someone adds them</b>. To add them yourself, press <b>Upload photo</b> or <b>Add image link</b> (paste the picture's address). The photo is checked (a real image, at least 500 pixels each side) and appears in the picker within a few minutes; if it can't be used, the product says why.</li>
+          <li><b>None of the images is right?</b> Press <b>None of these</b>. The product is flagged with a question; <b>a person confirms the photos are the right item, or adds new ones</b>. To add them yourself, press <b>Upload photo</b> or <b>Add image link</b> (paste the picture's address). The photo appears in the picker within a few minutes; a photo under 500 pixels each side is still added, with a note that a bigger one looks better.</li>
           <li><b>Changing a product that is already on our stores?</b> Press <b>Edit or enhance a live product</b>, find it by name, brand, SKU or UPC, and choose <b>Enhance it</b> (new copy and photo choices from the maker's page; paste their new page link if you have it) or <b>Edit it here</b> (start from what is on the store). It appears in your list once prepared. For each part you can keep what is on the store; price and category change only if you accept the suggestion; approving publishes to all three stores.</li>
           <li><b>Every field you can edit now reaches the stores</b> — price, sale price, category, storage, brand, barcode, owner, supplier, tax class, weight, size, visibility, page title and the rest. If a change <em>can't</em> be applied, the product shows a red <b>"Your last save was NOT fully applied"</b> box saying why. Fix that field and save again; nothing publishes until it's cleared.</li>
           <li><b>A sale needs an end date.</b> Set the sale price and the last delivery date at that price. Shoppers see "for delivery by M/D", and the sale comes off automatically after that date.</li>
@@ -432,9 +436,9 @@
         <summary>the things approving can't fix</summary>
         <ul>
           <li>A <b>possible duplicate</b> — we may already sell this. Approving won't clear it, because a duplicate product can't be undone by editing later; subscriptions and reporting are tied to the original. The fix is usually to un-hide the item we already have, or update its barcode — not to create a second one.</li>
-          <li>A <b>price below our floor</b> — a competitor is cheaper than we can be while still making our margin. Approving won't match them. Someone has to open the links and confirm it's the <b>same item</b> (not a smaller pack, not the conventional version of an organic product) and that the price is their <b>normal</b> price, not a promotion we can't see. One match is never enough to go below the floor — it takes a second, independent one. <b>If they're at or below what we pay, we don't carry it</b>; that's a buying decision, not a pricing one.</li>
-          <li>An item we'd be <b>badly overpriced</b> on — really a question about whether to carry it at all. If we'd sit well above a competitor's everyday price and can't match without going under the floor, the answer is usually not to list it, because customers read one overpriced item as a signal about everything else.</li>
-                  <li>A question <b>you raised yourself</b> — a <b>disputed cost</b> (from the cost-correction box) or <b>"None of these"</b> images. Approving won't clear it; answer it on the <b>Open flags</b> tab (for a cost, type the correct cost per unit and the price is re-worked from it).</li>
+          <li>A <b>price below our floor</b> or an item we'd be <b>badly overpriced</b> on — since 2026-11-12 these only <b>warn</b>: you see the competitor evidence and approving goes ahead. We still hold our own floor price, and a vendor's own price is never touched.</li>
+          
+                  <li>A question <b>you raised yourself</b> — a <b>disputed cost</b> or <b>"None of these"</b> images. Approving won't clear it; press <b>Confirm this is the right item</b> (or answer it) on the product or the <b>Open flags</b> tab (for a cost, type the correct cost per unit and the price is re-worked from it).</li>
         </ul>
       </details>
       <details>
@@ -552,6 +556,22 @@
       <summary><span class="what">You review and adjust <span class="tag t-you">you</span></span><span class="who"><a href="https://tcfarm.github.io/Purchasing/">tcfarm.github.io/Purchasing/</a> · plus the review page linked on the card</span></summary>
       <div class="sdbody">
       <div class="desc">Approval is given on the <b>per-line diff</b>, never on totals. Change any quantity you like — <b>your number always wins.</b> It has to be done <b>the same Sunday, by 11pm</b> — the order goes out that night.</div>
+      <details>
+        <summary>the Needs attention group at the top</summary>
+        <ul>
+          <li>The order screen (staff portal &rsaquo; KeHE orders) opens on a short <b>Needs attention</b> group: the lines most likely to leave us with stock we cannot sell, each with a plain one-line reason. Pre-orders and lines kept only by a minimum-buy floor that fail the same dating and economics test are in it too.</li>
+          <li>On each line say <b>Agree</b>, <b>Disagree</b> or <b>Don't know</b> and give a reason. Those answers are recorded, scored against what happened, and used to shrink the group over time.</li>
+          <li>Everything else is still on the sheet below. Your quantity always wins.</li>
+        </ul>
+      </details>
+      <details>
+        <summary>how the engine now sizes new, seasonal and bulk items</summary>
+        <ul>
+          <li><b>Seasonal items</b> are found from SPINS sales patterns by category and item, never by name. An item is not ordered for stock that would land after its season, and once a finished season's item has sold out it is hidden on the stores, then shown again if a later order carries it.</li>
+          <li><b>New items</b> are sized on what similar launches really sold, scaled down for items not yet proven, and re-checked every Thursday.</li>
+          <li><b>Bulk buyers</b> are weighed by how likely each one is to come back: a reliable buyer earns stock, a one-time buyer earns little, and long shelf life leans toward filling the order.</li>
+        </ul>
+      </details>
       <details>
         <summary>changing the order vs changing the model</summary>
         <ul>
@@ -720,6 +740,53 @@
           <li>A recommendation repeated three weeks running is evidence. One week is noise, and nothing is ever applied automatically.</li>
         </ul>
       </details>
+      </div>
+    </details>
+  </div>
+
+  <div class="step you">
+    <div class="when">Wednesday<small>06:00</small></div>
+    <details class="sd">
+      <summary><span class="what">Items to consider dropping <span class="tag t-you">you</span></span><span class="who">Staff portal &middot; Purchasing &middot; This week &middot; a collapsed section</span></summary>
+      <div class="sdbody">
+      <div class="desc">Every Wednesday morning the week's drop candidates are listed, grouped by urgency (Now, This month, Watch). For each item: how long it was offered and in stock, who bought it, what it lost to expiry, what else we carry that serves the same need, and what the category would still cover. Decide <b>Drop</b>, <b>Keep</b> or <b>Not yet</b>, and say why. Nothing is ever dropped without a person deciding.</div>
+      <details>
+        <summary>the rules it follows</summary>
+        <ul>
+          <li>Seasonal items are never candidates; they are phased out by themselves. New items are never candidates until their launch has been judged.</li>
+          <li>An item that would leave a diet need or a whole kind of product uncovered is never recommended for dropping.</li>
+          <li>The evidence includes the item's margin after stockouts and after recovery through sales, mystery bundles and the feed business.</li>
+          <li>The same page now shows the Vendor drop-offs as a short row of tiles, collapsed, with cancelled ones hidden. A separate <b>Decisions to make</b> list holds anything the weekly review wants a person to answer.</li>
+        </ul>
+      </details>
+      </div>
+    </details>
+  </div>
+
+  <div class="step">
+    <div class="when">Thursday &amp; Friday<small>after the order is scored</small></div>
+    <details class="sd">
+      <summary><span class="what">The weekly self-review <span class="tag t-live">running</span></span><span class="who">Automatic &middot; Thursday export, an AWS review, Friday check</span></summary>
+      <div class="sdbody">
+      <div class="desc">Each Thursday the week's results (what we predicted, what people changed and why, what happened) are sent to a scheduled review in the cloud. It re-fits the engine's settings and, where it can, asks Claude to look at where the engine and the people disagreed. It writes <b>proposals</b>; it never orders, prices or changes code.</div>
+      <details>
+        <summary>what happens to a proposal</summary>
+        <ul>
+          <li>On Friday a proposed change is checked against held-out past weeks and applied only if it clearly beats the current setting, in small steps. Applying is switched off until Jack turns it on; until then Friday only reports what it would do.</li>
+          <li>A change that could risk the offering or cause stockouts becomes a question in <b>Decisions to make</b> on Purchasing &rsaquo; This week, with its evidence, for a person to answer with a reason.</li>
+          <li>The Claude part is not configured yet, so for now the review writes only the rule-based proposals and says so.</li>
+        </ul>
+      </details>
+      </div>
+    </details>
+  </div>
+
+  <div class="step">
+    <div class="when">Daily<small>08:00</small></div>
+    <details class="sd">
+      <summary><span class="what">Add-on orders checked <span class="tag t-live">running</span></span><span class="who">Automatic &middot; one card in Teams &middot; Purchasing</span></summary>
+      <div class="sdbody">
+      <div class="desc">When KeHE adds an item to a delivery outside the main order, the add-on is checked against shelf life. Any line that would date out gets one card so it can be fixed before it arrives. Nothing is posted when nothing needs attention.</div>
       </div>
     </details>
   </div>
