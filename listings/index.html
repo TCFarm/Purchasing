@@ -242,7 +242,7 @@ select.batch{font-family:var(--f-mono);font-size:12.5px;padding:5px 9px;backgrou
 .grid-h .sub{font-size:12px;color:var(--ink-3);max-width:62ch}
 .gactions{display:flex;gap:7px;margin-left:auto;flex-wrap:wrap}
 .imgurl{display:flex;gap:7px;margin:0 0 10px;flex-wrap:wrap}.imgurl[hidden]{display:none}
-.le-row{border-top:1px solid var(--line,#ddd);padding:8px 0}.le-was{white-space:pre-wrap;font-size:13px;padding:6px 0;color:var(--ink-2,#555)}.le-h{margin:12px 0 4px;font-size:15px}#liveEnhPanel{margin:0 0 12px}.imgurl input{flex:1 1 280px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}
+.le-row{border-top:1px solid var(--line,#ddd);padding:8px 0}.le-was{white-space:pre-wrap;font-size:13px;padding:6px 0;color:var(--ink-2,#555)}.le-h{margin:12px 0 4px;font-size:15px}#liveEnhPanel{margin:0 0 12px}.livenote{margin:6px 0 4px;padding:8px 10px;border-radius:8px;background:#f4f7fb;font-size:13px;line-height:1.4}.livenote .lnb,.lnb{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}.imgurl input{flex:1 1 280px;min-width:0;padding:8px 10px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:11px}
 .cand{position:relative;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--panel);padding:0;text-align:left}
 .cand:hover{border-color:var(--accent)}
@@ -594,6 +594,8 @@ select.batch{max-width:100%;min-width:0}
     </div>
 
     <div class="pane" id="pane-listing" role="tabpanel">
+      <div id="liveStaleBanner" hidden></div>
+      <div id="liveNowSummary" hidden></div>
       <div id="liveEnhPanel" hidden></div>
       <div class="note"><b>The storefront preview is the shopper's view, and it is editable in place.</b>
         Hover a section: <b>Edit</b> opens the right control for that field — a rich-text editor for
@@ -1200,7 +1202,7 @@ window.loadAllLive=loadAllLive; window.isLiveBatch=isLiveBatch;
    owner and supplier data before a vendor payload leaves it. The page is only
    required not to DEPEND on that — and a test proves it renders none of it. */
 var PORTAL_ORIGINS=['https://vendors.mnfood.club','https://main.do89570fqs33f.amplifyapp.com'];
-var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest','clone','liveEnhance'];
+var PORTAL_TYPES=['hello','listBatches','load','save','answer','image','upload','memo','memos','storyRequest','clone','liveEnhance','republish','republishStatus'];
 var PORTAL_TIMEOUT_MS=30000;
 /* ⛔ An EMBEDDED COPY of config vendor_field_policy.json — used ONLY when the
    payload carries no `vendor_policy`. The harness compares it to the file, so
@@ -1226,7 +1228,7 @@ var VENDOR_POLICY_FALLBACK={
      shipped as vendor_policy.item_keys) and the sub-keys an object-valued one is reduced to (item_shapes) — so staff
      "View as vendor" applies the vendor's real filter (_vendorFilterItem). The suite compares both to the file. */
   item_keys:['action_needed','badge','badge_alts','brand','casepack','cat','cat2','clone_copied','clone_custom_fields','clone_of','cq','dims','dims_meta',
-             'direct_vendor','flags','images','keywords','kind','live_before','live_edit','live_enhance','live_enhance_mode',
+             'direct_vendor','flags','hold_released','images','keywords','kind','live_before','live_edit','live_enhance','live_enhance_mode',
              'live_gallery_pending','live_suggestions','live_variants','meta_desc','name','owner','page_title','preread',
              'preread_note','price','prose','published','reorder','sale_ends','sale_price','size_exempt','sku','source','storage','tax',
              'tax_assessment','tax_live','tiers','upc','vendor_code','visible','volume','volume_basis','waiting_on_us',
@@ -1464,7 +1466,7 @@ function volView(p, dims){
   if(prod>0) return {value:prod, words:'L × W × H — '+volSrcWords(p.dimsMeta&&p.dimsMeta.source, p, 'dims')};
   return {value:0, words:'not known yet — enter it if you know it'};
 }
-function vrow(key, ui, html){
+function _vrowCore(key, ui, html){
   if(ui) html=_markVh(ui, html);
   /* ⭐ 2026-10-20: a REMOVED product is read-only in both views (restore it first) */
   var _rm=(typeof P!=='undefined')&&removedLock(cur);
@@ -1476,6 +1478,181 @@ function vrow(key, ui, html){
   if(acc==='hide') return '';
   if(acc==='view' || _rm) return '<fieldset disabled class="vro">'+html+'</fieldset>';
   return html;
+}
+/* ⭐ MVP-4211 (Studio shows the live version): the live note for a field, drawn beside its row by vrow(). A field the policy
+   hides draws no row, so it gets no note either (vrow returns ''). Plain words only; the buttons are never disabled. */
+function vrow(key, ui, html){
+  var out=_vrowCore(key, ui, html);
+  /* the note sits AFTER the row, outside the disabled fieldset that View mode uses, so its buttons stay pressable and
+     a press reaches liveChoose(), which refuses it with the View-only message */
+  return (out&&key)?out+liveNote(key):out;
+}
+/* [record field, page key, payload item key] — mirrors config/vendor_field_policy.json live_field_keys (test_live_payload.py checks it) */
+var LIVE_FIELDS=[
+  ['name','name','name'],['brand','brand','brand'],['description','prose','prose'],['page_title','pageTitle','page_title'],
+  ['meta_description','metaDesc','meta_desc'],['search_keywords','kws','keywords'],['warranty','warranty','warranty'],
+  ['badge','badge','badge'],['price','price','price'],['sale_price','salePrice','sale_price'],['categories','cat','cat'],
+  ['images','images','images'],['upc','upc','upc'],['visibility','visible','visible']];
+var LIVE_LABEL={name:'Name',brand:'Brand',description:'Description',page_title:'Page title',meta_description:'Meta description',
+  search_keywords:'Search keywords',warranty:'Warranty',badge:'Badge',price:'Price',sale_price:'Sale price',categories:'Category',
+  images:'Photos',upc:'UPC',visibility:'Shown in stores'};
+var LIVE_SEEN={};   /* sku -> the live_changed_at this tab has already shown (the first one seen is the baseline) */
+function liveRowOf(f){ for(var i=0;i<LIVE_FIELDS.length;i++){ if(LIVE_FIELDS[i][0]===f) return LIVE_FIELDS[i]; } return null; }
+function liveRowOfKey(k){ for(var i=0;i<LIVE_FIELDS.length;i++){ if(LIVE_FIELDS[i][1]===k) return LIVE_FIELDS[i]; } return null; }
+function liveCur(){ return (typeof P!=='undefined'&&P&&P[cur])?P[cur]:null; }
+function liveDay(iso){
+  var s=String(iso||''), d=new Date(s);
+  if(!s||isNaN(d.getTime())) return s.slice(0,10);
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+}
+/* ⭐ MVP-4211 (P5b, defect 6d/6e): plain words. A blank value reads "blank"; a long text shows its first 200 characters then "…";
+   a price shows as money. */
+function liveShow(v, f){
+  if(v===null||v===undefined||v==='') return 'blank';
+  if(typeof v==='object') return '(see the product page)';
+  if((f==='price'||f==='sale_price') && isFinite(Number(v))) return '$'+Number(v).toFixed(2);
+  var t=String(v).replace(/<[^>]+>/g,'');
+  return t.length>200 ? t.slice(0,200)+'…' : t;
+}
+/* ⭐ P5b (defect 3): the short shown hash — the same FNV-1a 32 over UTF-16 code units the server computes (live_refresh.shown_hash),
+   so a long value is answered by its hash and its raw text never travels in an answer. */
+var LIVE_HASH_RE=/^h:[0-9a-f]{8}:[0-9]{1,7}$/;
+function liveShownHash(s){
+  s=String(s===null||s===undefined?'':s); var h=0x811c9dc5;
+  for(var i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; }
+  return 'h:'+('00000000'+h.toString(16)).slice(-8)+':'+s.length;
+}
+/* what an answer carries for a shown value: the raw text when short, its shown hash when long (over 1000 characters) */
+function liveShownToken(v){
+  var s=String(v===null||v===undefined?'':v);
+  return s.length>1000 ? liveShownHash(s) : s;
+}
+/* the person's own held value for a field: the server's copy ({value}, vendor) or the stored one ({v} / {prose}, staff) */
+function liveYoursOf(now, it, row){
+  var y=now&&now.yours;
+  if(y&&typeof y==='object'){
+    if(y.value!==undefined) return y.value;
+    if(y.v!==undefined) return y.v;
+    if(y.prose!==undefined) return y.prose;
+  }
+  return it[row[2]];
+}
+function liveButtons(f, shown){
+  var sv=esc(liveShownToken(shown));
+  return '<div class="lnb"><button type="button" class="tbtn" data-sv="'+sv+'" onclick="liveChoose(\''+f+'\',\'keep\',this.getAttribute(\'data-sv\'))">Keep mine</button> '
+    +'<button type="button" class="tbtn" data-sv="'+sv+'" onclick="liveChoose(\''+f+'\',\'live\',this.getAttribute(\'data-sv\'))">Use the store\'s</button></div>';
+}
+function liveNote(key){
+  var row=liveRowOfKey(key), it=liveCur();
+  if(!row||!it) return '';
+  var f=row[0], now=(it.live_now||{})[f], ado=(it.live_adopted||{})[f], voided=!!(it.live_void||{})[f];
+  if(!now && !ado && !voided) return '';
+  var V=isVendorView(), src=String((now&&now.source)||(ado&&ado.source)||''), inner='';
+  if(now && src==='held'){
+    /* ⭐ P5b (defect 6a): a held save is the person's OWN save, not a store change: no store name, no "changed on our stores" */
+    inner+='<div>Your change is still waiting: <b>'+esc(liveShow(liveYoursOf(now,it,row),f))+'</b>. It was held when you saved, on '
+      +esc(liveDay(now.seen_at))+'.</div>'+liveButtons(f, now.value);
+  } else if(now){
+    inner+='<div>The store now says <b>'+esc(liveShow(now.value,f))+'</b>. Your change is still waiting: <b>'
+      +esc(liveShow(liveYoursOf(now,it,row),f))+'</b>.</div>'
+      +(V?'':'<div class="sub">Changed on our stores'+(src?' from '+esc(src):'')+' on '+esc(liveDay(now.seen_at))+'.</div>')
+      +liveButtons(f, now.value);
+  } else if(ado){
+    inner+='<div class="sub">'+(!V&&src?'Updated from '+esc(src):'Updated from our stores')+' on '+esc(liveDay(ado.at))+'.</div>';
+  }
+  if(voided) inner+='<div class="le-banner">Your approval for this field no longer applies. The product needs review again.</div>';
+  return '<div class="livenote" data-lf="'+esc(f)+'">'+inner+'</div>';
+}
+function liveGoto(f){
+  var el=f?document.querySelector('.livenote[data-lf="'+f+'"]'):document.querySelector('#liveNowSummary');
+  if(el&&el.scrollIntoView) el.scrollIntoView({block:'center'});
+}
+/* one store-moved field: a choice is kept per (field, shown value); the second press on the same field replaces the first */
+/* `token` is what the button carries: the raw shown text, or its shown hash for a long value (P5b, defect 3) */
+function liveRecordChoice(f, choice, token){
+  var s=st[cur]; if(!s) return false;
+  s.liveChoice=(s.liveChoice||[]).filter(function(c){ return c.field!==f; });
+  var t=String(token===null||token===undefined?'':token), c={field:f, choice:choice==='live'?'live':'keep'};
+  if(LIVE_HASH_RE.test(t)) c.shown_hash=t; else c.shown_value=t;
+  s.liveChoice.push(c);
+  return true;
+}
+/* ⭐ P5b (defect 1): the token this tab echoes = the per-field map it LOADED with, minus the fields it cannot know a new hash for:
+   a field it answered with "Use the store's" (its baseline moved) and a field it shows a prompt for (the store moved). The page
+   never computes a hash itself; the server holds any field whose hash still differs. A legacy one-string token is sent as it is. */
+function liveEchoToken(i){
+  var p=P[i]; if(!p||!p.live_token) return null;
+  if(typeof p.live_token==='string') return p.live_token;
+  var drop=p._liveDrop||{}, out={};
+  Object.keys(p.live_token).forEach(function(f){ if(!drop[f]) out[f]=p.live_token[f]; });
+  return Object.keys(out).length ? out : null;
+}
+/* ⭐ P5b (defect 6b): the store-moved prompts only — a held save is the person's own typing, never a store change */
+function liveStoreMoved(it){
+  return Object.keys((it&&it.live_now)||{}).filter(function(f){
+    return !!liveRowOf(f) && !!it.live_now[f] && String(it.live_now[f].source||'')!=='held';
+  });
+}
+function liveChoose(f, choice, shown){
+  if(removedLock(cur)){ toast(cxRemovedWords().lock); return; }
+  if(!vendorCanApprove()){ toast(VIEW_ONLY_NOTE); return; }
+  liveRecordChoice(f, choice, shown);
+  renderAll(); scheduleAutosave(cur, choice==='live'?'Using the store\'s version':'Keeping your version');
+}
+function liveChooseAll(choice){
+  var it=liveCur(); if(!it) return;
+  if(removedLock(cur)){ toast(cxRemovedWords().lock); return; }
+  if(!vendorCanApprove()){ toast(VIEW_ONLY_NOTE); return; }
+  var fs=liveStoreMoved(it);
+  if(!fs.length) return;
+  if(choice==='live' && !confirm('Use the store\'s version for: '+fs.map(function(f){ return LIVE_LABEL[f]||f; }).join(', ')+'? Your changes to these fields will be replaced.')) return;
+  fs.forEach(function(f){ liveRecordChoice(f, choice, liveShownToken(it.live_now[f].value)); });
+  renderAll(); scheduleAutosave(cur, choice==='live'?'Using the store\'s versions':'Keeping your versions');
+}
+/* the top summary (in the live-enhance area) and the stale-tab banner. Never a forced reload: typed edits stay. */
+function renderLiveSummary(){
+  var box=document.querySelector('#liveNowSummary'), bn=document.querySelector('#liveStaleBanner'), it=liveCur();
+  if(!box||!bn) return;
+  if(!it){ box.hidden=true; box.innerHTML=''; bn.hidden=true; bn.innerHTML=''; return; }
+  /* ⭐ P5b (defect 6b): the summary counts only the fields whose STORE value really moved */
+  var fs=liveStoreMoved(it);
+  if(!fs.length){ box.hidden=true; box.innerHTML=''; }
+  else {
+    var links=fs.map(function(f){ return '<a href="#" onclick="liveGoto(\''+f+'\');return false">'+esc(LIVE_LABEL[f]||f)+'</a>'; }).join(', ');
+    box.hidden=false;
+    box.innerHTML='<div class="note le-banner"><b>'+fs.length+(fs.length===1?' thing has':' things have')+' changed on our stores since you started:</b> '+links+'.</div>'
+      +'<div class="lnb"><button type="button" class="tbtn" onclick="liveChooseAll(\'keep\')">Keep all mine</button> '
+      +'<button type="button" class="tbtn" onclick="liveChooseAll(\'live\')">Use all from the store</button></div>';
+  }
+  var at=String(it.live_changed_at||''), sku=String(it.sku||'');
+  if(!(sku in LIVE_SEEN)) LIVE_SEEN[sku]=at;
+  if(fs.length && at && at>LIVE_SEEN[sku]){
+    bn.hidden=false;
+    bn.innerHTML='<div class="note le-banner">'+esc(it.name||'This product')+' was just changed on our stores. <button type="button" class="tbtn" onclick="liveShowChanged()">Show what changed</button></div>';
+  } else { bn.hidden=true; bn.innerHTML=''; }
+}
+function liveShowChanged(){
+  var it=liveCur(); if(it) LIVE_SEEN[String(it.sku||'')]=String(it.live_changed_at||'');
+  renderLiveSummary(); liveGoto('');
+}
+/* ⭐ MVP-4211: the View-as copy of a vendor's live keys — the same rule as vendor_policy.live_for_vendor: only the fields the
+   policy shows (pol.live_fields), never `source`. A policy with no live_fields shows none (fail closed). */
+function _vendorLive(src, out, pol){
+  var vis=(pol&&pol.live_fields)||{}, ok=function(f){ return Object.prototype.hasOwnProperty.call(vis,f); }, stamps=[];
+  var now={}, ado={}, vd={};
+  Object.keys(src.live_now||{}).forEach(function(f){ var e=src.live_now[f];
+    if(ok(f)&&e&&typeof e==='object'){ now[f]={value:e.value===undefined?null:e.value, seen_at:e.seen_at===undefined?null:e.seen_at};
+      /* ⭐ P5b (defect 4): the person's own held value, as a vendor is shown it (the same key the server sends) */
+      var yv=(e.yours&&typeof e.yours==='object')?(e.yours.value!==undefined?e.yours.value:(e.yours.v!==undefined?e.yours.v:e.yours.prose)):undefined;
+      if(yv!==undefined) now[f].yours={value:yv};
+      if(e.seen_at) stamps.push(String(e.seen_at)); } });
+  Object.keys(src.live_adopted||{}).forEach(function(f){ var e=src.live_adopted[f];
+    if(ok(f)&&e&&typeof e==='object'){ ado[f]={at:e.at===undefined?null:e.at}; if(e.at) stamps.push(String(e.at)); } });
+  Object.keys(src.live_void||{}).forEach(function(f){ if(ok(f)&&src.live_void[f]) vd[f]=true; });
+  if(Object.keys(now).length) out.live_now=now;
+  if(Object.keys(ado).length) out.live_adopted=ado;
+  if(Object.keys(vd).length) out.live_void=vd;
+  if(stamps.length) out.live_changed_at=stamps.sort().pop();
 }
 /* A field GROUP left with no rows in a vendor view is dropped, heading and all. */
 function vgrp(html){
@@ -1751,6 +1928,9 @@ function makePortalHost(parentWin, parentOrigin, opts){
     /* the vendor's choice after recording: rewrite this description with the story once it is transcribed? */
     storyRequest:function(batch, sku, session, rewrite, parts){ return request('storyRequest',{batch:batch, sku:sku, session:session, rewrite:rewrite===true, parts:(parts|0)}); },
     /* ⭐ 2026-10-21 "Enhance a live product": one of the vendor's OWN live products (the mini re-checks the owner) */
+    /* ⭐ 2026-11-18 (MVP-4197) Try again on a HELD approval: names the product + the revision seen; the mini re-checks everything */
+    republish:function(a){ a=a||{}; return request('republish',{batch:String(a.batch||''), sku:String(a.sku||''), revision:(+a.revision|0)}); },
+    republishStatus:function(sku){ return request('republishStatus',{sku:String(sku||'')}); },
     liveEnhance:function(a){ a=a||{};
       return request('liveEnhance',{batch:String(a.batch||''), sku:String(a.sku||''), mode:'enhance',
                                     urls:(a.urls||[]).map(String), note:String(a.note||'')}); }
@@ -1900,6 +2080,7 @@ function _vendorFilterItem(it, pol){
   Object.keys(sh).forEach(function(k){ if(k in out) out[k]=_vendorShape(out[k], sh[k]||[]); });
   /* ⭐ P-3000 (2026-10-21): the bridge pops `owner` from every item a vendor receives (_publish_studio), so staff
      "View as vendor" drops it too — staff must see EXACTLY what the vendor sees, or an owner-dependent bug hides from them. */
+  _vendorLive(it, out, pol);   /* ⭐ MVP-4211: the live keys, field by field (not in item_keys) */
   delete out.owner;
   return out;
 }
@@ -1969,6 +2150,7 @@ function fromPayload(it){
     saleEndsBasis:it.sale_ends_basis||'', saleDefault:(it.sale_default_end&&typeof it.sale_default_end==='object')?it.sale_default_end:null,
     /* ⭐ 2026-09-22 (plan B6): set when this product is ALREADY live from this batch. */
     published:it.published||null,
+    hold_released:(it.hold_released&&typeof it.hold_released==='object')?{revision:+it.hold_released.revision||0, at:String(it.hold_released.at||'')}:null,   /* ⭐ MVP-4208b */
     priceNote:it.price_basis||'',
     /* ⛔⛔ THE PIPELINE'S OWN TARGET MARGIN AND TAX CLASS, WHICH THE ADAPTER
        NEVER MAPPED (2026-09-11). `targetMargin()` documents the precedence
@@ -3486,7 +3668,7 @@ function renderFields(){
       : _ours ? 'Your changes are kept and we retry it automatically. There is nothing to change or save.'
       : 'Nothing below reaches the stores until this is fixed. Change the field it names and save again — the next run picks it up automatically.'}</div>
     <div class="cascade" style="white-space:pre-line">${esc(_dd.drain_note ? _noteShown(_dd.drain_note) : '(no reason recorded)')}</div></div></div>`));
-  const notesHtml = drainHtml + retryHtml(cur) + (!(p.notes||[]).length ? '' : vh('notesBlock',`
+  const notesHtml = drainHtml + heldVendorHtml(cur) + retryHtml(cur) + (!(p.notes||[]).length ? '' : vh('notesBlock',`
   <div class="fgroup" id="lowconf"><h3>⚠ We need something from you</h3><div class="body">
     <div class="hint" style="margin-bottom:8px">
       These were left <b>blank on purpose</b>. We were not confident enough to fill them in,
@@ -3748,6 +3930,10 @@ function renderFields(){
     p.storage=want; p.skuAfter=next;
     markEdited('identity',`Storage change saved — the SKU becomes ${next} once it is applied`);
   };
+  {const _t=$('#btnRepTry'); if(_t) _t.onclick=()=>{ repRun(cur); };}
+  {const _d=$('#btnRepDismiss'); if(_d) _d.onclick=()=>{ repDismiss(P[cur], true); renderFields(); };}
+  {const _w=$('#btnRepShow'); if(_w) _w.onclick=()=>{ repDismiss(P[cur], false); renderFields(); };}
+  {const _l=$('#btnRelDismiss'); if(_l) _l.onclick=()=>{ relDismiss(P[cur]); renderFields(); };}
   {const _r=$('#btnRetryPublish'); if(_r) _r.onclick=()=>{ if(_r.disabled) return; _r.disabled=true; retryRun(cur).then(()=>{ try{ renderFields(); }catch(_){} }); };}
   {const _b=$('#btnConfirmOverwrite'); if(_b) _b.onclick=()=>{
     /* ⭐ 2026-09-22 (plan B6): the reviewer's explicit consent to overwrite the
@@ -5866,6 +6052,7 @@ document.addEventListener('keydown',e=>{
    Staff: both stay empty. */
 function vStatusOf(i){
   const ps=pubState(i), g=productBlocked(i);
+  if(ps==='held' && heldIsOverwrite(i)) return ['Held — we\'re checking it','warn'];   /* ⭐ MVP-4197 */
   return ps==='published'?['Published','ok']:ps==='parked'||ps==='held'?['Waiting on us','stop']
     :st[i].approved?['Publishing','ok']:g.act?['Needs your action','stop']:g.blk?['Needs your attention','stop']
     :g.wait?['Waiting on us','warn']:g.rw?['Rewrite asked','rw']
@@ -6299,6 +6486,7 @@ function _liveBeforeText(p, sec){
   return '';
 }
 function renderLiveEnh(){
+  renderLiveSummary();
   var box=document.querySelector('#liveEnhPanel'); if(!box) return;
   var p=P[cur], s=st[cur]||{};
   /* ⭐ 2026-10-21 (Jack, in person: vendors "should have the option to edit or enhance live products"): a VENDOR sees this
@@ -6864,6 +7052,7 @@ async function bootVendor(){
     VIEW.vendorRole=(hi.role==='admin'||hi.role==='user')?hi.role:'';
     VIEW.vendorOwner=String(hi.owner||'');
     VIEW.viewOnly=!!hi.view_only;
+    VIEW.actingAsStaff=!!hi.acting_as_staff;   /* ⭐ MVP-4197: staff in View / Act as (the confirm-overwrite control) */
     VIEW.features=Array.isArray(hi.features)?hi.features.map(String):[];   /* ⭐ 2026-10-06: an old portal sends none → no dead Make-a-similar-version button */
     try{ document.body.setAttribute('data-viewonly', VIEW.viewOnly?'1':''); }catch(_){}
     ACCOUNT=String(hi.who||hi.email||'');
@@ -7155,6 +7344,12 @@ function decisionPatch(i){
   if(s.flagAct && Object.keys(s.flagAct).length) edits._flagActions=s.flagAct;
   /* ⭐ P-1483: reserved keys like _flagActions — listing_drain pops them; listing_publish reads _keepCurrent */
   if(s.keepCur && s.keepCur.length) edits._keepCurrent=s.keepCur.slice();
+  /* ⭐ MVP-4211: a "Keep mine" / "Use the store's" press, as {field, choice, shown_value} — the server package reads it */
+  if(s.liveChoice && s.liveChoice.length) edits._live_choice=s.liveChoice.slice();
+  /* ⭐ MVP-4211 (C7): the live token this product was LOADED with, echoed on every vendor save. The server refuses `stale` (and
+     applies nothing) when the store has moved past it, so an old tab cannot overwrite an adopted value. Vendor view only: a
+     staff save is written straight to the review row, which has no reserved key for it. */
+  var _echo=liveEchoToken(i); if(_echo) edits._based_on_token=_echo;
   if(s.sugg && Object.keys(s.sugg).length) edits._suggest=Object.assign({},s.sugg);
   /* ⭐ P-2933: reserved keys — listing_drain pops them; the LATER of the two timestamps wins (like _undefer) */
   if(s.cancelInfo) edits._cancel=Object.assign({},s.cancelInfo);
@@ -7264,7 +7459,32 @@ async function _persistNow(i, label){
   try{
     var _patch=decisionPatch(i);
     var res=await HOST.saveDecision(batch, P[i].sku, _patch);
+    /* ⭐ MVP-4211: a Use live / Keep mine answer is sent ONCE. Once the save has answered (applied, queued or refused as stale)
+       the answers it carried are cleared, so a later autosave never replays them; a network failure keeps them to resend. */
+    if(res && (res.ok || res.queued || res.reason==='stale') && _patch.edits && _patch.edits._live_choice && st[i]){
+      var _sent=_patch.edits._live_choice;
+      st[i].liveChoice=(st[i].liveChoice||[]).filter(function(c){
+        return !_sent.some(function(x){ return x.field===c.field && x.choice===c.choice && x.shown_value===c.shown_value && x.shown_hash===c.shown_hash; });
+      });
+      if(!st[i].liveChoice.length) delete st[i].liveChoice;
+    }
+    /* ⭐ P5b (defect 1): after a save that answered, the fields this tab can no longer vouch for (a "Use the store's" moved its
+       baseline; a prompt is the store's to show) leave the token it echoes, so a repeated autosave does not re-hold them. */
+    if(res && (res.ok || res.queued) && P[i]){
+      var _liveDrop=P[i]._liveDrop||{};
+      ((_patch.edits&&_patch.edits._live_choice)||[]).forEach(function(c){ if(c.choice==='live') _liveDrop[c.field]=true; });
+      Object.keys(P[i].live_now||{}).forEach(function(f){ _liveDrop[f]=true; });
+      P[i]._liveDrop=_liveDrop;
+    }
     if(!res.ok && res.reason==='stale'){
+      /* ⭐ P5b (defect 6c): a refusal made against a live token says what happened, in plain words. The typing stays on the page
+         and nothing is reloaded for the person. (Without a revision it is a token refusal, never "revision undefined".) */
+      if(_patch.edits && _patch.edits._based_on_token && res.their_revision===undefined){
+        openSheet(`<h2>Check your changes</h2>
+          <div class="sub">This product changed on our stores while you were editing. Your typing is still here — check it and save again.</div>
+          <button class="btn primary" onclick="closeSheet()">Check my changes</button>`);
+        return res;
+      }
       /* ⛔ Do NOT overwrite. Say what happened and make reloading the action. */
       openSheet(`<h2>Someone else saved this product</h2>
         <div class="sub">${esc(res.message)}</div>
@@ -7740,6 +7960,19 @@ function cloneAutoPubAvailable(){
   if(isVendorView()) return Array.isArray(VIEW.features) && VIEW.features.indexOf('clone_autopublish')>=0;
   return true;
 }
+/* ⭐ 2026-11-18 (MVP-4271, Jack: "'use existing product's images' … checked and only skipped by default if new images are provided"):
+   is the box offered (a vendor: once the portal announces it can carry the field), does the new product bring photos of its own
+   (an image file, or a link straight to a photo), and the value it has — the person's own tick wins once they touched it. */
+function cloneSrcImgAvailable(){
+  if(isVendorView()) return Array.isArray(VIEW.features) && VIEW.features.indexOf('clone_source_images')>=0;
+  return true;
+}
+function cloneHasOwnPhotos(c){
+  c=c||{};
+  var img=(c.files||[]).some(function(f){ return /^image\//i.test(String(f.type||'')) || /\.(jpe?g|png|webp|gif|heic)$/i.test(String(f.name||'')); });
+  return img || /\.(jpe?g|png|webp|gif|heic)(\?.*)?$/i.test(String(c.link||'').trim());
+}
+function cloneSrcImgValue(c){ c=c||{}; return c.srcImgTouched ? c.srcImg===true : !cloneHasOwnPhotos(c); }
 /* ⭐ review 2026-11-05: the words promise only what the server does (clone_autopublish.py) — and a new SIZE takes its
    size, price and case pack from what you give, never from the original */
 function cloneAutoPubText(kind){
@@ -7751,6 +7984,7 @@ function cloneAutoPubText(kind){
     +'If anything is left, or auto-publish is not switched on yet, it waits in your review queue as usual, with the reason.';
 }
 function cloneFresh(){ return {files:[], text:'', link:'', kind:'flavour', tags:[], qPrice:'', qSize:'', mode:'separate', count:'', busy:false, err:'', fileErr:'', autoPublish:false,
+  srcImg:true, srcImgTouched:false,
   parts:[], phase:'idle', stream:null, mr:null, t0:0, timer:null, n:1, starting:false, recErr:'', sess:'',
   sub:null, poll:null, iid:''}; }
 /* is the button OFFERED at all — staff on the live page, or a vendor whose portal says it can take it (hello.features) */
@@ -7825,7 +8059,8 @@ function cloneRowFields(p, batch, s, o){
     vendor_json:JSON.stringify({owner_key:p.owner, display_name:def.display_name, finale_supplier:def.finale_supplier||def.display_name,
       clone:Object.assign({batch:batch, sku:p.sku, mode:s.mode==='decide'?'decide':'separate', kind:s.kind},
                           (s.tags||[]).length?{tags:cloneTagsClean(s.tags)}:{},
-                          s.autoPublish===true?{auto_publish:true}:{})}),
+                          s.autoPublish===true?{auto_publish:true}:{},
+                          {use_source_images:cloneSrcImgValue(s)})}),
     expected_count:String(s.count||'').trim(), notes:'Made by staff with "Make a similar version".'};
 }
 /* what a vendor's request carries — nothing but the source's name, their words, files, recordings */
@@ -7836,7 +8071,9 @@ function cloneVendorArgs(p, batch, s, iid, memoIds){
 }
 /* ⭐ the vendor request carries `auto_publish` ONLY when ticked AND the portal announced it can take it */
 function cloneVendorArgsAuto(args, s){
-  return (s && s.autoPublish===true && cloneAutoPubAvailable()) ? Object.assign({}, args, {auto_publish:true}) : args;
+  var out=(s && s.autoPublish===true && cloneAutoPubAvailable()) ? Object.assign({}, args, {auto_publish:true}) : args;
+  /* ⭐ MVP-4271: the photo tick travels ONLY when the portal announced it can carry it ('clone_source_images') */
+  return (s && cloneSrcImgAvailable()) ? Object.assign({}, out, {use_source_images:cloneSrcImgValue(s)}) : out;
 }
 /* ⭐ 2026-11-05: a vendor's tags travel as a labelled first line of their text (the portal contract is unchanged); the kind
    they mean also goes as `kind` */
@@ -7937,6 +8174,10 @@ function cloneRender(){
     ${c.fileErr?`<div class="note" style="color:var(--stop)" role="alert">${esc(c.fileErr)}</div>`:''}
     <div class="cn-files">${c.files.map(function(f,i){ return `<div><span>${esc(f.name)} · ${(f.size/1048576).toFixed(1)} MB</span>
       <button class="tbtn" data-clnrm="${i}" ${c.busy?'disabled':''}>Remove</button></div>`; }).join('')}</div>
+    ${cloneSrcImgAvailable()?`<label style="display:block;margin:6px 0 10px"><input type="checkbox" id="clnSrcImg" ${cloneSrcImgValue(c)?'checked':''} ${c.busy?'disabled':''}>
+      <b>Use the existing product's photos</b><span class="hint" style="display:block" id="clnSrcImgTxt">${cloneSrcImgValue(c)
+        ?'The new product starts with the photos of '+esc(p.name)+'. Replace any that show something different — it says so on the new product.'
+        :'The new product uses only the photos you give it.'}</span></label>`:''}
     <div style="margin:8px 0"><b>Or say it out loud</b> <span class="note">— we turn the recording into text on our own computer, in parts of up to 5 minutes.</span>
       <div class="vs-row" style="margin:6px 0">${rec}</div>
       ${c.parts.map(function(x){ return `<div class="note">Recording part ${x.n} · ${_storyMmss(x.seconds)} · saved on this page
@@ -7968,11 +8209,14 @@ function cloneWire(){
     c.tags=cloneTagsClean(t); c.kind=cloneKindFromTags(c.tags); cloneRender(); }; });
   var qp=document.querySelector('#clnQP'); if(qp) qp.oninput=function(){ c.qPrice=qp.value; cloneRefresh(); };
   var qs=document.querySelector('#clnQS'); if(qs) qs.oninput=function(){ c.qSize=qs.value; cloneRefresh(); };
-  var lk=document.querySelector('#clnLink'); if(lk) lk.oninput=function(){ c.link=lk.value; cloneRefresh(); };
+  var lk=document.querySelector('#clnLink'); if(lk) lk.oninput=function(){ var was=cloneSrcImgValue(c); c.link=lk.value; cloneRefresh();
+    if(!c.srcImgTouched && was!==cloneSrcImgValue(c)){ var b=document.querySelector('#clnSrcImg'); if(b) b.checked=cloneSrcImgValue(c);
+      var tx=document.querySelector('#clnSrcImgTxt'); if(tx) tx.textContent=cloneSrcImgValue(c)?'The new product starts with the photos of the original. Replace any that show something different — it says so on the new product.':'The new product uses only the photos you give it.'; } };
   var t=document.querySelector('#clnText'); if(t) t.oninput=function(){ c.text=t.value; var n=document.querySelector('#clnCount'); if(n) n.textContent=t.value.length.toLocaleString()+' of '+CLN_LIMITS.text.toLocaleString()+' characters'; cloneRefresh(); };
   var cn=document.querySelector('#clnCnt'); if(cn) cn.oninput=function(){ c.count=cn.value; cloneRefresh(); };
   var md=document.querySelector('#clnMode'); if(md) md.onchange=function(){ c.mode=md.value; };
   var au=document.querySelector('#clnAuto'); if(au) au.onchange=function(){ c.autoPublish=!!au.checked; };
+  var si=document.querySelector('#clnSrcImg'); if(si) si.onchange=function(){ c.srcImgTouched=true; c.srcImg=!!si.checked; cloneRender(); };
   var ff=document.querySelector('#clnFile'); if(ff) ff.onchange=function(e){ cloneAdd(e.target.files); try{ e.target.value=''; }catch(_){} };
   var dz=document.querySelector('#clnDrop');
   if(dz&&dz.addEventListener){
@@ -9523,6 +9767,99 @@ async function retryPoll(r, w, alive, sku){
   if(r.st==='done'||r.st==='refused'){ try{ if(P[cur]&&P[cur].sku===sku) renderFields(); }catch(_){} }
 }
 window.retryRun=retryRun; window.retryEligible=retryEligible; window.retryState=function(){ return RETRY; };
+
+/* ── HELD APPROVAL: "Held — we're checking it" + Try again (MVP-4197, Jack 2026-11-16 / 2026-11-18) ─────────────────
+   A vendor's approved edit to a LIVE product is HELD when the store copy changed since we last published. The page says so,
+   and Try again asks the mini to RE-CHECK it now (portal `republish` → bridge → the publisher's own re-plan): if a field the
+   vendor edited changed in the store it stays held, if not it publishes. ⛔ It never overwrites the store. Staff in Act as also
+   get the existing "Confirm — overwrite these fields" (it rides the normal save; the mini lets ONLY confirmed staff through).
+   ⭐ Jack 2026-11-18: the alert stays on the page with a clear Dismiss — dismissing hides the alert, never the hold (the badge
+   and a one-line reminder stay). The mini answers in out/<id>/republish.json; the page polls it (sfWait: named step, clock,
+   3-minute limit, then "Check again" which only re-reads, D11). */
+var REP_LIMIT_MS=3*60*1000, REP_POLL_MS=10000;
+function heldIsOverwrite(i){
+  var d=(P[i]||{})._decision||{}, n=String(d.drain_note||'');
+  return !!d.held && /^\[(fields|re-publish)\]/.test(n) && n.indexOf('Finale did not follow')<0
+    && n.indexOf('approval is void')<0;   /* MVP-4211 C9: a void hold asks for a new approval, not a re-check */
+}
+function repAvailable(){
+  return isVendorView() && VIEW.mode==='vendor' && HOST && HOST!==GraphHost && typeof HOST.republish==='function'
+    && Array.isArray(VIEW.features) && VIEW.features.indexOf('republish_retry')>=0;
+}
+/* per VIEWER (D12): the signed-in account is part of the key, so a staff member's Dismiss in Act as never hides it for the vendor */
+function _repKey(p){ var d=(p&&p._decision)||{}; return 'heldDismiss:'+String(ACCOUNT||'')+':'+String((p&&p.sku)||'')+':'+String(d.revision||0); }
+/* per viewer (D12): this browser's storage, with an in-page fallback so Dismiss always works even where storage is blocked */
+var REP_MEM={};
+function repDismissed(p){ var k=_repKey(p); if(REP_MEM[k]!==undefined) return REP_MEM[k]; try{ return localStorage.getItem(k)==='1'; }catch(_){ return false; } }
+function repDismiss(p, on){ var k=_repKey(p); REP_MEM[k]=!!on; try{ if(on) localStorage.setItem(k,'1'); else localStorage.removeItem(k); }catch(_){} }
+function _relKey(p){ var r=(p&&p.hold_released)||{}; return 'relDismiss:'+String(ACCOUNT||'')+':'+String((p&&p.sku)||'')+':'+String(r.revision||0); }
+function relDismissed(p){ var k=_relKey(p); if(REP_MEM[k]!==undefined) return REP_MEM[k]; try{ return localStorage.getItem(k)==='1'; }catch(_){ return false; } }
+function relDismiss(p){ var k=_relKey(p); REP_MEM[k]=true; try{ localStorage.setItem(k,'1'); }catch(_){} }
+function _repPid(sku){ return 'repProg_'+String(sku).replace(/[^A-Za-z0-9_-]/g,'_'); }
+/* the note's words a vendor may read: the first line of a [fields] note names INTERNAL field names → never shown to a vendor */
+function _repWords(n){
+  n=String(n||'');
+  var _m=/Your (text )?changes are live[\s\S]*/.exec(n);
+  if(/^\[(re-publish|fields)\]/.test(n) && _m) return _m[0];   /* the half-finished note; its [fields] line is never shown */
+  return 'You approved changes, but this product was also changed in the store since we last published it. '
+    +'We check before we publish over it, so nothing is lost. Your changes are kept.';
+}
+function heldVendorHtml(i){
+  var p=P[i]; if(!p || !isVendorView()) return '';
+  var d=p._decision||{}, out='';
+  /* ⭐ MVP-4208b: the hold was lifted and published — said once, on screen (never email), until dismissed */
+  var rel=p.hold_released;
+  if(rel && rel.at && !d.held && +(rel.revision||-1)===+(d.revision||0) && !relDismissed(p))
+    out+='<div class="fgroup" id="relNote" style="border-left:4px solid var(--ok,#2f6b3a)"><h3>✓ Your changes are now live</h3><div class="body">'
+      +'<div class="hint">The changes that were held are on our stores now.</div>'
+      +'<button type="button" class="btn sm" id="btnRelDismiss">Dismiss</button></div></div>';
+  if(!heldIsOverwrite(i)) return out;
+  var sku=p.sku, w=SFW['rep:'+sku];
+  var staffBtn=(VIEW.actingAsStaff && /^\[fields\] /.test(String(d.drain_note||'')))
+    ? '<div style="margin-top:8px" class="hint"><b>Staff:</b> the store changed '+esc(((/^\[fields\] ([^\n]*)/.exec(String(d.drain_note))||[,''])[1]).trim())
+      +'. <button class="btn" id="btnConfirmOverwrite" data-fields="'+esc(((/^\[fields\] ([^\n]*)/.exec(String(d.drain_note))||[,''])[1]).trim())
+      +'">Confirm — overwrite these fields in BigCommerce</button></div>' : '';
+  /* dismissed: a one-line reminder stays (the hold is never hidden), and staff keep their Confirm (Act-as rule: nothing hidden) */
+  if(repDismissed(p) && !(w && w.state==='run'))
+    return out+'<div class="hint" id="repMini" style="margin:0 0 8px">⏳ <b>Held — we\'re checking it.</b> '
+      +'<button type="button" class="btn sm" id="btnRepShow">Show</button>'+staffBtn+'</div>';
+  return out+'<div class="fgroup" id="repBox" style="border-left:4px solid var(--warn,#a86b00)"><h3>⏳ Held — we\'re checking it</h3><div class="body">'
+    +'<div class="hint" style="margin-bottom:6px">'+esc(_repWords(d.drain_note))+'</div>'
+    +(repAvailable()?'<button type="button" class="btn primary" id="btnRepTry"'+(w&&w.state==='run'?' disabled':'')+'>Try again</button> '
+      +'<span class="hint">Asks our system to check again now. If nothing you changed was also changed in the store, your changes are published.</span>':'')
+    +' <button type="button" class="btn sm" id="btnRepDismiss">Dismiss</button>'
+    +'<div id="'+_repPid(sku)+'" role="status" aria-live="polite">'+(w?sfWaitHtml(w):'')+'</div>'+staffBtn+'</div></div>';
+}
+async function repRun(i){
+  var p=P[i]; if(!p || !heldIsOverwrite(i) || !repAvailable()) return {ok:false};
+  var sku=p.sku, key='rep:'+sku, old=SFW[key];
+  if(old && old.state==='run') return {ok:false, why:'running'};
+  var sentAt=new Date().toISOString(), rid='';
+  var w=sfWait(key,{sel:'#'+_repPid(sku), names:['Sending your request','Waiting for our system to pick it up'],
+    limits:[STUDIO_LIMITS.sendStepMs, REP_LIMIT_MS], pollEvery:[REP_POLL_MS, REP_POLL_MS], doneText:'Asked.',
+    limitText:'Our system has not picked it up yet.', safeText:'Your request is saved and will be picked up — you do not need to press again.',
+    retryKey:false, poll:function(w, alive){ return repPoll(w, alive, sku, function(){ return rid; }); },
+    onEnd:function(){ try{ if(P[cur]&&P[cur].sku===sku) renderFields(); }catch(_){} }});
+  try{ var b=document.querySelector('#btnRepTry'); if(b) b.disabled=true; }catch(_){}
+  try{
+    var r=await HOST.republish({batch:p._batch||_batchFromUI(), sku:sku, revision:+((p._decision||{}).revision||0)});
+    rid=String((r&&r.id)||'');
+    if(SFW[key]!==w || w.state==='failed' || w.state==='done') return {ok:false};
+    /* ⭐ a slow send that already hit its 30 s limit still moves on to waiting for the answer (the request IS saved) */
+    if(w.state==='limit'){ w.state='run'; sfSchedule(w); }
+    sfStage(w,1);
+    return {ok:true, id:rid, sentAt:sentAt};
+  }catch(err){ sfFinish(w,'failed','Not sent — '+String(err&&err.message||err).slice(0,200)); return {ok:false}; }
+}
+async function repPoll(w, alive, sku, ridOf){
+  if(!ridOf()) return;
+  var r=await HOST.republishStatus(sku); if(!alive()) return;
+  var got=((r&&r.requests)||[]).filter(function(x){ return x && x.req_id===ridOf(); })[0];
+  if(!got) return;
+  if(got.state==='done'){ w.doneText=String(got.why||'Asked.'); sfFinish(w,'done',''); }
+  else sfFinish(w,'failed',String(got.why||'Our system could not take the request.'));
+}
+window.repRun=repRun; window.heldIsOverwrite=heldIsOverwrite; window.heldVendorHtml=heldVendorHtml; window.repAvailable=repAvailable;
 
 /* ── NEW PRODUCT / MAKE A SIMILAR VERSION (staff): copy everything but SKU + UPC, adjust, several at once ───────────── */
 var NW=null;
