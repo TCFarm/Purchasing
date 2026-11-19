@@ -9815,7 +9815,7 @@ function heldVendorHtml(i){
       +'<button type="button" class="btn sm" id="btnRelDismiss">Dismiss</button></div></div>';
   if(!heldIsOverwrite(i)) return out;
   var sku=p.sku, w=SFW['rep:'+sku];
-  var staffBtn=(VIEW.actingAsStaff && /^\[fields\] /.test(String(d.drain_note||'')))
+  var staffBtn=(VIEW.mode==='vendor' && VIEW.actingAsStaff && /^\[fields\] /.test(String(d.drain_note||'')))
     ? '<div style="margin-top:8px" class="hint"><b>Staff:</b> the store changed '+esc(((/^\[fields\] ([^\n]*)/.exec(String(d.drain_note))||[,''])[1]).trim())
       +'. <button class="btn" id="btnConfirmOverwrite" data-fields="'+esc(((/^\[fields\] ([^\n]*)/.exec(String(d.drain_note))||[,''])[1]).trim())
       +'">Confirm — overwrite these fields in BigCommerce</button></div>' : '';
@@ -9825,13 +9825,19 @@ function heldVendorHtml(i){
       +'<button type="button" class="btn sm" id="btnRepShow">Show</button>'+staffBtn+'</div>';
   return out+'<div class="fgroup" id="repBox" style="border-left:4px solid var(--warn,#a86b00)"><h3>⏳ Held — we\'re checking it</h3><div class="body">'
     +'<div class="hint" style="margin-bottom:6px">'+esc(_repWords(d.drain_note))+'</div>'
-    +(repAvailable()?'<button type="button" class="btn primary" id="btnRepTry"'+(w&&w.state==='run'?' disabled':'')+'>Try again</button> '
+    +((repAvailable()||VIEW.mode==='as-vendor')?'<button type="button" class="btn primary" id="btnRepTry"'+(w&&w.state==='run'?' disabled':'')+'>Try again</button> '
       +'<span class="hint">Asks our system to check again now. If nothing you changed was also changed in the store, your changes are published.</span>':'')
     +' <button type="button" class="btn sm" id="btnRepDismiss">Dismiss</button>'
     +'<div id="'+_repPid(sku)+'" role="status" aria-live="polite">'+(w?sfWaitHtml(w):'')+'</div>'+staffBtn+'</div></div>';
 }
 async function repRun(i){
-  var p=P[i]; if(!p || !heldIsOverwrite(i) || !repAvailable()) return {ok:false};
+  var p=P[i]; if(!p || !heldIsOverwrite(i)) return {ok:false};
+  /* ⛔ MVP-4289 (2026-11-19): the staff ?as= preview shows Try again (controls are never hidden) but sends nothing — same refusal as every save there */
+  if(VIEW.mode==='as-vendor'){
+    try{ var el=document.querySelector('#'+_repPid(p.sku)); if(el) el.textContent='⛔ '+AS_VENDOR_RO_MSG; }catch(_){}
+    return {ok:false, why:AS_VENDOR_RO_MSG};
+  }
+  if(!repAvailable()) return {ok:false};
   var sku=p.sku, key='rep:'+sku, old=SFW[key];
   if(old && old.state==='run') return {ok:false, why:'running'};
   var sentAt=new Date().toISOString(), rid='';
